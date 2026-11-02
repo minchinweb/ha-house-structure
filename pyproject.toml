@@ -1,0 +1,120 @@
+[project]
+name = "ha-house-structure"
+# The released version lives in
+# `custom_components/<domain>/manifest.json`; HACS and Home
+# Assistant read it from there. This project is never built as a package.
+version = "0"
+description = "Home Assistant integration: the rooms, walls, roofs, windows and heating registers of a house, as devices in its areas."
+# Match the oldest Python supported by the Home Assistant release the tests
+# run against (`pytest-homeassistant-custom-component` pins one).
+requires-python = ">=3.14.2"
+# Home Assistant provides everything at runtime; anything extra goes in
+# `manifest.json` `requirements` as well as here.
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "invoke >= 2.2",
+  "minchin.tasks >= 1.2",
+  # pins a matching `homeassistant` release
+  "pytest-homeassistant-custom-component >= 0.13.375",
+  "ruff >= 0.14",
+  "taplo >= 0.9",                                      # formats pyproject.toml (check.yml)
+  "validate-pyproject >= 0.24",                        # checks pyproject.toml against the schemas
+]
+
+[tool.python-style]
+kind = "homeassistant"
+
+[tool.uv]
+# not built or installed as a package
+package = false
+
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
+# so tests can `import custom_components.<domain>`
+pythonpath = ["."]
+testpaths = ["tests"]
+# pytest-homeassistant-custom-component's fixtures are async
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 88
+# also skip excluded paths when a path is given explicitly
+force-exclude = true
+# Generated code
+extend-exclude = ["_build", "**/migrations/*.py"]
+
+[tool.ruff.format]
+# Reformat code snippets in docstrings.
+docstring-code-format = true
+# Keep each file's existing line endings, so Windows (CRLF working tree) and
+# the Linux CI runner don't fight each other.
+line-ending = "auto"
+
+[tool.ruff.lint]
+# Enable `from __future__ import annotations` imports
+future-annotations = true
+# `CPY001` is preview-only. `explicit-preview-rules` limits preview to rules
+# selected by their full code, so no other rule changes behaviour.
+preview = true
+explicit-preview-rules = true
+# Added to ruff's default (E4, E7, E9, F)
+extend-select = [
+  "A",      # shadowing builtin names
+  "B",      # bugbear
+  "CPY001", # copyright notice at the top of each file
+  "E",
+  "W",      # pycodestyle
+  "I",      # isort
+  "N",      # PEP8 naming
+  "PTH",    # use pathlib
+  "RUF",    # ruff-specific
+  "SIM",    # simplify
+  "UP",     # pyupgrade (limited by `requires-python`)
+  "YTT",    # flake8-2020 (common issues with Python version checks)
+]
+
+# Rules turned off on purpose (keep each with a reason; see STYLE.md F3)
+ignore = [
+  "SIM108", # prefer a plain if/else block over a ternary (reads better)
+]
+
+[tool.ruff.lint.flake8-copyright]
+# `notice-rgx` is ruff's default, written out. A notice looks like
+# `Copyright (c) 2026 Name`; add `author` to require a particular name.
+notice-rgx = "(?i)Copyright\\s+((?:\\(C\\)|©)\\s+)?\\d{4}((-|,\\s)\\d{4})*"
+author = "MinchinWeb"
+# Bytes. Skips empty and import-only `__init__.py` files.
+min-file-size = 1024
+
+[tool.ruff.lint.isort]
+# Sort imports within their section independent of the import type
+force-sort-within-sections = true
+known-first-party = ["custom_components"]
+# Rule I002; `--fix` adds it. Empty files are skipped. Migrations are kept out
+# via `extend-exclude` above; settings files are exempt below.
+required-imports = ["from __future__ import annotations"]
+# Framework sections are standard boilerplate; an unused one costs nothing.
+# Delete a section's name from `section-order` only if its package clashes.
+section-order = [
+  "future",
+  "standard-library",
+  "django",
+  "pelican",
+  "third-party",
+  "first-party",
+  "local-folder",
+]
+
+[tool.ruff.lint.isort.sections]
+"django" = ["django"]
+"pelican" = ["pelican"]
+
+[tool.ruff.lint.per-file-ignores]
+# Settings files hold plain values, with nothing to annotate. Harmless if the
+# file doesn't exist in a project.
+"docs/conf.py" = ["I002"]   # Sphinx
+"pelicanconf.py" = ["I002"] # Pelican
+"publishconf.py" = ["I002"] # Pelican (`from pelicanconf import *`)

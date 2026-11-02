@@ -1,0 +1,43 @@
+name: Test
+
+# Separate from the lint run (check.yml). Does nothing if the project has no
+# tests.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      found: ${{ steps.find.outputs.found }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: find
+        run: |
+          if [ -n "$(git ls-files -- '*/tests/*.py' 'tests/*.py' '*/test_*.py' 'test_*.py' '*_test.py')" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No tests found; skipping."
+          fi
+
+  test:
+    needs: detect
+    if: needs.detect.outputs.found == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # libraries: oldest supported + newest; apps: just the one in .python-version
+        python-version: ["3.14"]  # the Python of the Home Assistant the tests pin (H4)
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync
+      - run: uv run invoke test

@@ -1,0 +1,51 @@
+name: Check
+
+# Lint and formatting only; tests are a separate run (test.yml).
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # Apply simple fixes (formatting, import order, safe lint fixes, and
+  # `pyproject.toml` layout) and push them back. Only on pushes to this repo's
+  # own branches; a pull request from a fork can't be pushed to.
+  format:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv run --only-group dev ruff check --fix
+        continue-on-error: true  # leftover (unfixable) problems fail the `lint` job
+      - run: uv run --only-group dev ruff format
+      - run: uv run --only-group dev taplo format pyproject.toml
+      - name: Commit and push any changes
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -am "🤖 Apply style fixes"
+            git push
+          fi
+
+  # A push made with GITHUB_TOKEN does not trigger new workflow runs, so this
+  # job re-checks the (possibly just fixed) code itself.
+  lint:
+    needs: format
+    if: ${{ !cancelled() && (needs.format.result == 'success' || needs.format.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}  # pick up the fix commit
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv run --only-group dev invoke lint

@@ -1,0 +1,425 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "House Structure",
+        "description": "Set the house once. Then add its parts from the integration's page: each room's size, its outside walls and roofs, the windows in them, the walls between rooms, and the heating registers. Each part is a device in its room's area.",
+        "data": {
+          "rotation": "House rotation (degrees)",
+          "shade_below": "Shaded below sun elevation (degrees)",
+          "unit": "Unit for sizes"
+        },
+        "data_description": {
+          "rotation": "Degrees the house is turned clockwise from true north. Its four faces then look this far past north, east, south and west.",
+          "shade_below": "Treat the south-east to south-west sun as blocked by trees and neighbours below this elevation. A wall or roof can set its own.",
+          "unit": "Sizes are typed in this unit and kept in metres, so changing it later keeps them."
+        }
+      },
+      "reconfigure": {
+        "title": "House Structure",
+        "description": "Change the house's rotation, shading or unit. Every part picks up the change.",
+        "data": {
+          "rotation": "House rotation (degrees)",
+          "shade_below": "Shaded below sun elevation (degrees)",
+          "unit": "Unit for sizes"
+        },
+        "data_description": {
+          "rotation": "Degrees the house is turned clockwise from true north.",
+          "shade_below": "Treat the south-east to south-west sun as blocked below this elevation.",
+          "unit": "Sizes are typed in this unit and kept in metres, so changing it keeps them."
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "House Structure is already set up.",
+      "reconfigure_successful": "Saved."
+    }
+  },
+  "config_subentries": {
+    "room": {
+      "entry_type": "Room",
+      "initiate_flow": {
+        "user": "Add room",
+        "reconfigure": "Reconfigure"
+      },
+      "step": {
+        "user": {
+          "title": "Room",
+          "description": "A room's own size. One per area; leave a size empty if you do not know it. Sizes in {unit}.",
+          "data": {
+            "name": "Name",
+            "area_id": "Room (area)",
+            "floor": "Floor area",
+            "height": "Ceiling height",
+            "volume": "Volume",
+            "below_ground": "Below ground"
+          },
+          "data_description": {
+            "name": "Leave empty for a name from the room.",
+            "volume": "Leave empty for floor area times ceiling height. Give it for a sloped ceiling.",
+            "below_ground": "Tick for a basement room: its walls trade heat with the soil."
+          }
+        },
+        "reconfigure": {
+          "title": "Room",
+          "description": "A room's own size. One per area; leave a size empty if you do not know it. Sizes in {unit}.",
+          "data": {
+            "name": "Name",
+            "area_id": "Room (area)",
+            "floor": "Floor area",
+            "height": "Ceiling height",
+            "volume": "Volume",
+            "below_ground": "Below ground"
+          },
+          "data_description": {
+            "name": "Leave empty for a name from the room.",
+            "volume": "Leave empty for floor area times ceiling height. Give it for a sloped ceiling.",
+            "below_ground": "Tick for a basement room: its walls trade heat with the soil."
+          }
+        }
+      },
+      "abort": {
+        "reconfigure_successful": "Saved.",
+        "no_hosts": "Add the wall or roof the window is in first."
+      },
+      "error": {
+        "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
+        "invalid_length": "Sizes must be more than 0.",
+        "invalid_height": "Sizes must be more than 0.",
+        "invalid_width": "Sizes must be more than 0.",
+        "invalid_slope": "Sizes must be more than 0.",
+        "invalid_floor": "Sizes must be more than 0.",
+        "invalid_volume": "Sizes must be more than 0.",
+        "invalid_other_area_id": "The two sides must be different rooms.",
+        "room_exists": "This area already has a room; edit that one instead."
+      }
+    },
+    "wall": {
+      "entry_type": "Outside wall",
+      "initiate_flow": {
+        "user": "Add outside wall",
+        "reconfigure": "Reconfigure"
+      },
+      "step": {
+        "user": {
+          "title": "Outside wall",
+          "description": "One outside wall of a room. Sizes in {unit}.",
+          "data": {
+            "name": "Name",
+            "area_id": "Room (area)",
+            "face": "Face of the house",
+            "facing": "Facing (degrees, instead of the face)",
+            "shade_below": "Shaded below sun elevation (degrees)",
+            "length": "Length",
+            "height": "Height"
+          },
+          "data_description": {
+            "name": "Leave empty for a name from the room.",
+            "face": "The way it looks out, on the house's own grid; the compass bearing is shown.",
+            "facing": "Only for a part not square to the house: its compass bearing, 0 north, 90 east.",
+            "shade_below": "Leave empty to use the house's setting.",
+            "length": "Along the floor, inside or out; be consistent."
+          }
+        },
+        "reconfigure": {
+          "title": "Outside wall",
+          "description": "One outside wall of a room. Sizes in {unit}.",
+          "data": {
+            "name": "Name",
+            "area_id": "Room (area)",
+            "face": "Face of the house",
+            "facing": "Facing (degrees, instead of the face)",
+            "shade_below": "Shaded below sun elevation (degrees)",
+            "length": "Length",
+            "height": "Height"
+          },
+          "data_description": {
+            "name": "Leave empty for a name from the room.",
+            "face": "The way it looks out, on the house's own grid; the compass bearing is shown.",
+            "facing": "Only for a part not square to the house: its compass bearing, 0 north, 90 east.",
+            "shade_below": "Leave empty to use the house's setting.",
+            "length": "Along the floor, inside or out; be consistent."
+          }
+        }
+      },
+      "abort": {
+        "reconfigure_successful": "Saved.",
+        "no_hosts": "Add the wall or roof the window is in first."
+      },
+      "error": {
+        "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
+        "invalid_length": "Sizes must be more than 0.",
+        "invalid_height": "Sizes must be more than 0.",
+        "invalid_width": "Sizes must be more than 0.",
+        "invalid_slope": "Sizes must be more than 0.",
+        "invalid_floor": "Sizes must be more than 0.",
+        "invalid_volume": "Sizes must be more than 0.",
+        "invalid_other_area_id": "The two sides must be different rooms.",
+        "room_exists": "This area already has a room; edit that one instead."
+      }
+    },
+    "roof": {
+      "entry_type": "Roof",
+      "initiate_flow": {
+        "user": "Add roof",
+        "reconfigure": "Reconfigure"
+      },
+      "step": {
+        "user": {
+          "title": "Roof",
+          "description": "The part of a roof that is a room's ceiling (an attic room with a sloped ceiling), or holds its skylights. Sizes in {unit}.",
+          "data": {
+            "name": "Name",
+            "area_id": "Room (area)",
+            "face": "Face of the house",
+            "facing": "Facing (degrees, instead of the face)",
+            "shade_below": "Shaded below sun elevation (degrees)",
+            "pitch": "Pitch",
+            "length": "Length (along the eave)",
+            "slope": "Slope length (eave to ridge)"
+          },
+          "data_description": {
+            "name": "Leave empty for a name from the room.",
+            "face": "The way it looks out, on the house's own grid; the compass bearing is shown.",
+            "facing": "Only for a part not square to the house: its compass bearing, 0 north, 90 east.",
+            "shade_below": "Leave empty to use the house's setting.",
+            "pitch": "Degrees (45) or rise:run (12:12)."
+          }
+        },
+        "reconfigure": {
+          "title": "Roof",
+          "description": "The part of a roof that is a room's ceiling (an attic room with a sloped ceiling), or holds its skylights. Sizes in {unit}.",
+          "data": {
+            "name": "Name",
+            "area_id": "Room (area)",
+            "face": "Face of the house",
+            "facing": "Facing (degrees, instead of the face)",
+            "shade_below": "Shaded below sun elevation (degrees)",
+            "pitch": "Pitch",
+            "length": "Length (along the eave)",
+            "slope": "Slope length (eave to ridge)"
+          },
+          "data_description": {
+            "name": "Leave empty for a name from the room.",
+            "face": "The way it looks out, on the house's own grid; the compass bearing is shown.",
+            "facing": "Only for a part not square to the house: its compass bearing, 0 north, 90 east.",
+            "shade_below": "Leave empty to use the house's setting.",
+            "pitch": "Degrees (45) or rise:run (12:12)."
+          }
+        }
+      },
+      "abort": {
+        "reconfigure_successful": "Saved.",
+        "no_hosts": "Add the wall or roof the window is in first."
+      },
+      "error": {
+        "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
+        "invalid_length": "Sizes must be more than 0.",
+        "invalid_height": "Sizes must be more than 0.",
+        "invalid_width": "Sizes must be more than 0.",
+        "invalid_slope": "Sizes must be more than 0.",
+        "invalid_floor": "Sizes must be more than 0.",
+        "invalid_volume": "Sizes must be more than 0.",
+        "invalid_other_area_id": "The two sides must be different rooms.",
+        "room_exists": "This area already has a room; edit that one instead."
+      }
+    },
+    "window": {
+      "entry_type": "Window",
+      "initiate_flow": {
+        "user": "Add window",
+        "reconfigure": "Reconfigure"
+      },
+      "step": {
+        "user": {
+          "title": "Window",
+          "description": "A window in a wall or roof; it takes its room and the way it faces from there. Glass size in {unit}.",
+          "data": {
+            "name": "Name",
+            "host": "Wall or roof it is in",
+            "width": "Glass width",
+            "height": "Glass height",
+            "transmittance": "Share of light let in as heat",
+            "blind": "Blind or shade",
+            "blind_closed": "Share let in with the blind closed"
+          },
+          "data_description": {
+            "name": "Leave empty for a name from the room.",
+            "transmittance": "About 0.7 for double glazing, 0.5 for low-e.",
+            "blind": "A cover entity; its position (0 to 100) says how open it is.",
+            "blind_closed": "How much of the sun still gets in with the blind shut."
+          }
+        },
+        "reconfigure": {
+          "title": "Window",
+          "description": "A window in a wall or roof; it takes its room and the way it faces from there. Glass size in {unit}.",
+          "data": {
+            "name": "Name",
+            "host": "Wall or roof it is in",
+            "width": "Glass width",
+            "height": "Glass height",
+            "transmittance": "Share of light let in as heat",
+            "blind": "Blind or shade",
+            "blind_closed": "Share let in with the blind closed"
+          },
+          "data_description": {
+            "name": "Leave empty for a name from the room.",
+            "transmittance": "About 0.7 for double glazing, 0.5 for low-e.",
+            "blind": "A cover entity; its position (0 to 100) says how open it is.",
+            "blind_closed": "How much of the sun still gets in with the blind shut."
+          }
+        }
+      },
+      "abort": {
+        "reconfigure_successful": "Saved.",
+        "no_hosts": "Add the wall or roof the window is in first."
+      },
+      "error": {
+        "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
+        "invalid_length": "Sizes must be more than 0.",
+        "invalid_height": "Sizes must be more than 0.",
+        "invalid_width": "Sizes must be more than 0.",
+        "invalid_slope": "Sizes must be more than 0.",
+        "invalid_floor": "Sizes must be more than 0.",
+        "invalid_volume": "Sizes must be more than 0.",
+        "invalid_other_area_id": "The two sides must be different rooms.",
+        "room_exists": "This area already has a room; edit that one instead."
+      }
+    },
+    "internal_wall": {
+      "entry_type": "Internal wall",
+      "initiate_flow": {
+        "user": "Add internal wall",
+        "reconfigure": "Reconfigure"
+      },
+      "step": {
+        "user": {
+          "title": "Internal wall",
+          "description": "A wall between two rooms. Its sensor is this room's temperature minus the other's, from each area's temperature sensor. Sizes in {unit}.",
+          "data": {
+            "name": "Name",
+            "area_id": "Room (area)",
+            "other_area_id": "Room on the other side",
+            "length": "Length",
+            "height": "Height"
+          },
+          "data_description": {
+            "name": "Leave empty for a name from the room."
+          }
+        },
+        "reconfigure": {
+          "title": "Internal wall",
+          "description": "A wall between two rooms. Its sensor is this room's temperature minus the other's, from each area's temperature sensor. Sizes in {unit}.",
+          "data": {
+            "name": "Name",
+            "area_id": "Room (area)",
+            "other_area_id": "Room on the other side",
+            "length": "Length",
+            "height": "Height"
+          },
+          "data_description": {
+            "name": "Leave empty for a name from the room."
+          }
+        }
+      },
+      "abort": {
+        "reconfigure_successful": "Saved.",
+        "no_hosts": "Add the wall or roof the window is in first."
+      },
+      "error": {
+        "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
+        "invalid_length": "Sizes must be more than 0.",
+        "invalid_height": "Sizes must be more than 0.",
+        "invalid_width": "Sizes must be more than 0.",
+        "invalid_slope": "Sizes must be more than 0.",
+        "invalid_floor": "Sizes must be more than 0.",
+        "invalid_volume": "Sizes must be more than 0.",
+        "invalid_other_area_id": "The two sides must be different rooms.",
+        "room_exists": "This area already has a room; edit that one instead."
+      }
+    },
+    "register": {
+      "entry_type": "Heating register",
+      "initiate_flow": {
+        "user": "Add heating register",
+        "reconfigure": "Reconfigure"
+      },
+      "step": {
+        "user": {
+          "title": "Heating register",
+          "description": "A heating register: which thermostat calls for its heat, and its own fan if it has one.",
+          "data": {
+            "name": "Name",
+            "area_id": "Room (area)",
+            "climate": "Thermostat",
+            "fan": "Register fan or damper"
+          },
+          "data_description": {
+            "name": "Leave empty for a name from the room.",
+            "climate": "The thermostat of the zone whose heat comes out of this register.",
+            "fan": "Optional: a booster fan or a damper on the register."
+          }
+        },
+        "reconfigure": {
+          "title": "Heating register",
+          "description": "A heating register: which thermostat calls for its heat, and its own fan if it has one.",
+          "data": {
+            "name": "Name",
+            "area_id": "Room (area)",
+            "climate": "Thermostat",
+            "fan": "Register fan or damper"
+          },
+          "data_description": {
+            "name": "Leave empty for a name from the room.",
+            "climate": "The thermostat of the zone whose heat comes out of this register.",
+            "fan": "Optional: a booster fan or a damper on the register."
+          }
+        }
+      },
+      "abort": {
+        "reconfigure_successful": "Saved.",
+        "no_hosts": "Add the wall or roof the window is in first."
+      },
+      "error": {
+        "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
+        "invalid_length": "Sizes must be more than 0.",
+        "invalid_height": "Sizes must be more than 0.",
+        "invalid_width": "Sizes must be more than 0.",
+        "invalid_slope": "Sizes must be more than 0.",
+        "invalid_floor": "Sizes must be more than 0.",
+        "invalid_volume": "Sizes must be more than 0.",
+        "invalid_other_area_id": "The two sides must be different rooms.",
+        "room_exists": "This area already has a room; edit that one instead."
+      }
+    }
+  },
+  "selector": {
+    "unit": {
+      "options": {
+        "m": "Metres",
+        "cm": "Centimetres",
+        "mm": "Millimetres",
+        "in": "Inches",
+        "ft": "Feet"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "sun": {
+        "name": "Sun"
+      },
+      "solar_gain": {
+        "name": "Solar gain"
+      },
+      "temperature_difference": {
+        "name": "Temperature difference"
+      }
+    },
+    "binary_sensor": {
+      "heating": {
+        "name": "Heating"
+      }
+    }
+  }
+}

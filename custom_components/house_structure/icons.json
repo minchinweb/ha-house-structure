@@ -1,0 +1,23 @@
+{
+  "entity": {
+    "sensor": {
+      "sun": {
+        "default": "mdi:white-balance-sunny"
+      },
+      "solar_gain": {
+        "default": "mdi:window-closed-variant"
+      },
+      "temperature_difference": {
+        "default": "mdi:thermometer-lines"
+      }
+    },
+    "binary_sensor": {
+      "heating": {
+        "default": "mdi:heating-coil",
+        "state": {
+          "on": "mdi:fire"
+        }
+      }
+    }
+  }
+}

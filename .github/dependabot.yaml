@@ -1,0 +1,11 @@
+# Keep the locked dependencies and the workflow actions current (STYLE.md A4).
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
