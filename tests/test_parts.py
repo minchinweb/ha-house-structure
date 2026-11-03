@@ -21,6 +21,8 @@ from custom_components.house_structure.geometry import (
     Plane,
     blind_open_fraction,
     face_azimuth,
+    format_feet_inches,
+    parse_feet_inches,
     parse_pitch,
     shaded,
     window_gain,
@@ -263,3 +265,68 @@ def test_rooms_summary_for_other_integrations():
     assert master["internal_walls"][0]["other_area_id"] == "bath"
     assert bath["internal_walls"][0]["other_area_id"] == "master"
     assert bath["title"] is None and bath["windows"] == []
+
+
+@pytest.mark.parametrize(
+    ("text", "inches"),
+    [
+        ("12' 6\"", 150.0),
+        ("12'-6 1/2\"", 150.5),
+        ("12 ft 6 in", 150.0),
+        ("12 6", 150.0),
+        ("12.5'", 150.0),
+        ("12", 144.0),
+        ('150"', 150.0),
+        ('1/2"', 0.5),
+        ("12\u2019 6\u201d", 150.0),
+        (12, 144.0),
+    ],
+)
+def test_parse_feet_inches(text, inches):
+    assert parse_feet_inches(text) == pytest.approx(inches * 0.0254)
+
+
+@pytest.mark.parametrize("text", ["", "tall", "12' 6' 3", "-4'"])
+def test_parse_feet_inches_refuses(text):
+    with pytest.raises(ValueError):
+        parse_feet_inches(text)
+
+
+def test_format_feet_inches_round_trips():
+    assert format_feet_inches(150.5 * 0.0254) == "12' 6.5\""
+    assert format_feet_inches(143.99 * 0.0254) == "12' 0\""
+    assert parse_feet_inches(format_feet_inches(3.81)) == pytest.approx(3.81, abs=0.003)
+
+
+SHARED = [
+    Raw(
+        "roof",
+        ROOF,
+        "South roof",
+        {"area_ids": ["attic", "loft"], "face": "S", "pitch": 30.0},
+    ),
+    Raw("sky", WINDOW, "Loft skylight", {"host": "roof", "area_id": "loft"}),
+    Raw("sky2", WINDOW, "Skylight", {"host": "roof"}),
+    Raw("sky3", WINDOW, "Stray skylight", {"host": "roof", "area_id": "kitchen"}),
+]
+
+
+def test_a_roof_over_several_rooms():
+    elements, problems = build(HOUSE, SHARED)
+    assert not problems
+    roof = elements["roof"]
+    assert roof.area_id == "attic"  # its device goes in the first room
+    assert roof.area_ids == ("attic", "loft")
+    assert roof.attributes()["area_ids"] == ["attic", "loft"]
+    assert elements["sky"].area_id == "loft"
+    assert elements["sky2"].area_id == "attic"  # none named: the first room
+    assert elements["sky3"].area_id == "attic"  # not one of the roof's rooms
+    rooms = rooms_summary(elements)
+    assert [r["title"] for r in rooms["loft"]["roofs"]] == ["South roof"]
+    assert rooms["attic"]["roofs"][0]["area_ids"] == ["attic", "loft"]
+    assert [w["title"] for w in rooms["loft"]["windows"]] == ["Loft skylight"]
+
+
+def test_a_roof_saved_with_one_room_still_has_it():
+    elements, _ = build(HOUSE, RAWS)
+    assert elements["roof"].area_ids == ("master",)

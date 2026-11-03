@@ -9,12 +9,14 @@ building outline on OpenStreetMap and shows a drawing to check it against (see
 ``orientation.py``); ticking "Redraw the map" redraws it for another value
 without saving. Each part (room, wall, roof, window, internal wall,
 heating register) is a sub-entry, added from the integration's page, and sits
-in an area (a room). A window is placed in a wall or roof and takes its room
-and its plane from it. A room part holds the room's own size, one per area.
+in an area (a room); a roof may cover several. A window is placed in a wall
+or roof and takes its plane from it, and its room too unless it is in a roof
+over several rooms. A room part holds the room's own size, one per area.
 
 Sizes are shown in the house's unit and stored in metres, so changing the unit
-keeps every size. This module needs Home Assistant 2025.3 or later and is not
-covered by the unit tests; ``geometry.py`` and ``model.py`` are.
+keeps every size. In feet and inches, lengths are typed as text (``12' 6"``).
+This module needs Home Assistant 2025.3 or later and is not covered by the
+unit tests; ``geometry.py`` and ``model.py`` are.
 """
 
 from __future__ import annotations
@@ -48,14 +50,25 @@ from .constants import (
     WALL,
     WINDOW,
 )
-from .geometry import FACE_NAMES, FACES, UNITS, FieldError, face_azimuth, parse_pitch
+from .geometry import (
+    FACE_NAMES,
+    FACES,
+    FEET_INCHES,
+    UNITS,
+    FieldError,
+    face_azimuth,
+    format_feet_inches,
+    parse_feet_inches,
+    parse_pitch,
+)
 from .map_view import OutlineMapView
-from .model import BLIND_CLOSED, TRANSMITTANCE
+from .model import BLIND_CLOSED, TRANSMITTANCE, roof_areas
 from .orientation import choose_outline, fetch_outlines, wall_rotation
 
 _LOGGER = logging.getLogger(__name__)
 
 _AREA = selector.AreaSelector()
+_AREAS = selector.AreaSelector(selector.AreaSelectorConfig(multiple=True))
 _TEXT = selector.TextSelector()
 _COVER = selector.EntitySelector(selector.EntitySelectorConfig(domain="cover"))
 _CLIMATE = selector.EntitySelector(selector.EntitySelectorConfig(domain="climate"))
@@ -122,9 +135,16 @@ _SIZES = {
 }
 
 
+def _unit_label(unit: str) -> str:
+    """The house's unit as the forms' descriptions name it."""
+    return "feet and inches (12' 6\")" if unit == FEET_INCHES else unit
+
+
 def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
     unit = house.get("unit", "m")
-    length = _number(unit)
+    feet_inches = unit == FEET_INCHES
+    square = "ft" if feet_inches else unit
+    length = _TEXT if feet_inches else _number(unit)
     fields: dict = {}
     if kind == WINDOW:
         fields[vol.Required("host")] = selector.SelectSelector(
@@ -132,13 +152,16 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
                 options=hosts, mode=selector.SelectSelectorMode.DROPDOWN
             )
         )
+        fields[vol.Optional("area_id")] = _AREA
+    elif kind == ROOF:
+        fields[vol.Required("area_ids")] = _AREAS
     else:
         fields[vol.Required("area_id")] = _AREA
     if kind == INTERNAL_WALL:
         fields[vol.Required("other_area_id")] = _AREA
     fields[vol.Optional("name")] = _TEXT
     if kind == ROOM:
-        fields[vol.Optional("floor")] = _number(f"{unit}²")
+        fields[vol.Optional("floor")] = _number(f"{square}²")
     if kind == REGISTER:
         fields[vol.Required("climate")] = _CLIMATE
         fields[vol.Optional("fan")] = _FAN
@@ -156,7 +179,7 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
         fields[vol.Optional("blind")] = _COVER
         fields[vol.Optional("blind_closed", default=BLIND_CLOSED)] = _SHARE
     if kind == ROOM:
-        fields[vol.Optional("volume")] = _number(f"{unit}³")
+        fields[vol.Optional("volume")] = _number(f"{square}³")
         fields[vol.Optional("below_ground", default=False)] = selector.BooleanSelector()
     if kind in (WALL, ROOF):
         fields[vol.Optional("facing")] = _number("°")
@@ -164,10 +187,29 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
     return vol.Schema(fields)
 
 
+def _length(size: str, value: Any, unit: str) -> float:
+    """A length typed in the house's unit, in metres."""
+    try:
+        if unit == FEET_INCHES:
+            metres = parse_feet_inches(value)
+        else:
+            metres = float(value) * UNITS[unit]
+    except ValueError:
+        raise FieldError(size, f"cannot read the size {value!r}") from None
+    if metres <= 0:
+        raise FieldError(size, "sizes must be more than 0")
+    return metres
+
+
 def _from_form(kind: str, form: dict, house: dict) -> dict:
     """Stored data from a form, sizes in metres."""
-    per = UNITS[house.get("unit", "m")]
+    unit = house.get("unit", "m")
+    per = UNITS[unit]
     data: dict = {}
+    if kind == ROOF:
+        data["area_ids"] = list(form.get("area_ids") or [])
+        if not data["area_ids"]:
+            raise FieldError("area_ids", "choose the rooms the roof covers")
     for key in ("area_id", "other_area_id", "host", "face", "blind", "climate", "fan"):
         if form.get(key):
             data[key] = form[key]
@@ -179,10 +221,8 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
     if kind == ROOF:
         data["pitch"] = parse_pitch(form.get("pitch", ""))
     for size in _SIZES[kind]:
-        if form.get(size) is not None:
-            if float(form[size]) <= 0:
-                raise FieldError(size, "sizes must be more than 0")
-            data[f"{size}_m"] = float(form[size]) * per
+        if form.get(size) not in (None, ""):
+            data[f"{size}_m"] = _length(size, form[size], unit)
     for size, power in (("floor", 2), ("volume", 3)):
         if form.get(size) is not None:
             if float(form[size]) <= 0:
@@ -195,14 +235,22 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
 
 def _to_form(kind: str, data: dict, house: dict, title: str) -> dict:
     """A form's values from stored data, sizes in the house's unit."""
-    per = UNITS[house.get("unit", "m")]
+    unit = house.get("unit", "m")
+    per = UNITS[unit]
     form = {k: v for k, v in data.items() if not k.endswith(("_m", "_m2", "_m3"))}
+    if kind == ROOF:
+        form.pop("area_id", None)
+        form["area_ids"] = roof_areas(data)
     for size, power in (("floor", 2), ("volume", 3)):
         if data.get(f"{size}_m{power}") is not None:
             form[size] = round(data[f"{size}_m{power}"] / per**power, 3)
     form["name"] = title
     for size in _SIZES[kind]:
-        if data.get(f"{size}_m") is not None:
+        if data.get(f"{size}_m") is None:
+            continue
+        if unit == FEET_INCHES:
+            form[size] = format_feet_inches(data[f"{size}_m"])
+        else:
             form[size] = round(data[f"{size}_m"] / per, 3)
     if kind == ROOF and "pitch" in data:
         form["pitch"] = f"{data['pitch']:g}"
@@ -380,10 +428,21 @@ class _PartFlow(ConfigSubentryFlow):
         for sub in self._get_entry().subentries.values():
             if sub.subentry_type not in (WALL, ROOF):
                 continue
-            area = areas.async_get_area(sub.data.get("area_id", ""))
-            room = area.name if area else "no room"
+            names = [
+                area.name
+                for area_id in roof_areas(sub.data)
+                if (area := areas.async_get_area(area_id))
+            ]
+            room = ", ".join(names) or "no room"
             out.append({"value": sub.subentry_id, "label": f"{room}: {sub.title}"})
         return sorted(out, key=lambda o: o["label"])
+
+    def _in_host(self, window: dict) -> bool:
+        """Whether a window's own room, if it names one, is one of its host's."""
+        if not window.get("area_id"):
+            return True
+        host = self._get_entry().subentries.get(window.get("host", ""))
+        return host is not None and window["area_id"] in roof_areas(host.data)
 
     def _room_taken(self, area_id: str, step_id: str) -> bool:
         """Whether another room part already has this area."""
@@ -443,6 +502,8 @@ class _PartFlow(ConfigSubentryFlow):
             else:
                 if self.kind == ROOM and self._room_taken(data["area_id"], step_id):
                     errors["area_id"] = "room_exists"
+                if self.kind == WINDOW and not self._in_host(data):
+                    errors["area_id"] = "invalid_area_id"
             if not errors:
                 title = (user_input.get("name") or "").strip() or self._default_name(
                     data
@@ -461,7 +522,7 @@ class _PartFlow(ConfigSubentryFlow):
             data_schema=self.add_suggested_values_to_schema(
                 _schema(self.kind, house, hosts), current
             ),
-            description_placeholders={"unit": house.get("unit", "m")},
+            description_placeholders={"unit": _unit_label(house.get("unit", "m"))},
             errors=errors,
         )
 

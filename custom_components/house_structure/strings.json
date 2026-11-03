@@ -16,7 +16,7 @@
           "rotation": "Degrees the house is turned clockwise from true north: the value measured from OpenStreetMap is filled in. Its four faces then look this far past north, east, south and west.",
           "preview": "Tick and press Submit to redraw the map with the rotation typed above. Nothing is saved until you submit with this unticked.",
           "shade_below": "Treat the south-east to south-west sun as blocked by trees and neighbours below this elevation. A wall or roof can set its own.",
-          "unit": "Sizes are typed in this unit and kept in metres, so changing it later keeps them.",
+          "unit": "Sizes are typed in this unit and kept in metres, so changing it later keeps them. In feet and inches, type lengths like 12' 6\" (or 12 6); floor areas and volumes are in square and cubic feet.",
           "sky_source": "Where the sun and sky light comes from. Open-Meteo is fetched over the internet every 15 minutes (no key needed). A solar radiation sensor, such as a weather station's, is read every 5 minutes and split into the sun's beam and the rest of the sky.",
           "sky_sensor": "Only for the sensor source: a sensor reading all the sun and sky light on a flat surface, in W/m²."
         }
@@ -99,12 +99,12 @@
       },
       "error": {
         "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
-        "invalid_length": "Sizes must be more than 0.",
-        "invalid_height": "Sizes must be more than 0.",
-        "invalid_width": "Sizes must be more than 0.",
-        "invalid_slope": "Sizes must be more than 0.",
-        "invalid_floor": "Sizes must be more than 0.",
-        "invalid_volume": "Sizes must be more than 0.",
+        "invalid_length": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_height": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_width": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_slope": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_floor": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_volume": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead."
       }
@@ -163,12 +163,12 @@
       },
       "error": {
         "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
-        "invalid_length": "Sizes must be more than 0.",
-        "invalid_height": "Sizes must be more than 0.",
-        "invalid_width": "Sizes must be more than 0.",
-        "invalid_slope": "Sizes must be more than 0.",
-        "invalid_floor": "Sizes must be more than 0.",
-        "invalid_volume": "Sizes must be more than 0.",
+        "invalid_length": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_height": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_width": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_slope": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_floor": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_volume": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead."
       }
@@ -182,10 +182,10 @@
       "step": {
         "user": {
           "title": "Roof",
-          "description": "The part of a roof that is a room's ceiling (an attic room with a sloped ceiling), or holds its skylights. Sizes in {unit}.",
+          "description": "A part of the roof that is the ceiling of one or more rooms (an attic room with a sloped ceiling), or holds their skylights. Sizes in {unit}.",
           "data": {
             "name": "Name",
-            "area_id": "Room (area)",
+            "area_ids": "Rooms (areas) it covers",
             "face": "Face of the house",
             "facing": "Facing (degrees, instead of the face)",
             "shade_below": "Shaded below sun elevation (degrees)",
@@ -194,6 +194,7 @@
             "slope": "Slope length (eave to ridge)"
           },
           "data_description": {
+            "area_ids": "Every room under this part of the roof. Its device goes in the first; each room lists the roof.",
             "name": "Leave empty for a name from the room.",
             "face": "The way it looks out, on the house's own grid; the compass bearing is shown.",
             "facing": "Only for a part not square to the house: its compass bearing, 0 north, 90 east.",
@@ -203,10 +204,10 @@
         },
         "reconfigure": {
           "title": "Roof",
-          "description": "The part of a roof that is a room's ceiling (an attic room with a sloped ceiling), or holds its skylights. Sizes in {unit}.",
+          "description": "A part of the roof that is the ceiling of one or more rooms (an attic room with a sloped ceiling), or holds their skylights. Sizes in {unit}.",
           "data": {
             "name": "Name",
-            "area_id": "Room (area)",
+            "area_ids": "Rooms (areas) it covers",
             "face": "Face of the house",
             "facing": "Facing (degrees, instead of the face)",
             "shade_below": "Shaded below sun elevation (degrees)",
@@ -215,6 +216,7 @@
             "slope": "Slope length (eave to ridge)"
           },
           "data_description": {
+            "area_ids": "Every room under this part of the roof. Its device goes in the first; each room lists the roof.",
             "name": "Leave empty for a name from the room.",
             "face": "The way it looks out, on the house's own grid; the compass bearing is shown.",
             "facing": "Only for a part not square to the house: its compass bearing, 0 north, 90 east.",
@@ -229,14 +231,15 @@
       },
       "error": {
         "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
-        "invalid_length": "Sizes must be more than 0.",
-        "invalid_height": "Sizes must be more than 0.",
-        "invalid_width": "Sizes must be more than 0.",
-        "invalid_slope": "Sizes must be more than 0.",
-        "invalid_floor": "Sizes must be more than 0.",
-        "invalid_volume": "Sizes must be more than 0.",
+        "invalid_length": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_height": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_width": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_slope": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_floor": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_volume": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
         "invalid_other_area_id": "The two sides must be different rooms.",
-        "room_exists": "This area already has a room; edit that one instead."
+        "room_exists": "This area already has a room; edit that one instead.",
+        "invalid_area_ids": "Choose at least one room."
       }
     },
     "window": {
@@ -248,10 +251,11 @@
       "step": {
         "user": {
           "title": "Window",
-          "description": "A window in a wall or roof; it takes its room and the way it faces from there. Glass size in {unit}.",
+          "description": "A window in a wall or roof; it takes the way it faces from there, and its room too (a skylight in a roof over several rooms can choose one of them). Glass size in {unit}.",
           "data": {
             "name": "Name",
             "host": "Wall or roof it is in",
+            "area_id": "Room (only for a roof over several rooms)",
             "width": "Glass width",
             "height": "Glass height",
             "transmittance": "Share of light let in as heat",
@@ -260,6 +264,7 @@
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
+            "area_id": "For a skylight in a roof over several rooms: the room it lights. Leave empty to use the roof's first room, or the wall's room.",
             "transmittance": "About 0.7 for double glazing, 0.5 for low-e.",
             "blind": "A cover entity; its position (0 to 100) says how open it is.",
             "blind_closed": "How much of the sun still gets in with the blind shut."
@@ -267,10 +272,11 @@
         },
         "reconfigure": {
           "title": "Window",
-          "description": "A window in a wall or roof; it takes its room and the way it faces from there. Glass size in {unit}.",
+          "description": "A window in a wall or roof; it takes the way it faces from there, and its room too (a skylight in a roof over several rooms can choose one of them). Glass size in {unit}.",
           "data": {
             "name": "Name",
             "host": "Wall or roof it is in",
+            "area_id": "Room (only for a roof over several rooms)",
             "width": "Glass width",
             "height": "Glass height",
             "transmittance": "Share of light let in as heat",
@@ -279,6 +285,7 @@
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
+            "area_id": "For a skylight in a roof over several rooms: the room it lights. Leave empty to use the roof's first room, or the wall's room.",
             "transmittance": "About 0.7 for double glazing, 0.5 for low-e.",
             "blind": "A cover entity; its position (0 to 100) says how open it is.",
             "blind_closed": "How much of the sun still gets in with the blind shut."
@@ -291,14 +298,15 @@
       },
       "error": {
         "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
-        "invalid_length": "Sizes must be more than 0.",
-        "invalid_height": "Sizes must be more than 0.",
-        "invalid_width": "Sizes must be more than 0.",
-        "invalid_slope": "Sizes must be more than 0.",
-        "invalid_floor": "Sizes must be more than 0.",
-        "invalid_volume": "Sizes must be more than 0.",
+        "invalid_length": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_height": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_width": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_slope": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_floor": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_volume": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
         "invalid_other_area_id": "The two sides must be different rooms.",
-        "room_exists": "This area already has a room; edit that one instead."
+        "room_exists": "This area already has a room; edit that one instead.",
+        "invalid_area_id": "Choose one of the rooms the roof covers, or leave it empty."
       }
     },
     "internal_wall": {
@@ -343,12 +351,12 @@
       },
       "error": {
         "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
-        "invalid_length": "Sizes must be more than 0.",
-        "invalid_height": "Sizes must be more than 0.",
-        "invalid_width": "Sizes must be more than 0.",
-        "invalid_slope": "Sizes must be more than 0.",
-        "invalid_floor": "Sizes must be more than 0.",
-        "invalid_volume": "Sizes must be more than 0.",
+        "invalid_length": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_height": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_width": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_slope": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_floor": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_volume": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead."
       }
@@ -397,12 +405,12 @@
       },
       "error": {
         "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
-        "invalid_length": "Sizes must be more than 0.",
-        "invalid_height": "Sizes must be more than 0.",
-        "invalid_width": "Sizes must be more than 0.",
-        "invalid_slope": "Sizes must be more than 0.",
-        "invalid_floor": "Sizes must be more than 0.",
-        "invalid_volume": "Sizes must be more than 0.",
+        "invalid_length": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_height": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_width": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_slope": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_floor": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_volume": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead."
       }
@@ -415,7 +423,8 @@
         "cm": "Centimetres",
         "mm": "Millimetres",
         "in": "Inches",
-        "ft": "Feet"
+        "ft": "Feet",
+        "ft_in": "Feet and inches"
       }
     },
     "sky_source": {

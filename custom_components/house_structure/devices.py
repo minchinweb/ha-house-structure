@@ -129,7 +129,7 @@ def publish_rooms(hass: HomeAssistant, elements: dict[str, Element] | None) -> N
     """
     rooms: dict = {}
     if elements is not None:
-        areas = {e.area_id for e in elements.values()}
+        areas = {a for e in elements.values() for a in e.area_ids}
         areas |= {e.other_area_id for e in elements.values()}
         temperature = {a: area_temperature(hass, a) for a in areas if a}
         rooms = rooms_summary(elements, temperature)

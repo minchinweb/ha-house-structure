@@ -89,7 +89,10 @@ async def house(hass: HomeAssistant, aioclient_mock, freezer):
         {"area_id": master.id, "face": "S", "length": 150, "height": 60},
     )
     await _add(
-        hass, entry_id, "roof", {"area_id": master.id, "face": "W", "pitch": "12:12"}
+        hass,
+        entry_id,
+        "roof",
+        {"area_ids": [master.id], "face": "W", "pitch": "12:12"},
     )
     entry = hass.config_entries.async_get_entry(entry_id)
     wall = next(s for s in entry.subentries.values() if s.subentry_type == "wall")
@@ -219,9 +222,25 @@ async def test_forms_refuse_what_cannot_be(hass: HomeAssistant, house) -> None:
         (entry_id, "roof"), context={"source": SOURCE_USER}
     )
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"area_id": house["bath"].id, "face": "N", "pitch": "steep"}
+        result["flow_id"],
+        {"area_ids": [house["bath"].id], "face": "N", "pitch": "steep"},
     )
     assert result["errors"] == {"pitch": "invalid_pitch"}
+
+    # a window's own room must be one its wall or roof covers
+    result = await hass.config_entries.subentries.async_init(
+        (entry_id, "window"), context={"source": SOURCE_USER}
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {
+            "host": house["wall"].subentry_id,
+            "area_id": house["bath"].id,
+            "width": 10,
+            "height": 10,
+        },
+    )
+    assert result["errors"] == {"area_id": "invalid_area_id"}
 
 
 async def test_a_window_needs_a_wall(hass: HomeAssistant, aioclient_mock) -> None:
@@ -350,3 +369,101 @@ async def test_no_map_without_openstreetmap(hass: HomeAssistant, osm) -> None:
     )
     assert "Could not reach" in result["description_placeholders"]["map"]
     assert result["type"] is FlowResultType.FORM
+
+
+async def _new_house(hass: HomeAssistant, unit: str) -> str:
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"unit": unit}
+    )
+    await hass.async_block_till_done()
+    return result["result"].entry_id
+
+
+def _suggested(result) -> dict:
+    return {
+        str(key): key.description.get("suggested_value")
+        for key in result["data_schema"].schema
+        if key.description
+    }
+
+
+async def test_sizes_in_feet_and_inches(hass: HomeAssistant, aioclient_mock) -> None:
+    aioclient_mock.get(build_url(hass.config.latitude, hass.config.longitude), json=SKY)
+    entry_id = await _new_house(hass, "ft_in")
+    den = ar.async_get(hass).async_create("Den")
+    await _add(
+        hass,
+        entry_id,
+        "wall",
+        {"area_id": den.id, "face": "S", "length": "12' 6\"", "height": "8'"},
+    )
+    await _add(
+        hass, entry_id, "room", {"area_id": den.id, "floor": 150, "height": "8 0"}
+    )
+    entry = hass.config_entries.async_get_entry(entry_id)
+    wall, room = (
+        next(s for s in entry.subentries.values() if s.subentry_type == kind)
+        for kind in ("wall", "room")
+    )
+    assert wall.data["length_m"] == pytest.approx(3.81)
+    assert wall.data["height_m"] == pytest.approx(2.4384)
+    assert room.data["floor_m2"] == pytest.approx(150 * 0.3048**2)
+
+    result = await hass.config_entries.subentries.async_init(
+        (entry_id, "wall"),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": wall.subentry_id},
+    )
+    assert _suggested(result)["length"] == "12' 6\""
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"area_id": den.id, "face": "S", "length": "long"}
+    )
+    assert result["errors"] == {"length": "invalid_length"}
+
+
+async def test_a_roof_over_several_rooms(hass: HomeAssistant, aioclient_mock) -> None:
+    aioclient_mock.get(build_url(hass.config.latitude, hass.config.longitude), json=SKY)
+    entry_id = await _new_house(hass, "cm")
+    areas = ar.async_get(hass)
+    attic, loft = areas.async_create("Attic"), areas.async_create("Loft")
+
+    result = await hass.config_entries.subentries.async_init(
+        (entry_id, "roof"), context={"source": SOURCE_USER}
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"area_ids": [], "face": "S", "pitch": "30"}
+    )
+    assert result["errors"] == {"area_ids": "invalid_area_ids"}
+    await _add(
+        hass,
+        entry_id,
+        "roof",
+        {"area_ids": [attic.id, loft.id], "face": "S", "pitch": "30"},
+    )
+    entry = hass.config_entries.async_get_entry(entry_id)
+    roof = next(s for s in entry.subentries.values() if s.subentry_type == "roof")
+    await _add(
+        hass,
+        entry_id,
+        "window",
+        {"host": roof.subentry_id, "area_id": loft.id, "width": 50, "height": 90},
+    )
+    await hass.async_block_till_done()
+
+    # the roof's device is in the first room, so its sensor is named after it
+    sun = hass.states.get("sensor.attic_south_roof_sun")
+    assert sun.attributes["area_ids"] == [attic.id, loft.id]
+    assert hass.states.get("sensor.loft_south_skylight_solar_gain") is not None
+    rooms = hass.data[DOMAIN]["rooms"]
+    assert [r["title"] for r in rooms[loft.id]["roofs"]] == ["South roof"]
+    assert [r["title"] for r in rooms[attic.id]["roofs"]] == ["South roof"]
+    assert len(rooms[loft.id]["windows"]) == 1
+    assert rooms[attic.id]["windows"] == []
+
+    result = await hass.config_entries.subentries.async_init(
+        (entry_id, "roof"),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": roof.subentry_id},
+    )
+    assert _suggested(result)["area_ids"] == [attic.id, loft.id]

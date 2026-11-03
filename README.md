@@ -45,7 +45,9 @@ First set what is true of the whole house:
 - **Shaded below sun elevation**: trees and neighbours to the south block the
   sun's beam below this height (from south-east to south-west).
 - **Unit for sizes**: the unit you measured in. Sizes are kept in metres, so
-  changing the unit later keeps them.
+  changing the unit later keeps them. In **Feet and inches**, type lengths
+  as `12' 6"`, `12'-6 1/2"`, `12 6` (feet, then inches) or `150"`; floor
+  areas and volumes are in square and cubic feet.
 - **Sky source**: where the light comes from.
   - **Open-Meteo** (the default): fetched over the internet every 15 minutes.
   - **Solar radiation sensor**: a sensor reading all the light on a flat
@@ -58,15 +60,17 @@ The sun's position comes from `astral`, the library behind Home Assistant's
 `sun.sun`, worked out for the middle of each reading.
 
 Then add the parts from the integration's page. Each asks for its room (area);
-a window instead asks for the wall or roof it is in and takes its room and the
-way it faces from there.
+a roof asks for every room under it, since one roof often covers several. A
+window instead asks for the wall or roof it is in and takes its room and the
+way it faces from there; a skylight in a roof over several rooms can name the
+one it lights.
 
 | Part | Settings | Sensor |
 |---|---|---|
 | Room (one per area) | floor area, ceiling height, volume (for a sloped ceiling), below ground | solar gain through all its windows (W) |
 | Outside wall | face, length, height | sun on it (W/m²) |
-| Roof | face, pitch (`45` or `12:12`), length along the eave, slope length | sun on it (W/m²) |
-| Window | the wall or roof it is in, glass size, share let in as heat, blind (a cover) | solar gain (W), less what the blind keeps out |
+| Roof | the rooms under it, face, pitch (`45` or `12:12`), length along the eave, slope length | sun on it (W/m²) |
+| Window | the wall or roof it is in (and, in a shared roof, its room), glass size, share let in as heat, blind (a cover) | solar gain (W), less what the blind keeps out |
 | Internal wall | the room on the other side, length, height | this room minus the other (°C) |
 | Heating register | thermostat, its fan or damper | heating (on while the thermostat heats) |
 
@@ -77,7 +81,9 @@ wall uses the temperature sensor chosen in each area's settings, or the area's
 only temperature sensor.
 
 Each sensor's attributes give the part's geometry: compass azimuth, tilt, areas
-in m², the window's wall or roof and the rooms on each side.
+in m², the window's wall or roof and the rooms on each side. A roof's device
+sits in its first room (a device has one area); its `area_ids` attribute lists
+them all.
 
 ## For other integrations
 
@@ -119,7 +125,7 @@ House Structure publishes each room's parts as plain data in
                     "glass_m2": 1.70,
                 }
             ],
-            "roofs": [...],  # as walls
+            "roofs": [...],  # as walls, plus "area_ids": every room under it
             "internal_walls": [
                 {
                     "title": "Wall to Upstairs bath",

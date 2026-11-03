@@ -3,6 +3,8 @@ Changelog
 
 .. release:: unreleased
 
+  - :feature:`-` **Feet and inches** as a unit: lengths are typed as ``12' 6"`` (or ``12 6``, ``150"``); floor areas and volumes in square and cubic feet.
+  - :feature:`-` A **roof can cover several rooms**: it is listed in each room's summary (with ``area_ids``), its device sits in the first, and a skylight in it can name the room it lights. Roofs saved with one room keep it.
   - :feature:`-` The house form measures the **house rotation** from the building outline on OpenStreetMap and draws it, with **Redraw the map** to check another value before saving (from Home Thermal Lab).
   - :feature:`-` **Sky source** on the house: Open-Meteo (the default) or a solar radiation sensor, read every 5 minutes and split into the sun's beam and the rest of the sky (Erbs model).
   - :feature:`-` The sun's position comes from ``astral`` (as Home Assistant's ``sun.sun`` does), allowing for refraction near the horizon.

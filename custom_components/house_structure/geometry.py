@@ -14,8 +14,31 @@ import re
 FACES = {"N": 0.0, "E": 90.0, "S": 180.0, "W": 270.0}
 FACE_NAMES = {"N": "north", "E": "east", "S": "south", "W": "west"}
 
-# Units sizes can be typed in, as metres per unit.
-UNITS = {"m": 1.0, "cm": 0.01, "mm": 0.001, "in": 0.0254, "ft": 0.3048}
+# Units sizes can be typed in, as metres per unit. In feet and inches a length
+# is typed as text (``12' 6"``); floor areas and volumes are in feet.
+FEET_INCHES = "ft_in"
+UNITS = {
+    "m": 1.0,
+    "cm": 0.01,
+    "mm": 0.001,
+    "in": 0.0254,
+    "ft": 0.3048,
+    FEET_INCHES: 0.3048,
+}
+INCH = 0.0254
+FOOT = 12 * INCH
+
+_NUMBER = r"\d+(?:\.\d+)?"
+# inches may be a number, a fraction (1/2) or both (6 1/2)
+_INCHES = rf"{_NUMBER}(?:\s+\d+/\d+)?|\d+/\d+"
+# typed or curly quotes, primes, or words
+_FEET_MARK = r"(?:'|\u2019|\u2032|ft|foot|feet)"
+_INCH_MARK = r"(?:\"|\u201d|\u2033|''|in|inch|inches)"
+_ONLY_INCHES = re.compile(rf"({_INCHES})\s*{_INCH_MARK}", re.IGNORECASE)
+_FEET_AND_INCHES = re.compile(
+    rf"({_NUMBER})\s*{_FEET_MARK}?(?:\s*-?\s*({_INCHES})\s*{_INCH_MARK}?)?",
+    re.IGNORECASE,
+)
 
 # The south-east to south-west sky, compass degrees, where trees and neighbours
 # block a low sun (as in the Thermal Lab's ``shade_below``).
@@ -53,6 +76,44 @@ def parse_pitch(text: str | float) -> float:
     if not 0.0 <= degrees <= 90.0:
         raise FieldError("pitch", f"a pitch is 0 to 90 degrees, not {degrees:g}")
     return degrees
+
+
+def _inches(text: str) -> float:
+    total = 0.0
+    for word in text.split():
+        top, _, bottom = word.partition("/")
+        total += float(top) / float(bottom) if bottom else float(top)
+    return total
+
+
+def parse_feet_inches(text: str | float) -> float:
+    """A length in metres from feet and inches.
+
+    ``12' 6"``, ``12'-6 1/2"``, ``12 ft 6 in``, ``12 6`` (feet, then inches),
+    ``12.5'``, ``12`` (feet) and ``150"`` (inches only) all work.
+
+    Raises:
+        ValueError: The text is not a length.
+    """
+    if isinstance(text, int | float):
+        return float(text) * FOOT
+    word = str(text).strip()
+    if match := _ONLY_INCHES.fullmatch(word):
+        return _inches(match[1]) * INCH
+    if match := _FEET_AND_INCHES.fullmatch(word):
+        inches = _inches(match[2]) if match[2] else 0.0
+        return float(match[1]) * FOOT + inches * INCH
+    raise ValueError(f"cannot read the length {text!r}")
+
+
+def format_feet_inches(metres: float) -> str:
+    """A length in metres as feet and inches, to a tenth of an inch: ``12' 6.5"``."""
+    inches = round(metres / INCH, 1)
+    feet, inches = divmod(inches, 12)
+    inches = round(inches, 1)
+    if inches >= 12:  # rounding can reach a whole foot
+        feet, inches = feet + 1, 0.0
+    return f"{int(feet)}' {inches:g}\""
 
 
 def face_azimuth(face: str, rotation: float) -> float:

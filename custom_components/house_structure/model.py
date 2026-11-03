@@ -2,9 +2,11 @@
 """The house as a set of elements: rooms, walls, roofs, windows, internal walls
 and heating registers.
 
-Each element is one sub-entry of the integration and sits in one Home Assistant
-area (a room). A window takes its plane and its room from the wall or roof it
-is in. Sizes are stored in metres. Standard library only.
+Each element is one sub-entry of the integration and sits in a Home Assistant
+area (a room). A roof may cover several rooms (``area_ids``); its device sits
+in the first. A window takes its plane from the wall or roof it is in, and its
+room too, unless it names one of a shared roof's rooms. Sizes are stored in
+metres. Standard library only.
 """
 
 from __future__ import annotations
@@ -39,7 +41,9 @@ class Element:
         kind: ``room``, ``wall``, ``roof``, ``window``, ``internal_wall`` or
             ``register``.
         title: Its name.
-        area_id: The room it belongs to (for a window, its host's room).
+        area_id: The room it belongs to (for a window, its host's room unless
+            it names one); for a roof, the first of its rooms.
+        area_ids: Every room it belongs to: several for a shared roof.
         plane: The surface the sun shines on; ``None`` for an internal wall.
         size_m2: Its area (glass for a window), if the sizes were given.
         host: For a window, the wall or roof it is in.
@@ -60,6 +64,7 @@ class Element:
     kind: str
     title: str
     area_id: str | None
+    area_ids: tuple[str, ...] = ()
     plane: Plane | None = None
     size_m2: float | None = None
     host: str | None = None
@@ -82,9 +87,15 @@ class Element:
             return None
         return max(self.size_m2 - self.glass_m2, 0.0)
 
+    def __post_init__(self) -> None:
+        if not self.area_ids and self.area_id:
+            object.__setattr__(self, "area_ids", (self.area_id,))
+
     def attributes(self) -> dict:
         """What other integrations need to know about the element."""
         out: dict = {"kind": self.kind, "area_id": self.area_id}
+        if self.kind == ROOF:
+            out["area_ids"] = list(self.area_ids)
         if self.plane is not None:
             out["azimuth"] = round(self.plane.azimuth, 1)
             out["tilt"] = round(self.plane.tilt, 1)
@@ -119,6 +130,13 @@ def _area(data: dict, width: str, height: str) -> float | None:
     if a is None or b is None:
         return None
     return float(a) * float(b)
+
+
+def roof_areas(data: dict) -> list[str]:
+    """A roof's rooms; one saved before roofs could be shared has ``area_id``."""
+    if data.get("area_ids"):
+        return list(data["area_ids"])
+    return [data["area_id"]] if data.get("area_id") else []
 
 
 def _plane(data: dict, house: dict, tilt: float) -> Plane:
@@ -187,11 +205,13 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 size_m2=_area(d, "length_m", "height_m"),
             )
         elif raw.kind == ROOF:
+            areas = roof_areas(d)
             elements[raw.id] = Element(
                 raw.id,
                 ROOF,
                 raw.title,
-                d.get("area_id"),
+                areas[0] if areas else None,
+                area_ids=tuple(areas),
                 plane=_plane(d, house, float(d.get("pitch", 45.0))),
                 size_m2=_area(d, "length_m", "slope_m"),
             )
@@ -213,11 +233,14 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
             problems.append(f"{raw.title}: the wall or roof it is in was removed")
             continue
         glass = _area(d, "width_m", "height_m")
+        area = d.get("area_id")
+        if area not in host.area_ids:  # unset, or no longer one of the roof's
+            area = host.area_id
         elements[raw.id] = Element(
             raw.id,
             WINDOW,
             raw.title,
-            host.area_id,
+            area,
             plane=host.plane,
             size_m2=glass,
             host=host.id,
@@ -276,7 +299,8 @@ def rooms_summary(
 
     Every area with a part is a room, with or without a room part. Planes are
     compass azimuths and tilts in degrees; areas in m2. An internal wall is
-    listed in the rooms on both sides.
+    listed in the rooms on both sides, and a shared roof in each of its rooms
+    (with all its rooms in ``area_ids``, and its whole area).
 
     Args:
         elements: The parts, from ``build``.
@@ -293,6 +317,17 @@ def rooms_summary(
         return rooms[area_id]
 
     for e in elements.values():
+        if e.kind == ROOF:
+            for area_id in e.area_ids:
+                room(area_id)["roofs"].append(
+                    {
+                        **_plane_summary(e),
+                        "area_m2": e.size_m2,
+                        "glass_m2": e.glass_m2,
+                        "area_ids": list(e.area_ids),
+                    }
+                )
+            continue
         here = room(e.area_id)
         if here is None:
             continue
@@ -304,8 +339,8 @@ def rooms_summary(
                 volume_m3=e.volume_m3,
                 below_ground=e.below_ground,
             )
-        elif e.kind in (WALL, ROOF):
-            here["walls" if e.kind == WALL else "roofs"].append(
+        elif e.kind == WALL:
+            here["walls"].append(
                 {**_plane_summary(e), "area_m2": e.size_m2, "glass_m2": e.glass_m2}
             )
         elif e.kind == WINDOW:
