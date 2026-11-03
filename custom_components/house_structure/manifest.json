@@ -5,6 +5,9 @@
     "@minchinweb"
   ],
   "config_flow": true,
+  "dependencies": [
+    "http"
+  ],
   "documentation": "https://github.com/minchinweb/ha-house-structure",
   "integration_type": "service",
   "iot_class": "cloud_polling",

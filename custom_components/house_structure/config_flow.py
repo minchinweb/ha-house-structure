@@ -4,7 +4,10 @@
 The integration entry holds what is true of the whole house: how it is turned
 from north, the sun elevation below which the south sky is blocked, the unit
 sizes are typed in, and where the sky's light comes from (Open-Meteo, or a
-solar radiation sensor). Each part (room, wall, roof, window, internal wall,
+solar radiation sensor). The house form measures the rotation from the
+building outline on OpenStreetMap and shows a drawing to check it against (see
+``orientation.py``); ticking "Redraw the map" redraws it for another value
+without saving. Each part (room, wall, roof, window, internal wall,
 heating register) is a sub-entry, added from the integration's page, and sits
 in an area (a room). A window is placed in a wall or roof and takes its room
 and its plane from it. A room part holds the room's own size, one per area.
@@ -16,6 +19,8 @@ covered by the unit tests; ``geometry.py`` and ``model.py`` are.
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
 from homeassistant.config_entries import (
@@ -34,6 +39,7 @@ from .constants import (
     DOMAIN,
     INTERNAL_WALL,
     OPEN_METEO,
+    OUTLINE,
     REGISTER,
     ROOF,
     ROOM,
@@ -43,7 +49,11 @@ from .constants import (
     WINDOW,
 )
 from .geometry import FACE_NAMES, FACES, UNITS, FieldError, face_azimuth, parse_pitch
+from .map_view import OutlineMapView
 from .model import BLIND_CLOSED, TRANSMITTANCE
+from .orientation import choose_outline, fetch_outlines, wall_rotation
+
+_LOGGER = logging.getLogger(__name__)
 
 _AREA = selector.AreaSelector()
 _TEXT = selector.TextSelector()
@@ -222,36 +232,49 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Set the house once."""
-        if user_input is not None:
-            try:
-                data = _house(user_input)
-            except FieldError as err:
-                return self._house_form("user", user_input, err)
-            return self.async_create_entry(title="House structure", data=data)
         imperial = self.hass.config.units is US_CUSTOMARY_SYSTEM
-        return self._house_form("user", {"unit": "in" if imperial else "cm"})
+        current: dict = {"unit": "in" if imperial else "cm"}
+        measured = (await self._outline()).get("rotation")
+        if measured is not None:
+            current["rotation"] = measured
+        return await self._house_step("user", user_input, current)
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Change the rotation, shading, unit or sky source."""
-        entry = self._get_reconfigure_entry()
+        current = dict(self._get_reconfigure_entry().data)
+        if "rotation" not in current:  # nothing saved yet: suggest the measured one
+            measured = (await self._outline()).get("rotation")
+            if measured is not None:
+                current["rotation"] = measured
+        return await self._house_step("reconfigure", user_input, current)
+
+    async def _house_step(
+        self, step_id: str, user_input: dict[str, Any] | None, current: dict
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None and user_input.get("preview"):
+            # redraw the map for the values typed so far; nothing is saved
+            current = {k: v for k, v in user_input.items() if k != "preview"}
+            user_input = None
         if user_input is not None:
             try:
                 data = _house(user_input)
             except FieldError as err:
-                return self._house_form("reconfigure", user_input, err)
-            return self.async_update_reload_and_abort(
-                entry, data={**entry.data, **data}
-            )
-        return self._house_form("reconfigure", dict(entry.data))
-
-    def _house_form(
-        self, step_id: str, current: dict, error: FieldError | None = None
-    ) -> ConfigFlowResult:
+                errors[err.field] = f"invalid_{err.field}"
+                current = user_input
+            else:
+                if step_id == "reconfigure":
+                    entry = self._get_reconfigure_entry()
+                    return self.async_update_reload_and_abort(
+                        entry, data={**entry.data, **data}
+                    )
+                return self.async_create_entry(title="House structure", data=data)
         schema = vol.Schema(
             {
                 vol.Optional("rotation"): _number("°"),
+                vol.Optional("preview", default=False): selector.BooleanSelector(),
                 vol.Optional("shade_below"): _number("°"),
                 vol.Required("unit"): _UNIT,
                 vol.Required("sky_source", default=OPEN_METEO): _SKY_SOURCE,
@@ -261,7 +284,53 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id=step_id,
             data_schema=self.add_suggested_values_to_schema(schema, current),
-            errors={error.field: f"invalid_{error.field}"} if error else None,
+            description_placeholders={
+                "map": await self._map_text(current.get("rotation"))
+            },
+            errors=errors,
+        )
+
+    async def _outline(self) -> dict:
+        """The building outline at the home position, fetched once from OSM."""
+        if OUTLINE in self.hass.data:
+            return self.hass.data[OUTLINE]
+        lat, lon = self.hass.config.latitude, self.hass.config.longitude
+        try:
+            outlines = await self.hass.async_add_executor_job(fetch_outlines, lat, lon)
+        except OSError, ValueError, KeyError:
+            _LOGGER.warning("Could not fetch the building outline from OpenStreetMap")
+            return {"failed": True}  # not kept, so a later form tries again
+        points = choose_outline(outlines, (lat, lon))
+        info: dict = {}
+        if points:
+            info = {"points": points, "rotation": round(wall_rotation(points)[0], 1)}
+            if self.hass.http is not None:  # kept, so the view is registered once
+                self.hass.http.register_view(OutlineMapView(self.hass))
+        self.hass.data[OUTLINE] = info
+        return info
+
+    async def _map_text(self, rotation: float | None) -> str:
+        """Markdown for the form: the drawing, or why there is none."""
+        info = await self._outline()
+        if info.get("failed"):
+            return (
+                "Could not reach OpenStreetMap to measure the rotation. Type it if "
+                "you know it, or try again later with Reconfigure."
+            )
+        if not info.get("points"):
+            return (
+                "No building was found at your home position on OpenStreetMap, "
+                "so type the rotation if you know it."
+            )
+        shown = info["rotation"] if rotation is None else float(rotation)
+        url = f"{OutlineMapView.url}?rotation={shown}&v={int(time.time())}"
+        return (
+            f"![House outline]({url})\n\nMeasured from the building outline on "
+            f"OpenStreetMap: rotated {info['rotation']:+.1f}°. The orange cross "
+            f"is the compass cross turned by {shown:+.1f}° (the dashed grey one is "
+            "true north); the walls should run along it. The picture does not "
+            'update as you type: tick "Redraw the map" and press Submit to see '
+            "another value without saving."
         )
 
 

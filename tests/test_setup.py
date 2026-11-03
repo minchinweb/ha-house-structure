@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import math
 
 from homeassistant.config_entries import SOURCE_RECONFIGURE, SOURCE_USER
 from homeassistant.core import HomeAssistant
@@ -15,6 +16,7 @@ import pytest
 
 from custom_components.house_structure.constants import DOMAIN, UPDATED_EVENT
 from custom_components.house_structure.geometry import Plane
+from custom_components.house_structure.map_view import OutlineMapView
 from custom_components.house_structure.sky import build_url, split
 from custom_components.house_structure.sun import sun_position
 
@@ -298,3 +300,53 @@ async def test_the_sky_from_a_radiation_sensor(
     assert float(wall.state) > 400
     # Open-Meteo is never asked
     assert aioclient_mock.call_count == 0
+
+
+def _outline(turn: float, lat: float, lon: float) -> list[tuple[float, float]]:
+    """A 12 m by 8 m house turned ``turn`` degrees clockwise from north."""
+    c, s = math.cos(math.radians(turn)), math.sin(math.radians(turn))
+    per = 111_320.0
+    points = []
+    for x, y in [(-6, -4), (6, -4), (6, 4), (-6, 4), (-6, -4)]:
+        east, north = x * c + y * s, -x * s + y * c
+        points.append(
+            (lat + north / per, lon + east / (per * math.cos(math.radians(lat))))
+        )
+    return points
+
+
+async def test_the_rotation_is_measured_and_drawn(hass: HomeAssistant, osm) -> None:
+    osm.return_value = [_outline(10.4, hass.config.latitude, hass.config.longitude)]
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    schema = result["data_schema"].schema
+    rotation = next(k for k in schema if k == "rotation")
+    assert rotation.description["suggested_value"] == pytest.approx(10.4, abs=0.05)
+    assert OutlineMapView.url in result["description_placeholders"]["map"]
+    assert "rotation=10.4" in result["description_placeholders"]["map"]
+
+    # redrawing for another value saves nothing
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"rotation": 15, "unit": "cm", "preview": True}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert "rotation=15.0" in result["description_placeholders"]["map"]
+    assert not hass.config_entries.async_entries(DOMAIN)
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"rotation": 15, "unit": "cm"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["rotation"] == 15.0
+    assert "preview" not in result["data"]
+    osm.assert_called_once()  # fetched once, then kept
+
+
+async def test_no_map_without_openstreetmap(hass: HomeAssistant, osm) -> None:
+    osm.side_effect = OSError("busy")
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    assert "Could not reach" in result["description_placeholders"]["map"]
+    assert result["type"] is FlowResultType.FORM

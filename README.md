@@ -37,7 +37,11 @@ location (no key needed); it can read a solar radiation sensor instead (see
 First set what is true of the whole house:
 
 - **House rotation**: degrees the house is turned clockwise from true north.
-  Its four faces then look this far past north, east, south and west.
+  Its four faces then look this far past north, east, south and west. The
+  form measures it from your building's outline on OpenStreetMap and draws
+  the outline with the turned compass cross on it, so you can check it. To see
+  another value, type it, tick **Redraw the map** and press Submit; nothing is
+  saved until you submit with the box unticked.
 - **Shaded below sun elevation**: trees and neighbours to the south block the
   sun's beam below this height (from south-east to south-west).
 - **Unit for sizes**: the unit you measured in. Sizes are kept in metres, so
