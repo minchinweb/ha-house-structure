@@ -176,8 +176,8 @@ def parse_size(text: str | float, unit: str, power: int = 1) -> float:
     if found is not None:
         per, given = found
         if given != power:
-            kind = ("length", "area", "volume")[power - 1]
-            raise ValueError(f"{text!r} is not a {kind}")
+            kind = ("a length", "an area", "a volume")[power - 1]
+            raise ValueError(f"{text!r} is not {kind}")
         return float(match[1]) * per**power
     if power == 1:  # feet and inches together: 12' 6", 12 ft 6 in, 12 6
         if unit != FEET_INCHES and match[2][0].isdigit():
