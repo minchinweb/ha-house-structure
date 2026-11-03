@@ -30,6 +30,7 @@ from custom_components.house_structure.geometry import (
 from custom_components.house_structure.model import (
     Raw,
     build,
+    neighbours,
     rooms_summary,
     windows_in,
 )
@@ -330,3 +331,48 @@ def test_a_roof_over_several_rooms():
 def test_a_roof_saved_with_one_room_still_has_it():
     elements, _ = build(HOUSE, RAWS)
     assert elements["roof"].area_ids == ("master",)
+
+
+def test_neighbours_count_from_both_sides():
+    raws = [
+        Raw(
+            "a",
+            ROOM,
+            "Kitchen",
+            # itself and a repeat are dropped
+            {"area_id": "kitchen", "beside": ["hall", "kitchen", "hall"]},
+        ),
+        Raw("b", ROOM, "Bedroom", {"area_id": "bed", "above": ["attic"]}),
+        Raw("c", ROOM, "Hall", {"area_id": "hall", "above": ["bed"]}),
+        Raw(
+            "d",
+            INTERNAL_WALL,
+            "Wall to garage",
+            {
+                "area_id": "kitchen",
+                "other_area_id": "garage",
+                "length_m": 4.0,
+                "height_m": 2.5,
+            },
+        ),
+    ]
+    elements, problems = build({}, raws)
+    assert problems == []
+    assert elements["a"].beside == ("hall",)
+    links = neighbours(elements)
+    assert links["kitchen"] == [
+        {"area_id": "garage", "position": "beside", "area_m2": 10.0},
+        {"area_id": "hall", "position": "beside", "area_m2": None},
+    ]
+    assert {(n["area_id"], n["position"]) for n in links["hall"]} == {
+        ("kitchen", "beside"),
+        ("bed", "above"),
+    }
+    assert {(n["area_id"], n["position"]) for n in links["bed"]} == {
+        ("hall", "below"),
+        ("attic", "above"),
+    }
+    rooms = rooms_summary(elements)
+    assert rooms["bed"]["neighbours"] == links["bed"]
+    # an area with no parts of its own is a neighbour, not a room
+    assert "attic" not in rooms

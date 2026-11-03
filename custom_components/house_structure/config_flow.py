@@ -29,6 +29,7 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
+    ConfigSubentry,
     ConfigSubentryFlow,
     SubentryFlowResult,
 )
@@ -181,6 +182,8 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
     if kind == ROOM:
         fields[vol.Optional("volume")] = _number(f"{square}³")
         fields[vol.Optional("below_ground", default=False)] = selector.BooleanSelector()
+        fields[vol.Optional("beside")] = _AREAS
+        fields[vol.Optional("above")] = _AREAS
     if kind in (WALL, ROOF):
         fields[vol.Optional("facing")] = _number("°")
         fields[vol.Optional("shade_below")] = _number("°")
@@ -215,6 +218,11 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
             data[key] = form[key]
     if kind == ROOM:
         data["below_ground"] = bool(form.get("below_ground", False))
+        own = form.get("area_id")
+        for key in ("beside", "above"):
+            data[key] = [a for a in dict.fromkeys(form.get(key) or []) if a != own]
+        if set(data["beside"]) & set(data["above"]):
+            raise FieldError("above", "a room is both beside and above")
     for key in ("facing", "shade_below", "transmittance", "blind_closed"):
         if form.get(key) is not None:
             data[key] = float(form[key])
@@ -419,6 +427,8 @@ class _PartFlow(ConfigSubentryFlow):
         current = _to_form(
             self.kind, dict(subentry.data), self._house(), subentry.title
         )
+        if self.kind == ROOM and "beside" not in subentry.data:
+            current["beside"] = self._same_floor(subentry.data.get("area_id"))
         return await self._step("reconfigure", user_input, current)
 
     def _house(self) -> dict:
@@ -446,6 +456,49 @@ class _PartFlow(ConfigSubentryFlow):
             return True
         host = self._get_entry().subentries.get(window.get("host", ""))
         return host is not None and window["area_id"] in roof_areas(host.data)
+
+    def _rooms(self) -> list[ConfigSubentry]:
+        return [
+            sub
+            for sub in self._get_entry().subentries.values()
+            if sub.subentry_type == ROOM
+        ]
+
+    def _linked_from_others(self, area_id: str | None) -> list[str]:
+        """Areas whose room (or internal wall) already links to this room."""
+        if not area_id:
+            return []
+        out = []
+        for sub in self._get_entry().subentries.values():
+            d = sub.data
+            if sub.subentry_type == ROOM and d.get("area_id") != area_id:
+                if area_id in (d.get("beside") or []) + (d.get("above") or []):
+                    out.append(d.get("area_id"))
+            elif sub.subentry_type == INTERNAL_WALL:
+                if d.get("area_id") == area_id:
+                    out.append(d.get("other_area_id"))
+                elif d.get("other_area_id") == area_id:
+                    out.append(d.get("area_id"))
+        return [a for a in dict.fromkeys(out) if a]
+
+    def _same_floor(self, area_id: str | None) -> list[str]:
+        """The other rooms on this room's floor, less those linked already."""
+        areas = ar.async_get(self.hass)
+        area = areas.async_get_area(area_id) if area_id else None
+        if area is None or area.floor_id is None:
+            return []
+        linked = set(self._linked_from_others(area_id))
+        out = []
+        for sub in self._rooms():
+            other = areas.async_get_area(sub.data.get("area_id") or "")
+            if (
+                other is not None
+                and other.id != area_id
+                and other.floor_id == area.floor_id
+                and other.id not in linked
+            ):
+                out.append(other.id)
+        return sorted(out)
 
     def _room_taken(self, area_id: str, step_id: str) -> bool:
         """Whether another room part already has this area."""
@@ -489,6 +542,19 @@ class _PartFlow(ConfigSubentryFlow):
             return "Register"
         return f"{facing(data)} {self.kind}".strip().capitalize()
 
+    def _linked_names(self, step_id: str) -> str:
+        """The rooms already linked to this one, for the room form."""
+        if self.kind != ROOM or step_id != "reconfigure":
+            return "none"
+        area_id = self._get_reconfigure_subentry().data.get("area_id")
+        areas = ar.async_get(self.hass)
+        names = sorted(
+            area.name
+            for a in self._linked_from_others(area_id)
+            if (area := areas.async_get_area(a))
+        )
+        return ", ".join(names) or "none"
+
     async def _step(
         self, step_id: str, user_input: dict[str, Any] | None, current: dict
     ) -> SubentryFlowResult:
@@ -505,6 +571,11 @@ class _PartFlow(ConfigSubentryFlow):
             else:
                 if self.kind == ROOM and self._room_taken(data["area_id"], step_id):
                     errors["area_id"] = "room_exists"
+                if self.kind == ROOM and step_id == "user":
+                    # left empty when added, so its first edit can suggest them
+                    for key in ("beside", "above"):
+                        if not data[key]:
+                            del data[key]
                 if self.kind == WINDOW and not self._in_host(data):
                     errors["area_id"] = "invalid_area_id"
             if not errors:
@@ -525,7 +596,10 @@ class _PartFlow(ConfigSubentryFlow):
             data_schema=self.add_suggested_values_to_schema(
                 _schema(self.kind, house, hosts), current
             ),
-            description_placeholders={"unit": _unit_label(house.get("unit", "m"))},
+            description_placeholders={
+                "unit": _unit_label(house.get("unit", "m")),
+                "linked": self._linked_names(step_id),
+            },
             errors=errors,
         )
 

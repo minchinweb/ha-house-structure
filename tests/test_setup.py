@@ -12,6 +12,7 @@ from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import floor_registry as fr
 import pytest
 
 from custom_components.house_structure.constants import (
@@ -611,3 +612,76 @@ async def test_diagnostics(hass: HomeAssistant, house) -> None:
     assert data["outline"]["rotation"] == pytest.approx(10.4, abs=0.05)
     assert len(data["outline"]["walls"]) == 4
     assert str(hass.config.latitude) not in str(data)
+
+
+async def test_rooms_beside_and_above(hass: HomeAssistant, house) -> None:
+    areas = ar.async_get(hass)
+    floors = fr.async_get(hass)
+    upstairs = floors.async_create("Upstairs", level=1)
+    attic = floors.async_create("Attic", level=2)
+    hall = areas.async_create("Hall")
+    loft = areas.async_create("Loft")
+    for area, floor in (
+        (house["master"], upstairs),
+        (house["bath"], upstairs),
+        (hall, upstairs),
+        (loft, attic),
+    ):
+        areas.async_update(area.id, floor_id=floor.floor_id)
+    entry_id = house["entry_id"]
+    for area in (house["bath"], hall):
+        await _add(hass, entry_id, "room", {"area_id": area.id})
+    entry = hass.config_entries.async_get_entry(entry_id)
+    master = next(
+        s
+        for s in entry.subentries.values()
+        if s.subentry_type == "room" and s.data["area_id"] == house["master"].id
+    )
+
+    async def edit(form: dict | None = None):
+        result = await hass.config_entries.subentries.async_init(
+            (entry_id, "room"),
+            context={"source": SOURCE_RECONFIGURE, "subentry_id": master.subentry_id},
+        )
+        if form is None:
+            return result
+        return await hass.config_entries.subentries.async_configure(
+            result["flow_id"], form
+        )
+
+    # first shown, the other rooms upstairs are ticked, less the bath, which
+    # the internal wall links already
+    shown = await edit()
+    assert _suggested(shown)["beside"] == [hall.id]
+    assert shown["description_placeholders"]["linked"] == "Upstairs bath"
+
+    form = {"area_id": house["master"].id, "floor": 18000, "height": 96}
+    result = await edit({**form, "beside": [hall.id], "above": [hall.id]})
+    assert result["errors"] == {"above": "invalid_above"}
+    result = await edit({**form, "beside": [hall.id], "above": [loft.id]})
+    assert result["type"] is FlowResultType.ABORT
+    await hass.async_block_till_done()
+
+    rooms = hass.data[DOMAIN]["rooms"]
+    assert {
+        (n["area_id"], n["position"]) for n in rooms[house["master"].id]["neighbours"]
+    } == {(hall.id, "beside"), (loft.id, "above"), (house["bath"].id, "beside")}
+    assert {(n["area_id"], n["position"]) for n in rooms[hall.id]["neighbours"]} == {
+        (house["master"].id, "beside")
+    }
+    sensor = hass.states.get("sensor.master_bedroom_room_solar_gain")
+    assert len(sensor.attributes["neighbours"]) == 3
+
+    # the hall's form names the master bedroom as already linked
+    hall_room = next(
+        s
+        for s in hass.config_entries.async_get_entry(entry_id).subentries.values()
+        if s.subentry_type == "room" and s.data["area_id"] == hall.id
+    )
+    shown = await hass.config_entries.subentries.async_init(
+        (entry_id, "room"),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": hall_room.subentry_id},
+    )
+    assert shown["description_placeholders"]["linked"] == "Master bedroom"
+    # and leaves it out of the rooms it ticks
+    assert _suggested(shown)["beside"] == [house["bath"].id]

@@ -56,6 +56,8 @@ class Element:
         height_m: For a room, its ceiling height.
         volume_m3: For a room, its air volume (given, or floor times height).
         below_ground: For a room, whether its walls are (partly) in the soil.
+        beside: For a room, the areas next to it on the same floor.
+        above: For a room, the areas above its ceiling.
         climate: For a register, the thermostat that calls for its heat.
         fan: For a register, its own fan or damper, if it has one.
     """
@@ -77,6 +79,8 @@ class Element:
     height_m: float | None = None
     volume_m3: float | None = None
     below_ground: bool = False
+    beside: tuple[str, ...] = ()
+    above: tuple[str, ...] = ()
     climate: str | None = None
     fan: str | None = None
 
@@ -118,6 +122,8 @@ class Element:
                 if getattr(self, key) is not None:
                     out[key] = round(getattr(self, key), 3)
             out["below_ground"] = self.below_ground
+            out["beside"] = list(self.beside)
+            out["above"] = list(self.above)
         if self.kind == REGISTER:
             out["climate"] = self.climate
             if self.fan:
@@ -185,6 +191,8 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 height_m=height,
                 volume_m3=volume,
                 below_ground=bool(d.get("below_ground", False)),
+                beside=_others(d.get("beside"), area),
+                above=_others(d.get("above"), area),
             )
         elif raw.kind == REGISTER:
             elements[raw.id] = Element(
@@ -262,6 +270,55 @@ def windows_in(elements: dict[str, Element], area_id: str | None) -> list[Elemen
 
 # The version of the room summary other integrations read; raise it when a key
 # changes meaning or goes away (adding keys does not need it).
+def _others(areas, own: str | None) -> tuple[str, ...]:
+    """A room's list of areas, without itself or repeats."""
+    return tuple(dict.fromkeys(a for a in areas or () if a and a != own))
+
+
+BESIDE, ABOVE, BELOW = "beside", "above", "below"
+
+
+def neighbours(elements: dict[str, Element]) -> dict[str, list[dict]]:
+    """Each area's neighbours, from both sides.
+
+    A room's ``beside`` and ``above`` lists, and internal walls, each make a
+    link that both rooms get: a room listing another above it is below that
+    one. A link is entered once, from either room; an internal wall's area
+    is kept.
+
+    Returns:
+        By area id, ``{"area_id", "position", "area_m2"}`` for each
+        neighbour, where ``position`` (``beside``, ``above`` or ``below``)
+        is where the neighbour is.
+    """
+    links: dict[tuple[str, str], dict] = {}
+
+    def link(area: str | None, other: str | None, position: str, area_m2=None):
+        if not area or not other or area == other:
+            return
+        flipped = {ABOVE: BELOW, BELOW: ABOVE}.get(position, position)
+        for here, there, where in ((area, other, position), (other, area, flipped)):
+            item = links.setdefault(
+                (here, there),
+                {"area_id": there, "position": where, "area_m2": None},
+            )
+            if area_m2 is not None:
+                item["area_m2"] = area_m2
+
+    for e in elements.values():
+        if e.kind == ROOM:
+            for other in e.beside:
+                link(e.area_id, other, BESIDE)
+            for other in e.above:
+                link(e.area_id, other, ABOVE)
+        elif e.kind == INTERNAL_WALL:
+            link(e.area_id, e.other_area_id, BESIDE, e.size_m2)
+    out: dict[str, list[dict]] = {}
+    for (area, _), item in sorted(links.items()):
+        out.setdefault(area, []).append(item)
+    return out
+
+
 SUMMARY_VERSION = 1
 
 
@@ -289,6 +346,7 @@ def _empty_room(area_id: str, temperature: str | None) -> dict:
         "roofs": [],
         "internal_walls": [],
         "registers": [],
+        "neighbours": [],
     }
 
 
@@ -300,7 +358,8 @@ def rooms_summary(
     Every area with a part is a room, with or without a room part. Planes are
     compass azimuths and tilts in degrees; areas in m2. An internal wall is
     listed in the rooms on both sides, and a shared roof in each of its rooms
-    (with all its rooms in ``area_ids``, and its whole area).
+    (with all its rooms in ``area_ids``, and its whole area). ``neighbours``
+    lists the areas beside, above and below each room (see ``neighbours``).
 
     Args:
         elements: The parts, from ``build``.
@@ -368,4 +427,8 @@ def rooms_summary(
             here["registers"].append(
                 {"title": e.title, "climate": e.climate, "fan": e.fan}
             )
+    # an area without parts (a garage, say) is a neighbour, but not a room
+    for area_id, items in neighbours(elements).items():
+        if area_id in rooms:
+            rooms[area_id]["neighbours"] = items
     return rooms

@@ -4,8 +4,9 @@
 Download it from the integration's menu. It gives the house settings, each
 part's settings (sizes in metres, whatever unit the forms show) with what was
 built from them, any parts that were skipped, every area with the parts in it
-(so an area with none stands out), the sky now, and the OpenStreetMap outline
-as wall bearings and lengths only. Nothing in it says where the house is.
+(so an area with none stands out) and the areas beside, above and below it,
+the sky now, and the OpenStreetMap outline as wall bearings and lengths only.
+Nothing in it says where the house is.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import floor_registry as fr
 
 from .constants import DOMAIN, OUTLINE
-from .model import Raw, build
+from .model import Raw, build, neighbours
 from .orientation import outline_walls, wall_rotation
 
 
@@ -79,6 +80,7 @@ async def async_get_config_entry_diagnostics(
                     f"{element.kind}: {element.title}"
                 )
 
+    links = neighbours(elements)
     return {
         "house": dict(entry.data),
         "options": dict(entry.options),
@@ -90,6 +92,10 @@ async def async_get_config_entry_diagnostics(
                 "name": area.name,
                 "floor": floor_of(area.id),
                 "parts": sorted(in_area.get(area.id, [])),
+                "neighbours": [
+                    f"{n['position']}: {area_name(n['area_id'])}"
+                    for n in links.get(area.id, [])
+                ],
             }
             for area in areas.async_list_areas()
         ],

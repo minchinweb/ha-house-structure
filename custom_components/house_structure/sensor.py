@@ -35,7 +35,7 @@ from .coordinator import SkyCoordinator
 from .devices import HouseData, area_temperature
 from .entity import PartEntity, setup_parts
 from .geometry import blind_open_fraction, window_gain
-from .model import Element, windows_in
+from .model import Element, neighbours, windows_in
 from .sun import sun_position
 
 _LOGGER = logging.getLogger(__name__)
@@ -188,6 +188,8 @@ class RoomSolarGainSensor(CoordinatorEntity[SkyCoordinator], _PartSensor):
     def extra_state_attributes(self) -> dict:
         out = self.element.attributes()
         out["windows"] = [w.title for w in self.windows]
+        # from both sides: rooms that list this one count too
+        out["neighbours"] = neighbours(self.data.elements).get(self.element.area_id, [])
         out["glass_m2"] = round(sum(w.size_m2 or 0.0 for w in self.windows), 3)
         return out
 

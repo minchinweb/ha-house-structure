@@ -67,12 +67,21 @@ one it lights.
 
 | Part | Settings | Sensor |
 |---|---|---|
-| Room (one per area) | floor area, ceiling height, volume (for a sloped ceiling), below ground | solar gain through all its windows (W) |
+| Room (one per area) | floor area, ceiling height, volume (for a sloped ceiling), below ground, rooms beside it, rooms above it | solar gain through all its windows (W) |
 | Outside wall | face, length, height | sun on it (W/m²) |
 | Roof | the rooms under it, face, pitch (`45` or `12:12`), length along the eave, slope length | sun on it (W/m²) |
 | Window | the wall or roof it is in (and, in a shared roof, its room), glass size, share let in as heat, blind (a cover) | solar gain (W), less what the blind keeps out |
 | Internal wall | the room on the other side, length, height | this room minus the other (°C) |
 | Heating register | thermostat, its fan or damper | heating (on while the thermostat heats) |
+
+A room's **rooms beside it** and **rooms above it** say which rooms it trades
+heat with through its walls and ceiling. Each link counts both ways (a room
+with another above it is below that one), so enter each pair once, from either
+room; the form says which rooms already link to it. The first time a room is
+edited, the other rooms on its floor are ticked as beside it: untick the ones
+that do not touch. Any area can be chosen, such as an unheated attic or the
+garage. An **internal wall** part does the same for one pair and adds its size
+and a temperature-difference sensor; you need it only for those.
 
 A part not square to the house can give its own compass bearing (**Facing**). A
 blind is read from its cover's position (0 shut to 100 open); **Share let in
@@ -147,6 +156,10 @@ House Structure publishes each room's parts as plain data in
                     "climate": "climate.z3",
                     "fan": "fan.master_register",
                 }
+            ],
+            "neighbours": [  # from both rooms' lists and internal walls
+                {"area_id": "upstairs_bath", "position": "beside", "area_m2": None},
+                {"area_id": "attic", "position": "above", "area_m2": None},
             ],
         },
     },

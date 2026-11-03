@@ -60,36 +60,44 @@
       "step": {
         "user": {
           "title": "Room",
-          "description": "A room's own size. One per area; leave a size empty if you do not know it. Sizes in {unit}.",
+          "description": "A room's own size, and the rooms around it. One per area; leave a size empty if you do not know it. Sizes in {unit}.\n\nAlready linked from other rooms: {linked}.",
           "data": {
             "name": "Name",
             "area_id": "Room (area)",
             "floor": "Floor area",
             "height": "Ceiling height",
             "volume": "Volume",
-            "below_ground": "Below ground"
+            "below_ground": "Below ground",
+            "beside": "Rooms beside it",
+            "above": "Rooms above it"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
             "volume": "Leave empty for floor area times ceiling height. Give it for a sloped ceiling.",
-            "below_ground": "Tick for a basement room: its walls trade heat with the soil."
+            "below_ground": "Tick for a basement room: its walls trade heat with the soil.",
+            "beside": "Rooms on the same floor that share a wall with this one. A room linked here is linked both ways, so each pair is entered once. When first shown, the other rooms on the same floor are ticked: untick the ones that do not touch.",
+            "above": "Rooms over its ceiling (this room is below them). Areas without a room, such as an unheated attic, can be chosen too."
           }
         },
         "reconfigure": {
           "title": "Room",
-          "description": "A room's own size. One per area; leave a size empty if you do not know it. Sizes in {unit}.",
+          "description": "A room's own size, and the rooms around it. One per area; leave a size empty if you do not know it. Sizes in {unit}.\n\nAlready linked from other rooms: {linked}.",
           "data": {
             "name": "Name",
             "area_id": "Room (area)",
             "floor": "Floor area",
             "height": "Ceiling height",
             "volume": "Volume",
-            "below_ground": "Below ground"
+            "below_ground": "Below ground",
+            "beside": "Rooms beside it",
+            "above": "Rooms above it"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
             "volume": "Leave empty for floor area times ceiling height. Give it for a sloped ceiling.",
-            "below_ground": "Tick for a basement room: its walls trade heat with the soil."
+            "below_ground": "Tick for a basement room: its walls trade heat with the soil.",
+            "beside": "Rooms on the same floor that share a wall with this one. A room linked here is linked both ways, so each pair is entered once. When first shown, the other rooms on the same floor are ticked: untick the ones that do not touch.",
+            "above": "Rooms over its ceiling (this room is below them). Areas without a room, such as an unheated attic, can be chosen too."
           }
         }
       },
@@ -106,7 +114,8 @@
         "invalid_floor": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
         "invalid_volume": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
         "invalid_other_area_id": "The two sides must be different rooms.",
-        "room_exists": "This area already has a room; edit that one instead."
+        "room_exists": "This area already has a room; edit that one instead.",
+        "invalid_above": "A room cannot be both beside and above this one."
       }
     },
     "wall": {

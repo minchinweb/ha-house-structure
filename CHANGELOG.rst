@@ -3,6 +3,7 @@ Changelog
 
 .. release:: unreleased
 
+  - :feature:`-` A room lists the **rooms beside it and above it**; each link counts both ways, and the first edit ticks the other rooms on the same floor. Published as each room's ``neighbours`` (beside, above or below), on the room's sensor and in the diagnostics, without adding entities.
   - :feature:`-` Adding, changing or removing a part **no longer reloads the integration**, so the other parts' sensors stay available (no more blips of "unavailable" in their history). Changing the house's own settings still reloads it.
   - :feature:`-` A failed Open-Meteo fetch **keeps the last answer** while it still covers the time, instead of making every sensor unavailable for 15 minutes.
   - :feature:`-` **Diagnostics** download: the house and each part's settings and what was built from them, skipped parts, every area with its parts (so a room left out shows up), the sky now, and the OpenStreetMap outline as wall bearings and lengths (no position).
