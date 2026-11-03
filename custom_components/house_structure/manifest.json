@@ -1,6 +1,10 @@
 {
   "domain": "house_structure",
   "name": "House Structure",
+  "categories": [
+    "climate",
+    "helpers.calculate_value"
+  ],
   "codeowners": [
     "@minchinweb"
   ],
