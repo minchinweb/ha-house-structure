@@ -116,6 +116,86 @@ def format_feet_inches(metres: float) -> str:
     return f"{int(feet)}' {inches:g}\""
 
 
+# Units a size may be typed with, whatever the house's unit, as metres each.
+LENGTH_WORDS = {
+    **dict.fromkeys(("m", "metre", "metres", "meter", "meters"), 1.0),
+    **dict.fromkeys(
+        ("cm", "centimetre", "centimetres", "centimeter", "centimeters"), 0.01
+    ),
+    **dict.fromkeys(
+        ("mm", "millimetre", "millimetres", "millimeter", "millimeters"), 0.001
+    ),
+    # typed, curly (as phones type them) and prime marks
+    **dict.fromkeys(("in", "inch", "inches", '"', "”", "″"), INCH),
+    **dict.fromkeys(("ft", "foot", "feet", "'", "’", "′"), FOOT),  # noqa: RUF001
+    **dict.fromkeys(("yd", "yard", "yards"), 3 * FOOT),
+}
+_SIZE = re.compile(rf"({_NUMBER}|\.\d+)\s*(.*)")
+# "sq ft", "square metres", "cu m"; then "ft²", "m2", "ft^2"
+_POWER_WORD = re.compile(r"(square|sq|cubic|cu)\.?\s*(.+)")
+_POWER_MARK = re.compile(r"(.*[^\s^])(?:\^?([23])|\s*([²³]))")
+_POWERS = {"sq": 2, "square": 2, "cu": 3, "cubic": 3, "²": 2, "³": 3}
+
+
+def _unit_power(text: str) -> tuple[float, int] | None:
+    """Metres per unit and the power, from ``m``, ``sq ft``, ``m³`` and the like."""
+    word, power = text, 1
+    if match := _POWER_WORD.fullmatch(text):
+        word, power = match[2], _POWERS[match[1]]
+    elif match := _POWER_MARK.fullmatch(text):
+        word, power = match[1], int(match[2] or _POWERS[match[3]])
+    per = LENGTH_WORDS.get(word.strip())
+    return None if per is None else (per, power)
+
+
+def parse_size(text: str | float, unit: str, power: int = 1) -> float:
+    """A length, area or volume in metres (squared, cubed) from what was typed.
+
+    A bare number is in the house's ``unit``; a number with a unit after it is
+    in that unit, whatever the house's: ``3.2 m``, ``320 cm``, ``12' 6"``,
+    ``150"``, ``14 sq ft``, ``1.3 m²``, ``40 m3``, ``400 cu ft``. In feet and
+    inches a bare ``12 6`` is 12 feet 6 inches.
+
+    Args:
+        text: What was typed, or a number.
+        unit: The house's unit, a key of ``UNITS``.
+        power: 1 for a length, 2 for an area, 3 for a volume.
+
+    Raises:
+        ValueError: The text is not a size of that kind.
+    """
+    if isinstance(text, int | float):
+        return float(text) * UNITS[unit] ** power
+    word = " ".join(str(text).split())
+    match = _SIZE.fullmatch(word)
+    if match is None:
+        raise ValueError(f"cannot read the size {text!r}")
+    if not match[2]:
+        return float(match[1]) * UNITS[unit] ** power
+    found = _unit_power(match[2].lower())
+    if found is not None:
+        per, given = found
+        if given != power:
+            kind = ("length", "area", "volume")[power - 1]
+            raise ValueError(f"{text!r} is not a {kind}")
+        return float(match[1]) * per**power
+    if power == 1:  # feet and inches together: 12' 6", 12 ft 6 in, 12 6
+        if unit != FEET_INCHES and match[2][0].isdigit():
+            raise ValueError(f"cannot read the size {text!r}")
+        return parse_feet_inches(word)
+    raise ValueError(f"cannot read the size {text!r}")
+
+
+def format_size(metres: float, unit: str, power: int = 1) -> str:
+    """A size in metres in the house's unit: ``3.2 m``, ``12' 6"``, ``14 ft²``."""
+    if unit == FEET_INCHES and power == 1:
+        return format_feet_inches(metres)
+    name = "ft" if unit == FEET_INCHES else unit
+    mark = {1: "", 2: "²", 3: "³"}[power]
+    number = f"{metres / UNITS[unit] ** power:.3f}".rstrip("0").rstrip(".")
+    return f"{number} {name}{mark}"
+
+
 def face_azimuth(face: str, rotation: float) -> float:
     """Compass bearing a face of the house looks towards."""
     return (FACES[face] + rotation) % 360.0

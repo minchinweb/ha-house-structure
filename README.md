@@ -48,6 +48,12 @@ First set what is true of the whole house:
   changing the unit later keeps them. In **Feet and inches**, type lengths
   as `12' 6"`, `12'-6 1/2"`, `12 6` (feet, then inches) or `150"`; floor
   areas and volumes are in square and cubic feet.
+
+  Whatever the unit, a size typed with its own unit is read in that one, so
+  measurements can be mixed: `3.2 m`, `320 cm`, `12' 6"`, `12 ft 6 in`,
+  `150"` for lengths; `14 m²`, `14 m2`, `150 sq ft`, `150 ft^2` for floor
+  areas; `40 m³`, `1400 cu ft` for volumes. A bare number is in the house's
+  unit. Editing a part shows its sizes back in the house's unit.
 - **Sky source**: where the light comes from.
   - **Open-Meteo** (the default): fetched over the internet every 15 minutes.
   - **Solar radiation sensor**: a sensor reading all the light on a flat

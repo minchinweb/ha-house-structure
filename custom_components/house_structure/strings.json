@@ -16,7 +16,7 @@
           "rotation": "Degrees the house is turned clockwise from true north: the value measured from OpenStreetMap is filled in. Its four faces then look this far past north, east, south and west.",
           "preview": "Tick and press Submit to redraw the map with the rotation typed above. Nothing is saved until you submit with this unticked.",
           "shade_below": "Treat the south-east to south-west sun as blocked by trees and neighbours below this elevation. A wall or roof can set its own.",
-          "unit": "Sizes are typed in this unit and kept in metres, so changing it later keeps them. In feet and inches, type lengths like 12' 6\" (or 12 6); floor areas and volumes are in square and cubic feet.",
+          "unit": "Sizes are typed in this unit and kept in metres, so changing it later keeps them. A size typed with its own unit (3.2 m, 12' 6\", 14 sq ft) is read in that unit instead. In feet and inches, type lengths like 12' 6\" (or 12 6); floor areas and volumes are in square and cubic feet.",
           "sky_source": "Where the sun and sky light comes from. Open-Meteo is fetched over the internet every 15 minutes (no key needed). A solar radiation sensor, such as a weather station's, is read every 5 minutes and split into the sun's beam and the rest of the sky.",
           "sky_sensor": "Only for the sensor source: a sensor reading all the sun and sky light on a flat surface, in W/m²."
         }
@@ -36,7 +36,7 @@
           "rotation": "Degrees the house is turned clockwise from true north. Check it against the map.",
           "preview": "Tick and press Submit to redraw the map with the rotation typed above. Nothing is saved until you submit with this unticked.",
           "shade_below": "Treat the south-east to south-west sun as blocked below this elevation.",
-          "unit": "Sizes are typed in this unit and kept in metres, so changing it keeps them.",
+          "unit": "Sizes are typed in this unit, unless typed with their own, and kept in metres, so changing it keeps them.",
           "sky_source": "Open-Meteo over the internet, or a solar radiation sensor.",
           "sky_sensor": "Only for the sensor source: the light on a flat surface, in W/m²."
         }
@@ -60,7 +60,7 @@
       "step": {
         "user": {
           "title": "Room",
-          "description": "A room's own size, and the rooms around it. One per area; leave a size empty if you do not know it. Sizes in {unit}.\n\nAlready linked from other rooms: {linked}.",
+          "description": "A room's own size, and the rooms around it. One per area; leave a size empty if you do not know it. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).\n\nAlready linked from other rooms: {linked}.",
           "data": {
             "name": "Name",
             "area_id": "Room (area)",
@@ -81,7 +81,7 @@
         },
         "reconfigure": {
           "title": "Room",
-          "description": "A room's own size, and the rooms around it. One per area; leave a size empty if you do not know it. Sizes in {unit}.\n\nAlready linked from other rooms: {linked}.",
+          "description": "A room's own size, and the rooms around it. One per area; leave a size empty if you do not know it. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).\n\nAlready linked from other rooms: {linked}.",
           "data": {
             "name": "Name",
             "area_id": "Room (area)",
@@ -107,12 +107,12 @@
       },
       "error": {
         "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
-        "invalid_length": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_height": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_width": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_slope": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_floor": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_volume": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_length": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_height": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_width": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_slope": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_floor": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_volume": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead.",
         "invalid_above": "A room cannot be both beside and above this one."
@@ -127,7 +127,7 @@
       "step": {
         "user": {
           "title": "Outside wall",
-          "description": "One outside wall of a room. Sizes in {unit}.",
+          "description": "One outside wall of a room. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).",
           "data": {
             "name": "Name",
             "area_id": "Room (area)",
@@ -147,7 +147,7 @@
         },
         "reconfigure": {
           "title": "Outside wall",
-          "description": "One outside wall of a room. Sizes in {unit}.",
+          "description": "One outside wall of a room. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).",
           "data": {
             "name": "Name",
             "area_id": "Room (area)",
@@ -172,12 +172,12 @@
       },
       "error": {
         "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
-        "invalid_length": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_height": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_width": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_slope": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_floor": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_volume": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_length": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_height": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_width": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_slope": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_floor": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_volume": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead."
       }
@@ -191,7 +191,7 @@
       "step": {
         "user": {
           "title": "Roof",
-          "description": "A part of the roof that is the ceiling of one or more rooms (an attic room with a sloped ceiling), or holds their skylights. Sizes in {unit}.",
+          "description": "A part of the roof that is the ceiling of one or more rooms (an attic room with a sloped ceiling), or holds their skylights. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).",
           "data": {
             "name": "Name",
             "area_ids": "Rooms (areas) it covers",
@@ -213,7 +213,7 @@
         },
         "reconfigure": {
           "title": "Roof",
-          "description": "A part of the roof that is the ceiling of one or more rooms (an attic room with a sloped ceiling), or holds their skylights. Sizes in {unit}.",
+          "description": "A part of the roof that is the ceiling of one or more rooms (an attic room with a sloped ceiling), or holds their skylights. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).",
           "data": {
             "name": "Name",
             "area_ids": "Rooms (areas) it covers",
@@ -240,12 +240,12 @@
       },
       "error": {
         "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
-        "invalid_length": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_height": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_width": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_slope": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_floor": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_volume": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_length": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_height": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_width": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_slope": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_floor": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_volume": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead.",
         "invalid_area_ids": "Choose at least one room."
@@ -260,7 +260,7 @@
       "step": {
         "user": {
           "title": "Window",
-          "description": "A window in a wall or roof; it takes the way it faces from there, and its room too (a skylight in a roof over several rooms can choose one of them). Glass size in {unit}.",
+          "description": "A window in a wall or roof; it takes the way it faces from there, and its room too (a skylight in a roof over several rooms can choose one of them). Glass size in {unit}, or type a unit after the number (90 cm, 3' 6\").",
           "data": {
             "name": "Name",
             "host": "Wall or roof it is in",
@@ -281,7 +281,7 @@
         },
         "reconfigure": {
           "title": "Window",
-          "description": "A window in a wall or roof; it takes the way it faces from there, and its room too (a skylight in a roof over several rooms can choose one of them). Glass size in {unit}.",
+          "description": "A window in a wall or roof; it takes the way it faces from there, and its room too (a skylight in a roof over several rooms can choose one of them). Glass size in {unit}, or type a unit after the number (90 cm, 3' 6\").",
           "data": {
             "name": "Name",
             "host": "Wall or roof it is in",
@@ -307,12 +307,12 @@
       },
       "error": {
         "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
-        "invalid_length": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_height": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_width": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_slope": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_floor": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_volume": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_length": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_height": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_width": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_slope": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_floor": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_volume": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead.",
         "invalid_area_id": "Choose one of the rooms the roof covers, or leave it empty."
@@ -327,7 +327,7 @@
       "step": {
         "user": {
           "title": "Internal wall",
-          "description": "A wall between two rooms. Its sensor is this room's temperature minus the other's, from each area's temperature sensor. Sizes in {unit}.",
+          "description": "A wall between two rooms. Its sensor is this room's temperature minus the other's, from each area's temperature sensor. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).",
           "data": {
             "name": "Name",
             "area_id": "Room (area)",
@@ -341,7 +341,7 @@
         },
         "reconfigure": {
           "title": "Internal wall",
-          "description": "A wall between two rooms. Its sensor is this room's temperature minus the other's, from each area's temperature sensor. Sizes in {unit}.",
+          "description": "A wall between two rooms. Its sensor is this room's temperature minus the other's, from each area's temperature sensor. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).",
           "data": {
             "name": "Name",
             "area_id": "Room (area)",
@@ -360,12 +360,12 @@
       },
       "error": {
         "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
-        "invalid_length": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_height": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_width": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_slope": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_floor": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_volume": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_length": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_height": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_width": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_slope": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_floor": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_volume": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead."
       }
@@ -414,12 +414,12 @@
       },
       "error": {
         "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
-        "invalid_length": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_height": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_width": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_slope": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_floor": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
-        "invalid_volume": "Give a size more than 0: a number, or in feet and inches as 12' 6\".",
+        "invalid_length": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_height": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_width": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_slope": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_floor": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_volume": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead."
       }

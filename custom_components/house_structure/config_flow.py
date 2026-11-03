@@ -14,7 +14,9 @@ or roof and takes its plane from it, and its room too unless it is in a roof
 over several rooms. A room part holds the room's own size, one per area.
 
 Sizes are shown in the house's unit and stored in metres, so changing the unit
-keeps every size. In feet and inches, lengths are typed as text (``12' 6"``).
+keeps every size. They are typed as text: a bare number is in the house's
+unit, and a number with a unit (``3.2 m``, ``12' 6"``, ``14 sq ft``) is in
+that one, whatever the house's.
 This module needs Home Assistant 2025.3 or later and is not covered by the
 unit tests; ``geometry.py`` and ``model.py`` are.
 """
@@ -58,9 +60,9 @@ from .geometry import (
     UNITS,
     FieldError,
     face_azimuth,
-    format_feet_inches,
-    parse_feet_inches,
+    format_size,
     parse_pitch,
+    parse_size,
 )
 from .map_view import OutlineMapView
 from .model import BLIND_CLOSED, TRANSMITTANCE, roof_areas
@@ -142,10 +144,6 @@ def _unit_label(unit: str) -> str:
 
 
 def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
-    unit = house.get("unit", "m")
-    feet_inches = unit == FEET_INCHES
-    square = "ft" if feet_inches else unit
-    length = _TEXT if feet_inches else _number(unit)
     fields: dict = {}
     if kind == WINDOW:
         fields[vol.Required("host")] = selector.SelectSelector(
@@ -162,7 +160,7 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
         fields[vol.Required("other_area_id")] = _AREA
     fields[vol.Optional("name")] = _TEXT
     if kind == ROOM:
-        fields[vol.Optional("floor")] = _number(f"{square}²")
+        fields[vol.Optional("floor")] = _TEXT
     if kind == REGISTER:
         fields[vol.Required("climate")] = _CLIMATE
         fields[vol.Optional("fan")] = _FAN
@@ -174,13 +172,13 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
         fields[vol.Required("pitch")] = _TEXT
     for size in _SIZES[kind]:
         key = vol.Required(size) if kind == WINDOW else vol.Optional(size)
-        fields[key] = length
+        fields[key] = _TEXT
     if kind == WINDOW:
         fields[vol.Optional("transmittance", default=TRANSMITTANCE)] = _SHARE
         fields[vol.Optional("blind")] = _COVER
         fields[vol.Optional("blind_closed", default=BLIND_CLOSED)] = _SHARE
     if kind == ROOM:
-        fields[vol.Optional("volume")] = _number(f"{square}³")
+        fields[vol.Optional("volume")] = _TEXT
         fields[vol.Optional("below_ground", default=False)] = selector.BooleanSelector()
         fields[vol.Optional("beside")] = _AREAS
         fields[vol.Optional("above")] = _AREAS
@@ -190,13 +188,10 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
     return vol.Schema(fields)
 
 
-def _length(size: str, value: Any, unit: str) -> float:
-    """A length typed in the house's unit, in metres."""
+def _size(size: str, value: Any, unit: str, power: int = 1) -> float:
+    """A size as typed, in metres (squared or cubed for ``power`` 2 or 3)."""
     try:
-        if unit == FEET_INCHES:
-            metres = parse_feet_inches(value)
-        else:
-            metres = float(value) * UNITS[unit]
+        metres = parse_size(value, unit, power)
     except ValueError:
         raise FieldError(size, f"cannot read the size {value!r}") from None
     if metres <= 0:
@@ -207,7 +202,6 @@ def _length(size: str, value: Any, unit: str) -> float:
 def _from_form(kind: str, form: dict, house: dict) -> dict:
     """Stored data from a form, sizes in metres."""
     unit = house.get("unit", "m")
-    per = UNITS[unit]
     data: dict = {}
     if kind == ROOF:
         data["area_ids"] = list(form.get("area_ids") or [])
@@ -230,12 +224,10 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
         data["pitch"] = parse_pitch(form.get("pitch", ""))
     for size in _SIZES[kind]:
         if form.get(size) not in (None, ""):
-            data[f"{size}_m"] = _length(size, form[size], unit)
+            data[f"{size}_m"] = _size(size, form[size], unit)
     for size, power in (("floor", 2), ("volume", 3)):
-        if form.get(size) is not None:
-            if float(form[size]) <= 0:
-                raise FieldError(size, "sizes must be more than 0")
-            data[f"{size}_m{power}"] = float(form[size]) * per**power
+        if form.get(size) not in (None, ""):
+            data[f"{size}_m{power}"] = _size(size, form[size], unit, power)
     if kind == INTERNAL_WALL and data["area_id"] == data["other_area_id"]:
         raise FieldError("other_area_id", "the two sides are the same room")
     return data
@@ -244,22 +236,18 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
 def _to_form(kind: str, data: dict, house: dict, title: str) -> dict:
     """A form's values from stored data, sizes in the house's unit."""
     unit = house.get("unit", "m")
-    per = UNITS[unit]
     form = {k: v for k, v in data.items() if not k.endswith(("_m", "_m2", "_m3"))}
     if kind == ROOF:
         form.pop("area_id", None)
         form["area_ids"] = roof_areas(data)
     for size, power in (("floor", 2), ("volume", 3)):
         if data.get(f"{size}_m{power}") is not None:
-            form[size] = round(data[f"{size}_m{power}"] / per**power, 3)
+            form[size] = format_size(data[f"{size}_m{power}"], unit, power)
     form["name"] = title
     for size in _SIZES[kind]:
         if data.get(f"{size}_m") is None:
             continue
-        if unit == FEET_INCHES:
-            form[size] = format_feet_inches(data[f"{size}_m"])
-        else:
-            form[size] = round(data[f"{size}_m"] / per, 3)
+        form[size] = format_size(data[f"{size}_m"], unit)
     if kind == ROOF and "pitch" in data:
         form["pitch"] = f"{data['pitch']:g}"
     return form

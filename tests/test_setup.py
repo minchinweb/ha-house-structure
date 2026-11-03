@@ -88,13 +88,13 @@ async def house(hass: HomeAssistant, aioclient_mock, freezer):
     entry_id = result["result"].entry_id
 
     await _add(
-        hass, entry_id, "room", {"area_id": master.id, "floor": 18000, "height": 96}
+        hass, entry_id, "room", {"area_id": master.id, "floor": "18000", "height": "96"}
     )
     await _add(
         hass,
         entry_id,
         "wall",
-        {"area_id": master.id, "face": "S", "length": 150, "height": 60},
+        {"area_id": master.id, "face": "S", "length": "150", "height": "60"},
     )
     await _add(
         hass,
@@ -110,8 +110,8 @@ async def house(hass: HomeAssistant, aioclient_mock, freezer):
         "window",
         {
             "host": wall.subentry_id,
-            "width": 48,
-            "height": 55,
+            "width": "48",
+            "height": "55",
             "blind": "cover.master_blinds",
         },
     )
@@ -236,7 +236,7 @@ async def test_editing_a_part_does_not_reload(hass: HomeAssistant, house) -> Non
     # half as wide, and no blind
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"],
-        {"host": house["wall"].subentry_id, "width": 24, "height": 55},
+        {"host": house["wall"].subentry_id, "width": "24", "height": "55"},
     )
     assert result["type"] is FlowResultType.ABORT, result
     await hass.async_block_till_done()
@@ -337,8 +337,8 @@ async def test_forms_refuse_what_cannot_be(hass: HomeAssistant, house) -> None:
         {
             "host": house["wall"].subentry_id,
             "area_id": house["bath"].id,
-            "width": 10,
-            "height": 10,
+            "width": "10",
+            "height": "10",
         },
     )
     assert result["errors"] == {"area_id": "invalid_area_id"}
@@ -373,8 +373,8 @@ async def test_editing_shows_the_house_unit(hass: HomeAssistant, house) -> None:
         for key in result["data_schema"].schema
         if key.description
     }
-    assert suggested["length"] == pytest.approx(150)
-    assert suggested["height"] == pytest.approx(60)
+    assert suggested["length"] == "150 in"
+    assert suggested["height"] == "60 in"
 
 
 async def test_reconfiguring_the_house_reloads_it_once(
@@ -428,7 +428,7 @@ async def test_the_sky_from_a_radiation_sensor(
         hass,
         result["result"].entry_id,
         "wall",
-        {"area_id": master.id, "face": "S", "length": 300, "height": 240},
+        {"area_id": master.id, "face": "S", "length": "300", "height": "240"},
     )
 
     azimuth, elevation = sun_position(NOW, LAT, LON)
@@ -521,7 +521,7 @@ async def test_sizes_in_feet_and_inches(hass: HomeAssistant, aioclient_mock) -> 
         {"area_id": den.id, "face": "S", "length": "12' 6\"", "height": "8'"},
     )
     await _add(
-        hass, entry_id, "room", {"area_id": den.id, "floor": 150, "height": "8 0"}
+        hass, entry_id, "room", {"area_id": den.id, "floor": "150", "height": "8 0"}
     )
     entry = hass.config_entries.async_get_entry(entry_id)
     wall, room = (
@@ -541,6 +541,35 @@ async def test_sizes_in_feet_and_inches(hass: HomeAssistant, aioclient_mock) -> 
         result["flow_id"], {"area_id": den.id, "face": "S", "length": "long"}
     )
     assert result["errors"] == {"length": "invalid_length"}
+
+
+async def test_sizes_in_another_unit(hass: HomeAssistant, aioclient_mock) -> None:
+    aioclient_mock.get(build_url(hass.config.latitude, hass.config.longitude), json=SKY)
+    entry_id = await _new_house(hass, "ft_in")
+    den = ar.async_get(hass).async_create("Den")
+    await _add(
+        hass,
+        entry_id,
+        "room",
+        {"area_id": den.id, "floor": "14 m²", "height": "2.4 m", "volume": "33 m3"},
+    )
+    entry = hass.config_entries.async_get_entry(entry_id)
+    room = next(iter(entry.subentries.values()))
+    assert room.data["floor_m2"] == pytest.approx(14)
+    assert room.data["height_m"] == pytest.approx(2.4)
+    assert room.data["volume_m3"] == pytest.approx(33)
+
+    result = await hass.config_entries.subentries.async_init(
+        (entry_id, "room"),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": room.subentry_id},
+    )
+    shown = _suggested(result)
+    assert shown["height"] == "7' 10.5\""
+    assert shown["floor"] == "150.695 ft²"
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"area_id": den.id, "floor": "14 m"}
+    )
+    assert result["errors"] == {"floor": "invalid_floor"}
 
 
 async def test_a_roof_over_several_rooms(hass: HomeAssistant, aioclient_mock) -> None:
@@ -568,7 +597,7 @@ async def test_a_roof_over_several_rooms(hass: HomeAssistant, aioclient_mock) ->
         hass,
         entry_id,
         "window",
-        {"host": roof.subentry_id, "area_id": loft.id, "width": 50, "height": 90},
+        {"host": roof.subentry_id, "area_id": loft.id, "width": "50", "height": "90"},
     )
     await hass.async_block_till_done()
 
@@ -655,7 +684,7 @@ async def test_rooms_beside_and_above(hass: HomeAssistant, house) -> None:
     assert _suggested(shown)["beside"] == [hall.id]
     assert shown["description_placeholders"]["linked"] == "Upstairs bath"
 
-    form = {"area_id": house["master"].id, "floor": 18000, "height": 96}
+    form = {"area_id": house["master"].id, "floor": "18000", "height": "96"}
     result = await edit({**form, "beside": [hall.id], "above": [hall.id]})
     assert result["errors"] == {"above": "invalid_above"}
     result = await edit({**form, "beside": [hall.id], "above": [loft.id]})

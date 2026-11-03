@@ -22,8 +22,10 @@ from custom_components.house_structure.geometry import (
     blind_open_fraction,
     face_azimuth,
     format_feet_inches,
+    format_size,
     parse_feet_inches,
     parse_pitch,
+    parse_size,
     shaded,
     window_gain,
 )
@@ -376,3 +378,63 @@ def test_neighbours_count_from_both_sides():
     assert rooms["bed"]["neighbours"] == links["bed"]
     # an area with no parts of its own is a neighbour, not a room
     assert "attic" not in rooms
+
+
+@pytest.mark.parametrize(
+    ("text", "unit", "power", "metres"),
+    [
+        ("3.2", "m", 1, 3.2),
+        ("320", "cm", 1, 3.2),
+        ("3.2 m", "ft_in", 1, 3.2),
+        ("3.2m", "in", 1, 3.2),
+        ("320 cm", "m", 1, 3.2),
+        ("12' 6\"", "cm", 1, 3.81),
+        ("12 ft 6 in", "m", 1, 3.81),
+        ('150"', "mm", 1, 3.81),
+        ("12 6", "ft_in", 1, 3.81),
+        ("12", "ft_in", 1, 3.6576),
+        ("2 Metres", "in", 1, 2.0),
+        (2.5, "cm", 1, 0.025),
+        ("14", "m", 2, 14.0),
+        ("14 m²", "ft_in", 2, 14.0),
+        ("14 m2", "in", 2, 14.0),
+        ("100 sq ft", "m", 2, 100 * 0.3048**2),
+        ("100 ft^2", "m", 2, 100 * 0.3048**2),
+        ("100 square feet", "cm", 2, 100 * 0.3048**2),
+        ("100", "ft_in", 2, 100 * 0.3048**2),
+        ("40 m³", "ft", 3, 40.0),
+        ("400 cu ft", "m", 3, 400 * 0.3048**3),
+    ],
+)
+def test_parse_size(text, unit, power, metres):
+    assert parse_size(text, unit, power) == pytest.approx(metres)
+
+
+@pytest.mark.parametrize(
+    ("text", "unit", "power"),
+    [
+        ("12 6", "m", 1),  # feet then inches only when the house is in them
+        ("3 m", "m", 2),
+        ("14 m²", "m", 1),
+        ("12 ft 3", "m", 3),
+        ("3,2 m", "m", 1),
+        ("tall", "m", 1),
+        ("3 furlongs", "m", 1),
+        ("-3 m", "m", 1),
+        ("", "m", 1),
+    ],
+)
+def test_parse_size_refuses(text, unit, power):
+    with pytest.raises(ValueError):
+        parse_size(text, unit, power)
+
+
+def test_format_size_reads_back():
+    assert format_size(3.2, "m") == "3.2 m"
+    assert format_size(3.81, "ft_in") == "12' 6\""
+    assert format_size(14.0, "ft_in", 2) == "150.695 ft²"
+    assert format_size(14.5, "mm", 2) == "14500000 mm²"
+    for unit in ("m", "cm", "mm", "in", "ft", "ft_in"):
+        for power in (1, 2, 3):
+            shown = format_size(3.0, unit, power)
+            assert parse_size(shown, unit, power) == pytest.approx(3.0, rel=1e-3)
