@@ -12,49 +12,33 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
-from homeassistant.core import Event, callback
-from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.event import async_track_state_change_event
 
-from .constants import DOMAIN, REGISTER
+from .constants import REGISTER
 from .devices import HouseData
+from .entity import PartEntity, setup_parts
 from .model import Element
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    """A heating sensor for each register."""
-    data: HouseData = entry.runtime_data
-    for element in data.elements.values():
-        if element.kind == REGISTER:
-            async_add_entities(
-                [RegisterHeatingSensor(element)], config_subentry_id=element.id
-            )
+    """A heating sensor for each register, now and as registers are added."""
+    setup_parts(hass, entry, async_add_entities, _sensor_for)
 
 
-class RegisterHeatingSensor(BinarySensorEntity):
+def _sensor_for(data: HouseData, element: Element) -> PartEntity | None:
+    return RegisterHeatingSensor(data, element) if element.kind == REGISTER else None
+
+
+class RegisterHeatingSensor(PartEntity, BinarySensorEntity):
     """On while the register's thermostat is heating."""
 
-    _attr_has_entity_name = True
     _attr_should_poll = False
     _attr_device_class = BinarySensorDeviceClass.HEAT
-    _attr_translation_key = "heating"
 
-    def __init__(self, element: Element) -> None:
-        self.element = element
-        self._attr_unique_id = f"{element.id}_heating"
-        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, element.id)})
+    def __init__(self, data: HouseData, element: Element) -> None:
+        super().__init__(data, element, "heating")
 
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        tracked = [e for e in (self.element.climate, self.element.fan) if e]
-        if tracked:
-            self.async_on_remove(
-                async_track_state_change_event(self.hass, tracked, self._changed)
-            )
-
-    @callback
-    def _changed(self, event: Event) -> None:
-        self.async_write_ha_state()
+    def watched(self) -> list[str | None]:
+        return [self.element.climate, self.element.fan]
 
     @property
     def is_on(self) -> bool | None:

@@ -3,6 +3,8 @@ Changelog
 
 .. release:: unreleased
 
+  - :feature:`-` Adding, changing or removing a part **no longer reloads the integration**, so the other parts' sensors stay available (no more blips of "unavailable" in their history). Changing the house's own settings still reloads it.
+  - :feature:`-` A failed Open-Meteo fetch **keeps the last answer** while it still covers the time, instead of making every sensor unavailable for 15 minutes.
   - :feature:`-` **Diagnostics** download: the house and each part's settings and what was built from them, skipped parts, every area with its parts (so a room left out shows up), the sky now, and the OpenStreetMap outline as wall bearings and lengths (no position).
   - :feature:`-` **Feet and inches** as a unit: lengths are typed as ``12' 6"`` (or ``12 6``, ``150"``); floor areas and volumes in square and cubic feet.
   - :feature:`-` A **roof can cover several rooms**: it is listed in each room's summary (with ``area_ids``), its device sits in the first, and a skylight in it can name the room it lights. Roofs saved with one room keep it.

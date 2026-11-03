@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import math
 
 from homeassistant.config_entries import SOURCE_RECONFIGURE, SOURCE_USER
@@ -204,6 +204,99 @@ async def test_a_change_is_announced(hass: HomeAssistant, house) -> None:
         {"area_id": house["bath"].id, "climate": "climate.z3"},
     )
     assert len(events) == 1
+
+
+def _record(hass: HomeAssistant) -> list:
+    """The house's entity states written from now on."""
+    written = []
+
+    def keep(event) -> None:
+        new = event.data["new_state"]
+        if new is not None and event.data["entity_id"].split(".")[1].startswith(
+            ("master_bedroom_", "upstairs_bath_")
+        ):
+            written.append((event.data["entity_id"], new.state))
+
+    hass.bus.async_listen("state_changed", keep)
+    return written
+
+
+async def test_editing_a_part_does_not_reload(hass: HomeAssistant, house) -> None:
+    written = _record(hass)
+    window_id = "sensor.master_bedroom_south_window_solar_gain"
+    room_id = "sensor.master_bedroom_room_solar_gain"
+    before = float(hass.states.get(window_id).state)
+    entry = hass.config_entries.async_get_entry(house["entry_id"])
+    window = next(s for s in entry.subentries.values() if s.subentry_type == "window")
+    result = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, "window"),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": window.subentry_id},
+    )
+    # half as wide, and no blind
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {"host": house["wall"].subentry_id, "width": 24, "height": 55},
+    )
+    assert result["type"] is FlowResultType.ABORT, result
+    await hass.async_block_till_done()
+
+    assert not [w for w in written if w[1] == "unavailable"]
+    after = float(hass.states.get(window_id).state)
+    assert after == pytest.approx(before / 2 / 0.968, rel=0.01)
+    assert float(hass.states.get(room_id).state) == pytest.approx(after)
+    assert "blind" not in hass.states.get(window_id).attributes
+    # it no longer follows the blind
+    hass.states.async_set("cover.master_blinds", "closed", {"current_position": 0})
+    await hass.async_block_till_done()
+    assert float(hass.states.get(window_id).state) == pytest.approx(after)
+
+
+async def test_adding_and_removing_a_part(hass: HomeAssistant, house) -> None:
+    written = _record(hass)
+    await _add(
+        hass,
+        house["entry_id"],
+        "register",
+        {"area_id": house["bath"].id, "climate": "climate.z3"},
+    )
+    added = "binary_sensor.upstairs_bath_register_heating"
+    assert hass.states.get(added).state == "on"
+    assert not [w for w in written if w[1] == "unavailable"]
+
+    entry = hass.config_entries.async_get_entry(house["entry_id"])
+    register = next(
+        s
+        for s in entry.subentries.values()
+        if s.subentry_type == "register" and s.data["area_id"] == house["bath"].id
+    )
+    hass.config_entries.async_remove_subentry(entry, register.subentry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(added) is None
+    assert er.async_get(hass).async_get(added) is None
+    assert hass.states.get("binary_sensor.master_bedroom_register_heating").state == (
+        "on"
+    )
+
+
+async def test_a_missed_fetch_keeps_the_sky(
+    hass: HomeAssistant, house, aioclient_mock, freezer
+) -> None:
+    entry = hass.config_entries.async_get_entry(house["entry_id"])
+    coordinator = entry.runtime_data.coordinator
+    wall = "sensor.master_bedroom_south_wall_sun"
+    before = hass.states.get(wall).state
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(build_url(LAT, LON), exc=TimeoutError)
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert coordinator.last_update_success
+    assert hass.states.get(wall).state == before
+
+    # once the last answer no longer covers the time, the sky is gone
+    freezer.move_to(NOW + timedelta(minutes=30))
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(wall).state == "unavailable"
 
 
 async def test_forms_refuse_what_cannot_be(hass: HomeAssistant, house) -> None:

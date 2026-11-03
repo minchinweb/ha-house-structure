@@ -1,7 +1,8 @@
 # Copyright (c) 2026 MinchinWeb
 """The sky's light, from the source the house chose.
 
-* Open-Meteo: fetched every 15 minutes for the home location.
+* Open-Meteo: fetched every 15 minutes for the home location; when a fetch
+  fails, the last answer is kept while it still covers the time.
 * A solar radiation sensor: read every 5 minutes and split into the sun's beam
   and the rest of the sky (see ``sky.split``).
 """
@@ -67,6 +68,18 @@ class OpenMeteoCoordinator(SkyCoordinator):
         super().__init__(hass, entry, timedelta(minutes=15))
 
     async def _async_update_data(self) -> list[Sky]:
+        try:
+            readings = await self._fetch()
+        except UpdateFailed as err:
+            # the last answer runs to the end of tomorrow, so a missed fetch
+            # need not take the sensors away while it still covers now
+            if self.now() is None:
+                raise
+            _LOGGER.debug("%s; keeping the last answer", err)
+            return self.data
+        return readings
+
+    async def _fetch(self) -> list[Sky]:
         url = build_url(self.hass.config.latitude, self.hass.config.longitude)
         session = async_get_clientsession(self.hass)
         try:

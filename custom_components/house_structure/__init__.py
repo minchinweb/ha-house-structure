@@ -47,9 +47,9 @@ async def async_setup_entry(hass, entry) -> bool:
     publish_rooms(hass, elements)
     coordinator = sky_coordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
-    entry.runtime_data = HouseData(coordinator, elements)
+    entry.runtime_data = HouseData(coordinator, elements, dict(entry.data))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    entry.async_on_unload(entry.add_update_listener(_reload))
+    entry.async_on_unload(entry.add_update_listener(_updated))
     return True
 
 
@@ -65,6 +65,22 @@ async def async_remove_entry(hass, entry) -> None:
     publish_rooms(hass, None)
 
 
-async def _reload(hass, entry) -> None:
-    """Rebuild after a part is added, changed or removed."""
-    await hass.config_entries.async_reload(entry.entry_id)
+async def _updated(hass, entry) -> None:
+    """Follow a change: a part in place, the house settings by reloading.
+
+    Reloading takes every entity away for a moment, so a part added, changed
+    or removed is applied to the running entities instead (see ``entity.py``).
+    """
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    from .devices import elements_of, publish_rooms, register_devices
+    from .entity import parts_signal
+
+    data = entry.runtime_data
+    if dict(entry.data) != data.house:
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+    data.elements = elements_of(entry)
+    register_devices(hass, entry, data.elements)
+    publish_rooms(hass, data.elements)
+    async_dispatcher_send(hass, parts_signal(entry.entry_id))

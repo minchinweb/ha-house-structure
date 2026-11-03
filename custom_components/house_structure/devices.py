@@ -45,10 +45,18 @@ _MODELS = {
 
 @dataclass
 class HouseData:
-    """What the platforms share: the sky and the parts of the house."""
+    """What the platforms share: the sky and the parts of the house.
+
+    Attributes:
+        coordinator: The sky.
+        elements: The parts, by id; replaced when a part changes.
+        house: The house settings the entry was set up with; when they change
+            the entry is reloaded instead.
+    """
 
     coordinator: SkyCoordinator
     elements: dict[str, Element]
+    house: dict
 
 
 def elements_of(entry) -> dict[str, Element]:
@@ -66,8 +74,8 @@ def elements_of(entry) -> dict[str, Element]:
 def register_devices(hass, entry, elements: dict[str, Element]) -> None:
     """Make a device for each part and put it in the part's area.
 
-    The part's settings choose its room; a device moved by hand goes back on
-    the next reload.
+    The part's settings choose its room and name; a device moved by hand goes
+    back when the parts next change.
     """
     devices = dr.async_get(hass)
     areas = ar.async_get(hass)

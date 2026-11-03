@@ -27,14 +27,13 @@ from homeassistant.const import (
     UnitOfIrradiance,
     UnitOfPower,
 )
-from homeassistant.core import Event, HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .constants import DOMAIN, INTERNAL_WALL, ROOF, ROOM, WALL, WINDOW
+from .constants import INTERNAL_WALL, ROOF, ROOM, WALL, WINDOW
 from .coordinator import SkyCoordinator
 from .devices import HouseData, area_temperature
+from .entity import PartEntity, setup_parts
 from .geometry import blind_open_fraction, window_gain
 from .model import Element, windows_in
 from .sun import sun_position
@@ -43,22 +42,21 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    """Create each part's sensors on its device."""
-    data: HouseData = entry.runtime_data
+    """Create each part's sensors on its device, now and as parts are added."""
+    setup_parts(hass, entry, async_add_entities, _sensor_for)
+
+
+def _sensor_for(data: HouseData, element: Element) -> PartEntity | None:
     coordinator = data.coordinator
-    for element in data.elements.values():
-        if element.kind in (WALL, ROOF):
-            entities = [SunSensor(coordinator, element)]
-        elif element.kind == WINDOW:
-            entities = [SolarGainSensor(coordinator, element)]
-        elif element.kind == INTERNAL_WALL:
-            entities = [TemperatureDifferenceSensor(element)]
-        elif element.kind == ROOM:
-            windows = windows_in(data.elements, element.area_id)
-            entities = [RoomSolarGainSensor(coordinator, element, windows)]
-        else:
-            continue
-        async_add_entities(entities, config_subentry_id=element.id)
+    if element.kind in (WALL, ROOF):
+        return SunSensor(coordinator, data, element)
+    if element.kind == WINDOW:
+        return SolarGainSensor(coordinator, data, element)
+    if element.kind == INTERNAL_WALL:
+        return TemperatureDifferenceSensor(data, element)
+    if element.kind == ROOM:
+        return RoomSolarGainSensor(coordinator, data, element)
+    return None
 
 
 def _light(coordinator: SkyCoordinator, element: Element) -> float | None:
@@ -73,17 +71,10 @@ def _light(coordinator: SkyCoordinator, element: Element) -> float | None:
     return element.plane.light(sky.direct_normal, sky.diffuse, azimuth, elevation)
 
 
-class _PartSensor(SensorEntity):
+class _PartSensor(PartEntity, SensorEntity):
     """A sensor on one part's device."""
 
-    _attr_has_entity_name = True
     _attr_state_class = SensorStateClass.MEASUREMENT
-
-    def __init__(self, element: Element, key: str) -> None:
-        self.element = element
-        self._attr_translation_key = key
-        self._attr_unique_id = f"{element.id}_{key}"
-        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, element.id)})
 
 
 class SunSensor(CoordinatorEntity[SkyCoordinator], _PartSensor):
@@ -93,9 +84,11 @@ class SunSensor(CoordinatorEntity[SkyCoordinator], _PartSensor):
     _attr_native_unit_of_measurement = UnitOfIrradiance.WATTS_PER_SQUARE_METER
     _attr_suggested_display_precision = 0
 
-    def __init__(self, coordinator: SkyCoordinator, element: Element) -> None:
+    def __init__(
+        self, coordinator: SkyCoordinator, data: HouseData, element: Element
+    ) -> None:
         CoordinatorEntity.__init__(self, coordinator)
-        _PartSensor.__init__(self, element, "sun")
+        _PartSensor.__init__(self, data, element, "sun")
 
     @property
     def native_value(self) -> float | None:
@@ -138,22 +131,14 @@ class SolarGainSensor(CoordinatorEntity[SkyCoordinator], _PartSensor):
     _attr_native_unit_of_measurement = UnitOfPower.WATT
     _attr_suggested_display_precision = 0
 
-    def __init__(self, coordinator: SkyCoordinator, element: Element) -> None:
+    def __init__(
+        self, coordinator: SkyCoordinator, data: HouseData, element: Element
+    ) -> None:
         CoordinatorEntity.__init__(self, coordinator)
-        _PartSensor.__init__(self, element, "solar_gain")
+        _PartSensor.__init__(self, data, element, "solar_gain")
 
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        if self.element.blind:
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, [self.element.blind], self._blind_moved
-                )
-            )
-
-    @callback
-    def _blind_moved(self, event: Event) -> None:
-        self.async_write_ha_state()
+    def watched(self) -> list[str | None]:
+        return [self.element.blind]
 
     @property
     def native_value(self) -> float | None:
@@ -177,23 +162,18 @@ class RoomSolarGainSensor(CoordinatorEntity[SkyCoordinator], _PartSensor):
     _attr_suggested_display_precision = 0
 
     def __init__(
-        self, coordinator: SkyCoordinator, room: Element, windows: list[Element]
+        self, coordinator: SkyCoordinator, data: HouseData, room: Element
     ) -> None:
         CoordinatorEntity.__init__(self, coordinator)
-        _PartSensor.__init__(self, room, "solar_gain")
-        self.windows = windows
+        _PartSensor.__init__(self, data, room, "solar_gain")
 
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        blinds = [w.blind for w in self.windows if w.blind]
-        if blinds:
-            self.async_on_remove(
-                async_track_state_change_event(self.hass, blinds, self._blind_moved)
-            )
+    @property
+    def windows(self) -> list[Element]:
+        """The room's windows, as the parts are now."""
+        return windows_in(self.data.elements, self.element.area_id)
 
-    @callback
-    def _blind_moved(self, event: Event) -> None:
-        self.async_write_ha_state()
+    def watched(self) -> list[str | None]:
+        return [w.blind for w in self.windows]
 
     @property
     def native_value(self) -> float | None:
@@ -218,26 +198,21 @@ class TemperatureDifferenceSensor(_PartSensor):
     _attr_should_poll = False
     _attr_suggested_display_precision = 1
 
-    def __init__(self, element: Element) -> None:
-        super().__init__(element, "temperature_difference")
+    def __init__(self, data: HouseData, element: Element) -> None:
+        super().__init__(data, element, "temperature_difference")
         self._sides: tuple[str | None, str | None] = (None, None)
 
     async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
         self._attr_native_unit_of_measurement = self.hass.config.units.temperature_unit
+        await super().async_added_to_hass()
+
+    def watched(self) -> list[str | None]:
+        # looked up again whenever the part changes
         self._sides = (
             area_temperature(self.hass, self.element.area_id),
             area_temperature(self.hass, self.element.other_area_id),
         )
-        tracked = [s for s in self._sides if s]
-        if tracked:
-            self.async_on_remove(
-                async_track_state_change_event(self.hass, tracked, self._changed)
-            )
-
-    @callback
-    def _changed(self, event: Event) -> None:
-        self.async_write_ha_state()
+        return list(self._sides)
 
     def _reading(self, entity_id: str | None) -> float | None:
         state = self.hass.states.get(entity_id) if entity_id else None
