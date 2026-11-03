@@ -27,9 +27,10 @@ temperature sensor.
 Without HACS, copy `custom_components/house_structure/` into Home Assistant's
 `custom_components/` folder and restart.
 
-It needs Home Assistant 2025.3 or later and fetches the sun and sky light every
-15 minutes from [Open-Meteo](https://open-meteo.com/) for the home location (no
-key needed). It switches nothing.
+It needs Home Assistant 2025.3 or later. By default it fetches the sun and sky
+light every 15 minutes from [Open-Meteo](https://open-meteo.com/) for the home
+location (no key needed); it can read a solar radiation sensor instead (see
+**Sky source** below). It switches nothing.
 
 ## Setting up the house
 
@@ -41,6 +42,16 @@ First set what is true of the whole house:
   sun's beam below this height (from south-east to south-west).
 - **Unit for sizes**: the unit you measured in. Sizes are kept in metres, so
   changing the unit later keeps them.
+- **Sky source**: where the light comes from.
+  - **Open-Meteo** (the default): fetched over the internet every 15 minutes.
+  - **Solar radiation sensor**: a sensor reading all the light on a flat
+    surface in W/m², such as a weather station's. It is read every 5 minutes
+    and split into the sun's beam and the light from the rest of the sky (the
+    Erbs model), so it needs no internet. The split is an estimate, and the
+    sensor must be out of shade.
+
+The sun's position comes from `astral`, the library behind Home Assistant's
+`sun.sun`, worked out for the middle of each reading.
 
 Then add the parts from the integration's page. Each asks for its room (area);
 a window instead asks for the wall or roof it is in and takes its room and the

@@ -2,8 +2,9 @@
 """Set up House Structure from the web interface.
 
 The integration entry holds what is true of the whole house: how it is turned
-from north, the sun elevation below which the south sky is blocked, and the
-unit sizes are typed in. Each part (room, wall, roof, window, internal wall,
+from north, the sun elevation below which the south sky is blocked, the unit
+sizes are typed in, and where the sky's light comes from (Open-Meteo, or a
+solar radiation sensor). Each part (room, wall, roof, window, internal wall,
 heating register) is a sub-entry, added from the integration's page, and sits
 in an area (a room). A window is placed in a wall or roof and takes its room
 and its plane from it. A room part holds the room's own size, one per area.
@@ -29,7 +30,18 @@ from homeassistant.helpers import selector
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 import voluptuous as vol
 
-from .constants import DOMAIN, INTERNAL_WALL, REGISTER, ROOF, ROOM, WALL, WINDOW
+from .constants import (
+    DOMAIN,
+    INTERNAL_WALL,
+    OPEN_METEO,
+    REGISTER,
+    ROOF,
+    ROOM,
+    SENSOR,
+    SKY_SOURCES,
+    WALL,
+    WINDOW,
+)
 from .geometry import FACE_NAMES, FACES, UNITS, FieldError, face_azimuth, parse_pitch
 from .model import BLIND_CLOSED, TRANSMITTANCE
 
@@ -46,6 +58,16 @@ _UNIT = selector.SelectSelector(
         mode=selector.SelectSelectorMode.DROPDOWN,
         translation_key="unit",
     )
+)
+_SKY_SOURCE = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        options=SKY_SOURCES,
+        mode=selector.SelectSelectorMode.LIST,
+        translation_key="sky_source",
+    )
+)
+_RADIATION = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain="sensor", device_class="irradiance")
 )
 _SHARE = selector.NumberSelector(
     selector.NumberSelectorConfig(min=0, max=1, step=0.05, mode="box")
@@ -178,7 +200,7 @@ def _to_form(kind: str, data: dict, house: dict, title: str) -> dict:
 
 
 class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
-    """The one entry: the house's rotation, shading and unit."""
+    """The one entry: the house's rotation, shading, unit and sky source."""
 
     VERSION = 1
 
@@ -201,42 +223,60 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Set the house once."""
         if user_input is not None:
-            return self.async_create_entry(
-                title="House structure", data=_house(user_input)
-            )
+            try:
+                data = _house(user_input)
+            except FieldError as err:
+                return self._house_form("user", user_input, err)
+            return self.async_create_entry(title="House structure", data=data)
         imperial = self.hass.config.units is US_CUSTOMARY_SYSTEM
         return self._house_form("user", {"unit": "in" if imperial else "cm"})
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Change the rotation, shading or unit."""
+        """Change the rotation, shading, unit or sky source."""
         entry = self._get_reconfigure_entry()
         if user_input is not None:
+            try:
+                data = _house(user_input)
+            except FieldError as err:
+                return self._house_form("reconfigure", user_input, err)
             return self.async_update_reload_and_abort(
-                entry, data={**entry.data, **_house(user_input)}
+                entry, data={**entry.data, **data}
             )
         return self._house_form("reconfigure", dict(entry.data))
 
-    def _house_form(self, step_id: str, current: dict) -> ConfigFlowResult:
+    def _house_form(
+        self, step_id: str, current: dict, error: FieldError | None = None
+    ) -> ConfigFlowResult:
         schema = vol.Schema(
             {
                 vol.Optional("rotation"): _number("°"),
                 vol.Optional("shade_below"): _number("°"),
                 vol.Required("unit"): _UNIT,
+                vol.Required("sky_source", default=OPEN_METEO): _SKY_SOURCE,
+                vol.Optional("sky_sensor"): _RADIATION,
             }
         )
         return self.async_show_form(
             step_id=step_id,
             data_schema=self.add_suggested_values_to_schema(schema, current),
+            errors={error.field: f"invalid_{error.field}"} if error else None,
         )
 
 
 def _house(form: dict) -> dict:
-    data = {"unit": form.get("unit", "m")}
+    data = {
+        "unit": form.get("unit", "m"),
+        "sky_source": form.get("sky_source", OPEN_METEO),
+    }
     for key in ("rotation", "shade_below"):
         if form.get(key) is not None:
             data[key] = float(form[key])
+    if form.get("sky_sensor"):
+        data["sky_sensor"] = form["sky_sensor"]
+    elif data["sky_source"] == SENSOR:
+        raise FieldError("sky_sensor", "choose the solar radiation sensor")
     return data
 
 

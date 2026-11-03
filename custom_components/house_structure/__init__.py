@@ -12,13 +12,13 @@ each register is heating. Other integrations, such as Home Thermal Lab, find a
 room's parts by its area.
 
 Set up from the web interface only (see ``config_flow.py``). Light comes from
-Open-Meteo every 15 minutes for the home location.
+Open-Meteo every 15 minutes for the home location, or from a solar radiation
+sensor the house names (see ``coordinator.py``).
 
-The modules other than ``config_flow.py``, ``coordinator.py``, ``devices.py``
-and the platforms use only the standard library (``constants.py``,
-``geometry.py``, ``model.py``, ``sky.py``, ``sun.py``), so other code can import
-them cheaply. That is why this file imports Home Assistant only inside its
-functions.
+``constants.py``, ``geometry.py``, ``model.py`` and ``sky.py`` use only the
+standard library, and ``sun.py`` only ``astral`` (which Home Assistant ships),
+so other code can import them cheaply. That is why this file imports Home
+Assistant only inside its functions.
 """
 
 from __future__ import annotations
@@ -38,14 +38,14 @@ from .constants import (  # noqa: F401  (re-exported for other integrations)
 
 async def async_setup_entry(hass, entry) -> bool:
     """Fetch the sky, then create the devices and sensors."""
-    from .coordinator import SkyCoordinator
+    from .coordinator import sky_coordinator
     from .devices import HouseData, elements_of, publish_rooms, register_devices
 
     elements = elements_of(entry)
     register_devices(hass, entry, elements)
     # the rooms are known before the sky, which may not answer yet
     publish_rooms(hass, elements)
-    coordinator = SkyCoordinator(hass, entry)
+    coordinator = sky_coordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = HouseData(coordinator, elements)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

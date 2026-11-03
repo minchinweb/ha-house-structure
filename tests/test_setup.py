@@ -14,7 +14,9 @@ from homeassistant.helpers import entity_registry as er
 import pytest
 
 from custom_components.house_structure.constants import DOMAIN, UPDATED_EVENT
-from custom_components.house_structure.sky import build_url
+from custom_components.house_structure.geometry import Plane
+from custom_components.house_structure.sky import build_url, split
+from custom_components.house_structure.sun import sun_position
 
 LAT, LON = 50.45, -104.6
 NOW = datetime(2026, 11, 2, 19, 5, tzinfo=UTC)
@@ -130,7 +132,7 @@ async def test_devices_are_in_the_room(hass: HomeAssistant, house) -> None:
 
 async def test_sensors(hass: HomeAssistant, house) -> None:
     wall = hass.states.get("sensor.master_bedroom_south_wall_sun")
-    assert float(wall.state) == pytest.approx(661, abs=2)
+    assert float(wall.state) == pytest.approx(657, abs=2)
     assert wall.attributes["azimuth"] == pytest.approx(190.4)
     assert wall.attributes["glass_m2"] == pytest.approx(1.703, abs=0.001)
 
@@ -138,8 +140,8 @@ async def test_sensors(hass: HomeAssistant, house) -> None:
     assert roof.attributes["tilt"] == 45.0
 
     window = hass.states.get("sensor.master_bedroom_south_window_solar_gain")
-    # 661 W/m2 on 1.703 m2, 0.7 through the glass, blind 96% open
-    assert float(window.state) == pytest.approx(661 * 1.703 * 0.7 * 0.968, rel=0.01)
+    # 657 W/m2 on 1.703 m2, 0.7 through the glass, blind 96% open
+    assert float(window.state) == pytest.approx(657 * 1.703 * 0.7 * 0.968, rel=0.01)
     room = hass.states.get("sensor.master_bedroom_room_solar_gain")
     assert float(room.state) == pytest.approx(float(window.state))
     assert room.attributes["volume_m3"] == pytest.approx(
@@ -251,3 +253,48 @@ async def test_editing_shows_the_house_unit(hass: HomeAssistant, house) -> None:
     }
     assert suggested["length"] == pytest.approx(150)
     assert suggested["height"] == pytest.approx(60)
+
+
+async def test_the_sky_from_a_radiation_sensor(
+    hass: HomeAssistant, aioclient_mock, freezer
+) -> None:
+    freezer.move_to(NOW)
+    hass.config.latitude, hass.config.longitude = LAT, LON
+    hass.states.async_set(
+        "sensor.station_radiation", "400", {"unit_of_measurement": "W/m²"}
+    )
+    areas = ar.async_get(hass)
+    master = areas.async_create("Master bedroom")
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    # the sensor source needs its sensor
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"unit": "cm", "sky_source": "sensor"}
+    )
+    assert result["errors"] == {"sky_sensor": "invalid_sky_sensor"}
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "unit": "cm",
+            "sky_source": "sensor",
+            "sky_sensor": "sensor.station_radiation",
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    await _add(
+        hass,
+        result["result"].entry_id,
+        "wall",
+        {"area_id": master.id, "face": "S", "length": 300, "height": 240},
+    )
+
+    azimuth, elevation = sun_position(NOW, LAT, LON)
+    direct, diffuse = split(400.0, elevation, NOW)
+    expected = Plane(180.0, 90.0).light(direct, diffuse, azimuth, elevation)
+    wall = hass.states.get("sensor.master_bedroom_south_wall_sun")
+    assert float(wall.state) == pytest.approx(expected, abs=1)
+    assert float(wall.state) > 400
+    # Open-Meteo is never asked
+    assert aioclient_mock.call_count == 0

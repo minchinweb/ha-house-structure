@@ -14,5 +14,10 @@ INTERNAL_WALL = "internal_wall"
 ROOM = "room"
 REGISTER = "register"
 
+# Where the sky's light comes from (the house's ``sky_source``).
+OPEN_METEO = "open_meteo"
+SENSOR = "sensor"
+SKY_SOURCES = [OPEN_METEO, SENSOR]
+
 # Fired when the rooms' parts change, for integrations that use them.
 UPDATED_EVENT = "house_structure_updated"

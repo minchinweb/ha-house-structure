@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import math
 
 import pytest
 
@@ -30,7 +31,7 @@ from custom_components.house_structure.model import (
     rooms_summary,
     windows_in,
 )
-from custom_components.house_structure.sky import at, build_url, parse
+from custom_components.house_structure.sky import at, build_url, parse, split
 from custom_components.house_structure.sun import sun_position
 
 
@@ -106,6 +107,33 @@ def test_sun_at_regina_on_a_november_noon():
     )
     assert azimuth == pytest.approx(180, abs=3)
     assert elevation == pytest.approx(24.8, abs=1.5)
+
+
+WHEN = datetime(2026, 11, 2, 18, 45, tzinfo=UTC)
+
+
+def test_split_gives_back_all_the_light():
+    # a clear-ish noon: beam on the flat plus the sky is what the sensor read
+    direct, diffuse = split(400.0, 25.0, WHEN)
+    assert direct > diffuse > 0
+    assert direct * math.sin(math.radians(25.0)) + diffuse == pytest.approx(400.0)
+
+
+def test_split_overcast_is_nearly_all_sky():
+    direct, diffuse = split(60.0, 25.0, WHEN)
+    assert diffuse == pytest.approx(60.0, rel=0.05)
+    assert direct < 15
+
+
+def test_split_low_or_set_sun_is_all_sky():
+    assert split(30.0, 1.0, WHEN) == (0.0, 30.0)
+    assert split(-2.0, -10.0, WHEN) == (0.0, 0.0)
+
+
+def test_split_caps_a_beam_brighter_than_can_be():
+    # more light than the sun gives above the air, with the sun low
+    direct, _ = split(500.0, 5.0, WHEN)
+    assert direct <= 0.8 * 1361.0 * 1.034
 
 
 BODY = {

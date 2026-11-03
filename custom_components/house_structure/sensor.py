@@ -31,14 +31,12 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.util import dt as dt_util
 
 from .constants import DOMAIN, INTERNAL_WALL, ROOF, ROOM, WALL, WINDOW
 from .coordinator import SkyCoordinator
 from .devices import HouseData, area_temperature
 from .geometry import blind_open_fraction, window_gain
 from .model import Element, windows_in
-from .sky import at
 from .sun import sun_position
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,7 +63,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 def _light(coordinator: SkyCoordinator, element: Element) -> float | None:
     """Light on the part's plane now, W/m2."""
-    sky = at(coordinator.data or [], dt_util.utcnow())
+    sky = coordinator.now()
     if sky is None or element.plane is None:
         return None
     hass = coordinator.hass

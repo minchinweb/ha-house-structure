@@ -7,28 +7,39 @@
         "data": {
           "rotation": "House rotation (degrees)",
           "shade_below": "Shaded below sun elevation (degrees)",
-          "unit": "Unit for sizes"
+          "unit": "Unit for sizes",
+          "sky_source": "Sky source",
+          "sky_sensor": "Solar radiation sensor"
         },
         "data_description": {
           "rotation": "Degrees the house is turned clockwise from true north. Its four faces then look this far past north, east, south and west.",
           "shade_below": "Treat the south-east to south-west sun as blocked by trees and neighbours below this elevation. A wall or roof can set its own.",
-          "unit": "Sizes are typed in this unit and kept in metres, so changing it later keeps them."
+          "unit": "Sizes are typed in this unit and kept in metres, so changing it later keeps them.",
+          "sky_source": "Where the sun and sky light comes from. Open-Meteo is fetched over the internet every 15 minutes (no key needed). A solar radiation sensor, such as a weather station's, is read every 5 minutes and split into the sun's beam and the rest of the sky.",
+          "sky_sensor": "Only for the sensor source: a sensor reading all the sun and sky light on a flat surface, in W/m²."
         }
       },
       "reconfigure": {
         "title": "House Structure",
-        "description": "Change the house's rotation, shading or unit. Every part picks up the change.",
+        "description": "Change the house's rotation, shading, unit or sky source. Every part picks up the change.",
         "data": {
           "rotation": "House rotation (degrees)",
           "shade_below": "Shaded below sun elevation (degrees)",
-          "unit": "Unit for sizes"
+          "unit": "Unit for sizes",
+          "sky_source": "Sky source",
+          "sky_sensor": "Solar radiation sensor"
         },
         "data_description": {
           "rotation": "Degrees the house is turned clockwise from true north.",
           "shade_below": "Treat the south-east to south-west sun as blocked below this elevation.",
-          "unit": "Sizes are typed in this unit and kept in metres, so changing it keeps them."
+          "unit": "Sizes are typed in this unit and kept in metres, so changing it keeps them.",
+          "sky_source": "Open-Meteo over the internet, or a solar radiation sensor.",
+          "sky_sensor": "Only for the sensor source: the light on a flat surface, in W/m²."
         }
       }
+    },
+    "error": {
+      "invalid_sky_sensor": "Choose the solar radiation sensor to read the sky from."
     },
     "abort": {
       "single_instance_allowed": "House Structure is already set up.",
@@ -401,6 +412,12 @@
         "mm": "Millimetres",
         "in": "Inches",
         "ft": "Feet"
+      }
+    },
+    "sky_source": {
+      "options": {
+        "open_meteo": "Open-Meteo (internet)",
+        "sensor": "Solar radiation sensor"
       }
     }
   },
