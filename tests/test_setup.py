@@ -712,5 +712,21 @@ async def test_rooms_beside_and_above(hass: HomeAssistant, house) -> None:
         context={"source": SOURCE_RECONFIGURE, "subentry_id": hall_room.subentry_id},
     )
     assert shown["description_placeholders"]["linked"] == "Master bedroom"
-    # and leaves it out of the rooms it ticks
-    assert _suggested(shown)["beside"] == [house["bath"].id]
+    # the same-floor rooms are ticked, and so is the master bedroom: that link
+    # is real, so unticking it here is what removes it
+    assert _suggested(shown)["beside"] == sorted([house["master"].id, house["bath"].id])
+
+    # unticking the master bedroom removes the link from both rooms
+    result = await hass.config_entries.subentries.async_configure(
+        shown["flow_id"], {"area_id": hall.id, "beside": [house["bath"].id]}
+    )
+    assert result["type"] is FlowResultType.ABORT
+    await hass.async_block_till_done()
+    rooms = hass.data[DOMAIN]["rooms"]
+    assert {n["area_id"] for n in rooms[house["master"].id]["neighbours"]} == {
+        loft.id,
+        house["bath"].id,
+    }
+    assert {(n["area_id"], n["position"]) for n in rooms[hall.id]["neighbours"]} == {
+        (house["bath"].id, "beside")
+    }

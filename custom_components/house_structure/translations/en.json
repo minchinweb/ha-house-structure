@@ -191,7 +191,7 @@
       "step": {
         "user": {
           "title": "Roof",
-          "description": "A part of the roof that is the ceiling of one or more rooms (an attic room with a sloped ceiling), or holds their skylights. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).",
+          "description": "A part of the roof that is the ceiling of one or more rooms (an attic room with a sloped ceiling), or holds their skylights. Give the floor area under it, or the length along the eave and the slope length. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).",
           "data": {
             "name": "Name",
             "area_ids": "Rooms (areas) it covers",
@@ -199,8 +199,9 @@
             "facing": "Facing (degrees, instead of the face)",
             "shade_below": "Shaded below sun elevation (degrees)",
             "pitch": "Pitch",
-            "length": "Length (along the eave)",
-            "slope": "Slope length (eave to ridge)"
+            "length": "Length along the eave (if no floor area)",
+            "slope": "Slope length, eave to ridge (if no floor area)",
+            "floor": "Floor area under the roof"
           },
           "data_description": {
             "area_ids": "Every room under this part of the roof. Its device goes in the first; each room lists the roof.",
@@ -208,12 +209,13 @@
             "face": "The way it looks out, on the house's own grid; the compass bearing is shown.",
             "facing": "Only for a part not square to the house: its compass bearing, 0 north, 90 east.",
             "shade_below": "Leave empty to use the house's setting.",
-            "pitch": "Degrees (45) or rise:run (12:12)."
+            "pitch": "Degrees (45) or rise:run (12:12).",
+            "floor": "Measure the floor under the roof, out to the walls. Easier than the slope; the slope length is worked out from the pitch. Leave blank to use the floor areas of its rooms, once they have one."
           }
         },
         "reconfigure": {
           "title": "Roof",
-          "description": "A part of the roof that is the ceiling of one or more rooms (an attic room with a sloped ceiling), or holds their skylights. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).",
+          "description": "A part of the roof that is the ceiling of one or more rooms (an attic room with a sloped ceiling), or holds their skylights. Give the floor area under it, or the length along the eave and the slope length. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).",
           "data": {
             "name": "Name",
             "area_ids": "Rooms (areas) it covers",
@@ -221,8 +223,9 @@
             "facing": "Facing (degrees, instead of the face)",
             "shade_below": "Shaded below sun elevation (degrees)",
             "pitch": "Pitch",
-            "length": "Length (along the eave)",
-            "slope": "Slope length (eave to ridge)"
+            "length": "Length along the eave (if no floor area)",
+            "slope": "Slope length, eave to ridge (if no floor area)",
+            "floor": "Floor area under the roof"
           },
           "data_description": {
             "area_ids": "Every room under this part of the roof. Its device goes in the first; each room lists the roof.",
@@ -230,7 +233,8 @@
             "face": "The way it looks out, on the house's own grid; the compass bearing is shown.",
             "facing": "Only for a part not square to the house: its compass bearing, 0 north, 90 east.",
             "shade_below": "Leave empty to use the house's setting.",
-            "pitch": "Degrees (45) or rise:run (12:12)."
+            "pitch": "Degrees (45) or rise:run (12:12).",
+            "floor": "Measure the floor under the roof, out to the walls. Easier than the slope; the slope length is worked out from the pitch. Leave blank to use the floor areas of its rooms, once they have one."
           }
         }
       },
@@ -244,7 +248,7 @@
         "invalid_height": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_width": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_slope": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
-        "invalid_floor": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_floor": "Give the floor area under the roof, or both the length along the eave and the slope length.",
         "invalid_volume": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead.",
@@ -459,6 +463,20 @@
       "heating": {
         "name": "Heating"
       }
+    }
+  },
+  "issues": {
+    "missing_wall_size": {
+      "title": "A wall has no size",
+      "description": "{part} needs its length and height. Its sun sensor and the room's figures are incomplete until they are given: edit the wall in the integration."
+    },
+    "missing_roof_size": {
+      "title": "A roof has no size",
+      "description": "{part} has no floor area under it, and its rooms have none either. Give its floor area under the roof, or its length along the eave and its slope length. Its sun sensor is incomplete until then: edit the roof in the integration."
+    },
+    "missing_floor": {
+      "title": "A room has no floor area",
+      "description": "The room {part} needs its floor area. Its volume and the air it holds are incomplete until it is given: edit the room in the integration."
     }
   }
 }

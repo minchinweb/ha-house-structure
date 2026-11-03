@@ -170,6 +170,7 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
         )
     if kind == ROOF:
         fields[vol.Required("pitch")] = _TEXT
+        fields[vol.Optional("floor")] = _TEXT
     for size in _SIZES[kind]:
         key = vol.Required(size) if kind == WINDOW else vol.Optional(size)
         fields[key] = _TEXT
@@ -415,8 +416,14 @@ class _PartFlow(ConfigSubentryFlow):
         current = _to_form(
             self.kind, dict(subentry.data), self._house(), subentry.title
         )
-        if self.kind == ROOM and "beside" not in subentry.data:
-            current["beside"] = self._same_floor(subentry.data.get("area_id"))
+        if self.kind == ROOM:
+            area_id = subentry.data.get("area_id")
+            if "beside" not in subentry.data:
+                current["beside"] = self._same_floor(area_id)
+            # links another room made show as ticked: unticking one removes it
+            current["beside"] = sorted(
+                set(current.get("beside") or []) | set(self._beside_links(area_id))
+            )
         return await self._step("reconfigure", user_input, current)
 
     def _house(self) -> dict:
@@ -468,6 +475,37 @@ class _PartFlow(ConfigSubentryFlow):
                 elif d.get("other_area_id") == area_id:
                     out.append(d.get("area_id"))
         return [a for a in dict.fromkeys(out) if a]
+
+    def _beside_links(self, area_id: str | None) -> list[str]:
+        """The other rooms whose own list names this room as beside."""
+        if not area_id:
+            return []
+        return [
+            sub.data["area_id"]
+            for sub in self._rooms()
+            if sub.data.get("area_id") not in (None, area_id)
+            and area_id in (sub.data.get("beside") or [])
+        ]
+
+    def _unlink_beside(self, area_id: str, keep: list[str]) -> None:
+        """Take this room out of other rooms' beside lists, except those kept.
+
+        The form ticks every beside link, from either side, so a room left
+        unticked here must come off the other room's list too.
+        """
+        entry = self._get_entry()
+        for sub in self._rooms():
+            data = sub.data
+            other = data.get("area_id")
+            if other in (None, area_id) or other in keep:
+                continue
+            beside = data.get("beside") or []
+            if area_id in beside:
+                self.hass.config_entries.async_update_subentry(
+                    entry,
+                    sub,
+                    data={**data, "beside": [a for a in beside if a != area_id]},
+                )
 
     def _same_floor(self, area_id: str | None) -> list[str]:
         """The other rooms on this room's floor, less those linked already."""
@@ -570,6 +608,8 @@ class _PartFlow(ConfigSubentryFlow):
                 title = (user_input.get("name") or "").strip() or self._default_name(
                     data
                 )
+                if step_id == "reconfigure" and self.kind == ROOM:
+                    self._unlink_beside(data["area_id"], data["beside"])
                 if step_id == "reconfigure":
                     return self.async_update_and_abort(
                         self._get_entry(),

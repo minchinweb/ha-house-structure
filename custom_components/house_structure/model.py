@@ -12,6 +12,7 @@ metres. Standard library only.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import math
 from typing import NamedTuple
 
 from .constants import INTERNAL_WALL, REGISTER, ROOF, ROOM, WALL, WINDOW
@@ -138,6 +139,24 @@ def _area(data: dict, width: str, height: str) -> float | None:
     return float(a) * float(b)
 
 
+def _roof_area(
+    data: dict, tilt: float, rooms: list[str], room_floors: dict[str, float]
+) -> float | None:
+    """A roof's sloped area, from the first of: the floor under it, its length
+    along the eave and its slope length, or the floor areas of its rooms (when
+    all of them have one). The floor is over the cosine of the pitch."""
+    floor = data.get("floor_m2")
+    if floor is None:
+        floor = _area(data, "length_m", "slope_m")
+        if floor is not None:
+            return floor
+        if rooms and all(area in room_floors for area in rooms):
+            floor = sum(room_floors[area] for area in rooms)
+        else:
+            return None
+    return float(floor) / math.cos(math.radians(tilt))
+
+
 def roof_areas(data: dict) -> list[str]:
     """A roof's rooms; one saved before roofs could be shared has ``area_id``."""
     if data.get("area_ids"):
@@ -170,6 +189,11 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
     elements: dict[str, Element] = {}
     problems: list[str] = []
     rooms: set[str] = set()
+    room_floors = {
+        raw.data.get("area_id"): float(raw.data["floor_m2"])
+        for raw in raws
+        if raw.kind == ROOM and raw.data.get("floor_m2") is not None
+    }
     for raw in raws:
         d = raw.data
         if raw.kind == ROOM:
@@ -221,7 +245,7 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 areas[0] if areas else None,
                 area_ids=tuple(areas),
                 plane=_plane(d, house, float(d.get("pitch", 45.0))),
-                size_m2=_area(d, "length_m", "slope_m"),
+                size_m2=_roof_area(d, float(d.get("pitch", 45.0)), areas, room_floors),
             )
         elif raw.kind == INTERNAL_WALL:
             elements[raw.id] = Element(

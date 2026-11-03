@@ -40,9 +40,11 @@ async def async_setup_entry(hass, entry) -> bool:
     """Fetch the sky, then create the devices and sensors."""
     from .coordinator import sky_coordinator
     from .devices import HouseData, elements_of, publish_rooms, register_devices
+    from .issues import check
 
     elements = elements_of(entry)
     register_devices(hass, entry, elements)
+    check(hass, entry.entry_id, elements)
     # the rooms are known before the sky, which may not answer yet
     publish_rooms(hass, elements)
     coordinator = sky_coordinator(hass, entry)
@@ -61,7 +63,9 @@ async def async_unload_entry(hass, entry) -> bool:
 async def async_remove_entry(hass, entry) -> None:
     """Take the rooms away when the integration is deleted."""
     from .devices import publish_rooms
+    from .issues import check
 
+    check(hass, entry.entry_id, {})
     publish_rooms(hass, None)
 
 
@@ -75,6 +79,7 @@ async def _updated(hass, entry) -> None:
 
     from .devices import elements_of, publish_rooms, register_devices
     from .entity import parts_signal
+    from .issues import check
 
     data = entry.runtime_data
     if dict(entry.data) != data.house:
@@ -82,5 +87,6 @@ async def _updated(hass, entry) -> None:
         return
     data.elements = elements_of(entry)
     register_devices(hass, entry, data.elements)
+    check(hass, entry.entry_id, data.elements)
     publish_rooms(hass, data.elements)
     async_dispatcher_send(hass, parts_signal(entry.entry_id))

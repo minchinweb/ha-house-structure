@@ -227,7 +227,8 @@ def test_model_builds_the_master_bedroom():
     roof = elements["roof"]
     assert (roof.plane.azimuth, roof.plane.tilt) == (pytest.approx(280.4), 45.0)
     assert roof.plane.shade_below == 0.0  # its own setting wins
-    assert roof.size_m2 is None
+    # no floor or length of its own, so it takes its room's floor, over the pitch
+    assert roof.size_m2 == pytest.approx(room.floor_m2 / math.cos(math.radians(45)))
 
     window = elements["win"]
     assert window.area_id == "master"  # from its wall
