@@ -283,6 +283,25 @@ async def test_editing_shows_the_house_unit(hass: HomeAssistant, house) -> None:
     assert suggested["height"] == pytest.approx(60)
 
 
+async def test_reconfiguring_the_house_reloads_it_once(
+    hass: HomeAssistant, house, caplog
+) -> None:
+    entry = hass.config_entries.async_get_entry(house["entry_id"])
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": entry.entry_id}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"rotation": 0, "unit": "in"}
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+    assert entry.data["rotation"] == 0
+    wall = hass.states.get("sensor.master_bedroom_south_wall_sun")
+    assert wall.attributes["azimuth"] == pytest.approx(180.0)
+    assert "should use it for scheduling a reload" not in caplog.text
+
+
 async def test_the_sky_from_a_radiation_sensor(
     hass: HomeAssistant, aioclient_mock, freezer
 ) -> None:

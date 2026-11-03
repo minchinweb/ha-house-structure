@@ -314,10 +314,13 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
                 current = user_input
             else:
                 if step_id == "reconfigure":
+                    # the entry's update listener reloads it, so this must not
+                    # (async_update_and_abort does this, from 2025.11)
                     entry = self._get_reconfigure_entry()
-                    return self.async_update_reload_and_abort(
+                    self.hass.config_entries.async_update_entry(
                         entry, data={**entry.data, **data}
                     )
+                    return self.async_abort(reason="reconfigure_successful")
                 return self.async_create_entry(title="House structure", data=data)
         schema = vol.Schema(
             {
