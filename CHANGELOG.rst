@@ -3,6 +3,7 @@ Changelog
 
 .. release:: unreleased
 
+  - :feature:`-` A **repair for a missing size** names the wall or roof's **room** and links to its device, and the room to its area.
   - :feature:`-` Sizes can be typed **with their own unit**, whatever the house's: ``3.2 m``, ``12' 6"``, ``150 sq ft``, ``40 m³``. A bare number is still in the house's unit.
   - :feature:`-` A room lists the **rooms beside it and above it**; each link counts both ways, and the first edit ticks the other rooms on the same floor. Published as each room's ``neighbours`` (beside, above or below), on the room's sensor and in the diagnostics, without adding entities.
   - :feature:`-` Adding, changing or removing a part **no longer reloads the integration**, so the other parts' sensors stay available (no more blips of "unavailable" in their history). Changing the house's own settings still reloads it.

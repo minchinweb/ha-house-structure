@@ -468,11 +468,11 @@
   "issues": {
     "missing_wall_size": {
       "title": "A wall has no size",
-      "description": "{part} needs its length and height. Its sun sensor and the room's figures are incomplete until they are given: edit the wall in the integration."
+      "description": "{part} {room} needs its length and height. Its sun sensor and the room's figures are incomplete until they are given: edit the wall in the integration."
     },
     "missing_roof_size": {
       "title": "A roof has no size",
-      "description": "{part} has no floor area under it, and its rooms have none either. Give its floor area under the roof, or its length along the eave and its slope length. Its sun sensor is incomplete until then: edit the roof in the integration."
+      "description": "{part} {room} has no floor area under it, and its rooms have none either. Give its floor area under the roof, or its length along the eave and its slope length. Its sun sensor is incomplete until then: edit the roof in the integration."
     },
     "missing_floor": {
       "title": "A room has no floor area",
