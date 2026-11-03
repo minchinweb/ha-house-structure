@@ -3,6 +3,7 @@ Changelog
 
 .. release:: unreleased
 
+  - :feature:`-` **Diagnostics** download: the house and each part's settings and what was built from them, skipped parts, every area with its parts (so a room left out shows up), the sky now, and the OpenStreetMap outline as wall bearings and lengths (no position).
   - :feature:`-` **Feet and inches** as a unit: lengths are typed as ``12' 6"`` (or ``12 6``, ``150"``); floor areas and volumes in square and cubic feet.
   - :feature:`-` A **roof can cover several rooms**: it is listed in each room's summary (with ``area_ids``), its device sits in the first, and a skylight in it can name the room it lights. Roofs saved with one room keep it.
   - :feature:`-` The house form measures the **house rotation** from the building outline on OpenStreetMap and draws it, with **Redraw the map** to check another value before saving (from Home Thermal Lab).

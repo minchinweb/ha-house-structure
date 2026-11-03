@@ -14,7 +14,14 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 import pytest
 
-from custom_components.house_structure.constants import DOMAIN, UPDATED_EVENT
+from custom_components.house_structure.constants import (
+    DOMAIN,
+    OUTLINE,
+    UPDATED_EVENT,
+)
+from custom_components.house_structure.diagnostics import (
+    async_get_config_entry_diagnostics,
+)
 from custom_components.house_structure.geometry import Plane
 from custom_components.house_structure.map_view import OutlineMapView
 from custom_components.house_structure.sky import build_url, split
@@ -467,3 +474,28 @@ async def test_a_roof_over_several_rooms(hass: HomeAssistant, aioclient_mock) ->
         context={"source": SOURCE_RECONFIGURE, "subentry_id": roof.subentry_id},
     )
     assert _suggested(result)["area_ids"] == [attic.id, loft.id]
+
+
+async def test_diagnostics(hass: HomeAssistant, house) -> None:
+    entry = hass.config_entries.async_get_entry(house["entry_id"])
+    hass.data[OUTLINE] = {
+        "points": _outline(10.4, hass.config.latitude, hass.config.longitude)
+    }
+    data = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert data["house"]["rotation"] == 10.4
+    assert data["skipped"] == []
+    wall = next(p for p in data["parts"] if p["kind"] == "wall")
+    assert wall["settings"]["length_m"] == pytest.approx(3.81)
+    assert wall["built"]["azimuth"] == pytest.approx(190.4)
+    assert wall["area"] == wall["device_area"] == "Master bedroom"
+    assert wall["entities"][0]["state"] not in (None, "unavailable")
+    areas = {a["name"]: a["parts"] for a in data["areas"]}
+    assert len(areas["Master bedroom"]) == 6
+    assert areas["Upstairs bath"] == []
+    assert data["sky"]["last_update_success"]
+    assert data["sky"]["now"]["direct_normal"] > 0
+    # the outline as walls only: nothing in it gives the house's position
+    assert data["outline"]["rotation"] == pytest.approx(10.4, abs=0.05)
+    assert len(data["outline"]["walls"]) == 4
+    assert str(hass.config.latitude) not in str(data)

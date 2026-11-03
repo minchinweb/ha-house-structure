@@ -67,6 +67,39 @@ def wall_rotation(outline: list[Point]) -> tuple[float, float]:
     return turn, math.hypot(sin_sum, cos_sum) / total
 
 
+def outline_walls(outline: list[Point]) -> list[tuple[float, float]]:
+    """The outline's walls as the way each faces and its length.
+
+    Args:
+        outline: The corners, in order, either way round.
+
+    Returns:
+        For each wall, its outward compass bearing in degrees and its length in
+        metres; no positions, so the result does not give away where it is.
+    """
+    if len(outline) < 3:
+        return []
+    ring = list(outline)
+    if ring[0] != ring[-1]:
+        ring.append(ring[0])
+    sides = [_metres(a, b) for a, b in itertools.pairwise(ring)]
+    # shoelace on the corners relative to the first: positive when anticlockwise
+    x = y = twice_area = 0.0
+    for east, north in sides:
+        twice_area += x * (y + north) - (x + east) * y
+        x, y = x + east, y + north
+    # outward is to the right of the way round when it runs anticlockwise
+    turn = 90.0 if twice_area > 0 else -90.0
+    return [
+        (
+            round((math.degrees(math.atan2(east, north)) + turn) % 360.0, 1),
+            round(math.hypot(east, north), 2),
+        )
+        for east, north in sides
+        if east or north
+    ]
+
+
 def _inside(point: Point, outline: list[Point]) -> bool:
     lat, lon = point
     inside = False

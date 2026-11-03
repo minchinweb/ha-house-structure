@@ -85,6 +85,14 @@ in m², the window's wall or roof and the rooms on each side. A roof's device
 sits in its first room (a device has one area); its `area_ids` attribute lists
 them all.
 
+To check the whole house at once, use **Download diagnostics** in the
+integration's ⋮ menu. It lists the house settings, each part's settings (sizes
+in metres) and what was built from them, any part that was skipped and why,
+and every area with the parts in it, so a room you missed has none. If the
+house form has measured the outline from OpenStreetMap since Home Assistant
+started, it also gives the outline's walls: the way each faces and its length,
+to compare with your outside walls. The file never says where the house is.
+
 ## For other integrations
 
 House Structure publishes each room's parts as plain data in

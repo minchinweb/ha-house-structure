@@ -10,6 +10,7 @@ import pytest
 from custom_components.house_structure.orientation import (
     choose_outline,
     outline_svg,
+    outline_walls,
     ring_from_nominatim,
     wall_rotation,
 )
@@ -39,6 +40,25 @@ def test_wall_rotation_recovers_the_turn(turn):
     measured, squareness = wall_rotation(_box(turn))
     assert measured == pytest.approx(turn, abs=0.05)
     assert squareness == pytest.approx(1.0, abs=1e-3)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_outline_walls_face_outward(reverse):
+    ring = _box(10.4)
+    if reverse:
+        ring.reverse()
+    walls = sorted(outline_walls(ring))
+    assert [f for f, _ in walls] == pytest.approx([10.4, 100.4, 190.4, 280.4], abs=0.1)
+    south = next(length for facing, length in walls if 180 < facing < 200)
+    assert south == pytest.approx(12.0, abs=0.01)
+    assert sorted(length for _, length in walls) == pytest.approx(
+        [8.0, 8.0, 12.0, 12.0], abs=0.01
+    )
+
+
+def test_outline_walls_closes_an_open_ring():
+    assert len(outline_walls(_box(0.0)[:-1])) == 4
+    assert outline_walls([HOME]) == []
 
 
 def test_wall_rotation_rejects_empty_outline():
