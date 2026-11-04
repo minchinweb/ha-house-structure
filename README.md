@@ -3,7 +3,7 @@
 A Home Assistant integration that describes your house once: its rooms, outside
 walls, roofs, windows, internal walls and heating registers. The rooms are Home
 Assistant's areas, and each part of the house is a device in its room's area,
-with sensors for the sun on it, the solar heat through each window (less what
+with a solar exposure sensor for it, the solar heat through each window (less what
 its blind keeps out), the temperature difference across internal walls and
 whether each register is heating.
 
@@ -74,8 +74,8 @@ one it lights.
 | Part | Settings | Sensor |
 |---|---|---|
 | Room (one per area) | floor area, ceiling height, volume (for a sloped ceiling), below ground, rooms beside it, rooms above it | solar gain through all its windows (W) |
-| Outside wall | face, length, height | sun on it (W/m²) |
-| Roof | the rooms under it, face, pitch (`45` or `12:12`), floor area under it (or length along the eave and slope length) | sun on it (W/m²) |
+| Outside wall | face, length, height | solar exposure (W/m²) |
+| Roof | the rooms under it, face, pitch (`45` or `12:12`), floor area under it (or length along the eave and slope length) | solar exposure (W/m²) |
 | Window | the wall or roof it is in (and, in a shared roof, its room), glass size, share let in as heat, blind (a cover) | solar gain (W), less what the blind keeps out |
 | Internal wall | the room on the other side, length, height | this room minus the other (°C) |
 | Heating register | thermostat, its fan or damper | heating (on while the thermostat heats) |

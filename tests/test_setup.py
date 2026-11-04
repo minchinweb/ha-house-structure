@@ -144,12 +144,12 @@ async def test_devices_are_in_the_room(hass: HomeAssistant, house) -> None:
 
 
 async def test_sensors(hass: HomeAssistant, house) -> None:
-    wall = hass.states.get("sensor.master_bedroom_south_wall_sun")
+    wall = hass.states.get("sensor.master_bedroom_south_wall_solar_exposure")
     assert float(wall.state) == pytest.approx(657, abs=2)
     assert wall.attributes["azimuth"] == pytest.approx(190.4)
     assert wall.attributes["glass_m2"] == pytest.approx(1.703, abs=0.001)
 
-    roof = hass.states.get("sensor.master_bedroom_west_roof_sun")
+    roof = hass.states.get("sensor.master_bedroom_west_roof_solar_exposure")
     assert roof.attributes["tilt"] == 45.0
 
     window = hass.states.get("sensor.master_bedroom_south_window_solar_gain")
@@ -284,7 +284,7 @@ async def test_a_missed_fetch_keeps_the_sky(
 ) -> None:
     entry = hass.config_entries.async_get_entry(house["entry_id"])
     coordinator = entry.runtime_data.coordinator
-    wall = "sensor.master_bedroom_south_wall_sun"
+    wall = "sensor.master_bedroom_south_wall_solar_exposure"
     before = hass.states.get(wall).state
     aioclient_mock.clear_requests()
     aioclient_mock.get(build_url(LAT, LON), exc=TimeoutError)
@@ -391,7 +391,7 @@ async def test_reconfiguring_the_house_reloads_it_once(
     assert result["reason"] == "reconfigure_successful"
     await hass.async_block_till_done()
     assert entry.data["rotation"] == 0
-    wall = hass.states.get("sensor.master_bedroom_south_wall_sun")
+    wall = hass.states.get("sensor.master_bedroom_south_wall_solar_exposure")
     assert wall.attributes["azimuth"] == pytest.approx(180.0)
     assert "should use it for scheduling a reload" not in caplog.text
 
@@ -434,7 +434,7 @@ async def test_the_sky_from_a_radiation_sensor(
     azimuth, elevation = sun_position(NOW, LAT, LON)
     direct, diffuse = split(400.0, elevation, NOW)
     expected = Plane(180.0, 90.0).light(direct, diffuse, azimuth, elevation)
-    wall = hass.states.get("sensor.master_bedroom_south_wall_sun")
+    wall = hass.states.get("sensor.master_bedroom_south_wall_solar_exposure")
     assert float(wall.state) == pytest.approx(expected, abs=1)
     assert float(wall.state) > 400
     # Open-Meteo is never asked
@@ -602,7 +602,7 @@ async def test_a_roof_over_several_rooms(hass: HomeAssistant, aioclient_mock) ->
     await hass.async_block_till_done()
 
     # the roof's device is in the first room, so its sensor is named after it
-    sun = hass.states.get("sensor.attic_south_roof_sun")
+    sun = hass.states.get("sensor.attic_south_roof_solar_exposure")
     assert sun.attributes["area_ids"] == [attic.id, loft.id]
     assert hass.states.get("sensor.loft_south_skylight_solar_gain") is not None
     rooms = hass.data[DOMAIN]["rooms"]

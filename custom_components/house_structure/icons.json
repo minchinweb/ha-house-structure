@@ -1,7 +1,7 @@
 {
   "entity": {
     "sensor": {
-      "sun": {
+      "solar_exposure": {
         "default": "mdi:white-balance-sunny"
       },
       "solar_gain": {

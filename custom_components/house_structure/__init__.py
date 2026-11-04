@@ -5,7 +5,7 @@ Each part is a sub-entry of the integration and a device in a Home Assistant
 area, so the house's rooms are its areas. A room's own size (floor area,
 ceiling height, volume) is a part too, as is each heating register, which ties
 a thermostat (and the register's fan, if it has one) to the room it heats. The
-devices carry sensors: the sun on each wall and roof, the solar heat through
+devices carry sensors: the solar exposure of each wall and roof, the solar heat through
 each window (less what its blind keeps out) and through all of a room's
 windows, the temperature difference across each internal wall, and whether
 each register is heating. Other integrations, such as Home Thermal Lab, find a

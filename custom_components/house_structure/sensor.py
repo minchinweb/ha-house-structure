@@ -1,7 +1,7 @@
 # Copyright (c) 2026 MinchinWeb
 """Sensors on each part of the house (see ``devices.py`` for the devices).
 
-* Wall and roof: ``sun``, the light on it (W/m2).
+* Wall and roof: ``solar_exposure``, the sun and sky light on it (W/m2).
 * Window: ``solar_gain``, the sun's heat through the glass (W), less what the
   blind keeps out.
 * Room: ``solar_gain``, the sun's heat through all its windows (W); its
@@ -88,7 +88,7 @@ class SunSensor(CoordinatorEntity[SkyCoordinator], _PartSensor):
         self, coordinator: SkyCoordinator, data: HouseData, element: Element
     ) -> None:
         CoordinatorEntity.__init__(self, coordinator)
-        _PartSensor.__init__(self, data, element, "sun")
+        _PartSensor.__init__(self, data, element, "solar_exposure")
 
     @property
     def native_value(self) -> float | None:
