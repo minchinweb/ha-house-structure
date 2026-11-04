@@ -10,6 +10,7 @@ PLATFORMS = ["binary_sensor", "sensor"]
 WALL = "wall"
 ROOF = "roof"
 WINDOW = "window"
+DOOR = "door"
 INTERNAL_WALL = "internal_wall"
 ROOM = "room"
 REGISTER = "register"

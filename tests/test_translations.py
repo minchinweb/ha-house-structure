@@ -21,7 +21,15 @@ def test_english_matches_strings():
 
 def test_every_part_has_its_forms():
     strings = _load("strings.json")
-    for kind in ("room", "wall", "roof", "window", "internal_wall", "register"):
+    for kind in (
+        "room",
+        "wall",
+        "roof",
+        "window",
+        "door",
+        "internal_wall",
+        "register",
+    ):
         steps = strings["config_subentries"][kind]["step"]
         assert set(steps) == {"user", "reconfigure"}
 

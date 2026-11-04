@@ -9,6 +9,7 @@ import math
 import pytest
 
 from custom_components.house_structure.constants import (
+    DOOR,
     INTERNAL_WALL,
     REGISTER,
     ROOF,
@@ -32,6 +33,7 @@ from custom_components.house_structure.geometry import (
 from custom_components.house_structure.model import (
     Raw,
     build,
+    doors_in,
     neighbours,
     rooms_summary,
     windows_in,
@@ -580,3 +582,75 @@ def test_missing_envelope_fields_are_none_not_errors():
     elements, _ = build({"rotation": 0.0}, raws)
     wall = rooms_summary(elements)["office"]["walls"][0]
     assert wall["r_value_si"] is None
+
+
+DOORS = [
+    *RAWS,
+    Raw(
+        "patio",
+        DOOR,
+        "South door",
+        {
+            "host": "wall",
+            "width_m": 0.9,
+            "height_m": 2.0,
+            "sensor": "binary_sensor.patio",
+        },
+    ),
+    Raw(
+        "bathdoor",
+        DOOR,
+        "Door to bath",
+        {"host": "int", "sensor": "binary_sensor.bath"},
+    ),
+    Raw("roofdoor", DOOR, "Hatch", {"host": "roof"}),
+    Raw("gone", DOOR, "Old door", {"host": "nowhere"}),
+]
+
+
+def test_doors_take_their_rooms_from_their_wall():
+    elements, problems = build(HOUSE, DOORS)
+    assert len(problems) == 4  # as RAWS, plus the door in a roof and the lost one
+    assert "roofdoor" not in elements and "gone" not in elements
+
+    patio = elements["patio"]
+    assert (patio.area_id, patio.other_area_id) == ("master", None)
+    assert patio.plane == elements["wall"].plane
+    assert patio.size_m2 == pytest.approx(1.8)
+    assert patio.attributes()["sensor"] == "binary_sensor.patio"
+
+    inside = elements["bathdoor"]
+    assert (inside.area_id, inside.other_area_id) == ("master", "bath")
+    assert inside.plane is None and inside.size_m2 is None
+
+    # the wall's net area leaves out the door as well as the window
+    wall = elements["wall"]
+    assert wall.door_m2 == pytest.approx(1.8)
+    assert wall.net_m2 == pytest.approx(8.0 - 1.703 - 1.8, abs=0.001)
+    assert {d.id for d in doors_in(elements, "master")} == {"patio", "bathdoor"}
+    assert [d.id for d in doors_in(elements, "bath")] == ["bathdoor"]
+
+
+def test_doors_are_published_in_the_rooms_on_each_side():
+    elements, _ = build(HOUSE, DOORS)
+    rooms = rooms_summary(elements)
+    master, bath = rooms["master"], rooms["bath"]
+    by_title = {d["title"]: d for d in master["doors"]}
+    assert by_title["South door"] == {
+        "title": "South door",
+        "in": "wall",
+        "wall": "Master south wall",
+        "other_area_id": None,
+        "azimuth": pytest.approx(190.4),
+        "width_m": 0.9,
+        "height_m": 2.0,
+        "area_m2": pytest.approx(1.8),
+        "sensor": "binary_sensor.patio",
+    }
+    assert by_title["Door to bath"]["in"] == "internal_wall"
+    assert by_title["Door to bath"]["other_area_id"] == "bath"
+    assert [(d["title"], d["other_area_id"]) for d in bath["doors"]] == [
+        ("Door to bath", "master")
+    ]
+    assert master["walls"][0]["door_m2"] == pytest.approx(1.8)
+    assert master["internal_walls"][0]["door_m2"] == 0.0

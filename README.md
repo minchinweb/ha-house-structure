@@ -1,11 +1,11 @@
 # House Structure
 
 A Home Assistant integration that describes your house once: its rooms, outside
-walls, roofs, windows, internal walls and heating registers. The rooms are Home
-Assistant's areas, and each part of the house is a device in its room's area,
-with a solar exposure sensor for it, the solar heat through each window (less what
-its blind keeps out), the temperature difference across internal walls and
-whether each register is heating.
+walls, roofs, windows, doors, internal walls and heating registers. The rooms
+are Home Assistant's areas, and each part of the house is a device in its room's
+area, with a solar exposure sensor for it, the solar heat through each window
+(less what its blind keeps out), whether each door is open, the temperature
+difference across internal walls and whether each register is heating.
 
 Other integrations can then read a room's parts by its area instead of asking
 for them again. [Home Thermal Lab](https://github.com/minchinweb/ha-home-thermal-lab)
@@ -69,7 +69,8 @@ Then add the parts from the integration's page. Each asks for its room (area);
 a roof asks for every room under it, since one roof often covers several. A
 window instead asks for the wall or roof it is in and takes its room and the
 way it faces from there; a skylight in a roof over several rooms can name the
-one it lights.
+one it lights. A door asks for the outside or internal wall it is in, and takes
+its room from there: a door in an internal wall joins the rooms on both sides.
 
 | Part | Settings | Sensor |
 |---|---|---|
@@ -77,6 +78,7 @@ one it lights.
 | Outside wall | face, length, height | solar exposure (W/m²) |
 | Roof | the rooms under it, face, pitch (`45` or `12:12`), floor area under it (or length along the eave and slope length) | solar exposure (W/m²) |
 | Window | the wall or roof it is in (and, in a shared roof, its room), glass size, share let in as heat, blind (a cover) | solar gain (W), less what the blind keeps out |
+| Door | the outside or internal wall it is in, its contact sensor (a binary sensor, on when open), width, height | open (follows the contact; only for a door with one) |
 | Internal wall | the room on the other side, length, height | this room minus the other (°C) |
 | Heating register | thermostat, its fan or damper | heating (on while the thermostat heats) |
 
@@ -138,6 +140,19 @@ House Structure publishes each room's parts as plain data in
                     "blind_closed": 0.2,
                 }
             ],
+            "doors": [  # a door in an internal wall is listed in both rooms
+                {
+                    "title": "Door to Upstairs bath",
+                    "in": "internal_wall",  # or "wall" for a door to outside
+                    "wall": "Wall to Upstairs bath",
+                    "other_area_id": "upstairs_bath",  # None for a door to outside
+                    "azimuth": None,  # the wall's, for a door to outside
+                    "width_m": 0.76,
+                    "height_m": 2.03,
+                    "area_m2": 1.54,
+                    "sensor": "binary_sensor.bath_door_contact",
+                }
+            ],
             "walls": [
                 {
                     "title": "South wall",
@@ -146,6 +161,7 @@ House Structure publishes each room's parts as plain data in
                     "shade_below": 0.0,
                     "area_m2": 5.8,
                     "glass_m2": 1.70,
+                    "door_m2": 0.0,
                 }
             ],
             "roofs": [...],  # as walls, plus "area_ids": every room under it
@@ -154,6 +170,7 @@ House Structure publishes each room's parts as plain data in
                     "title": "Wall to Upstairs bath",
                     "other_area_id": "upstairs_bath",
                     "area_m2": None,
+                    "door_m2": 1.54,
                 }
             ],
             "registers": [

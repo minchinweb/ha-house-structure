@@ -17,6 +17,12 @@
         "state": {
           "on": "mdi:fire"
         }
+      },
+      "door": {
+        "default": "mdi:door-closed",
+        "state": {
+          "on": "mdi:door-open"
+        }
       }
     }
   }

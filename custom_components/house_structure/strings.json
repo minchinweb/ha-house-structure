@@ -392,6 +392,55 @@
         "invalid_area_id": "Choose one of the rooms the roof covers, or leave it empty."
       }
     },
+    "door": {
+      "entry_type": "Door",
+      "initiate_flow": {
+        "user": "Add door",
+        "reconfigure": "Reconfigure"
+      },
+      "step": {
+        "user": {
+          "title": "Door",
+          "description": "A door in an outside wall, or in an internal wall between two rooms; it takes its room (or rooms) from the wall. Its sensor follows the door's contact sensor, with the rooms on each side. Sizes in {unit}, or type a unit after the number (90 cm, 3' 6\").",
+          "data": {
+            "name": "Name",
+            "host": "Wall it is in",
+            "sensor": "Contact sensor",
+            "width": "Width",
+            "height": "Height"
+          },
+          "data_description": {
+            "name": "Leave empty for a name from the wall.",
+            "host": "An outside wall, or an internal wall for a door between two rooms.",
+            "sensor": "A door or opening sensor, on when the door is open. Leave empty if the door has none."
+          }
+        },
+        "reconfigure": {
+          "title": "Door",
+          "description": "A door in an outside wall, or in an internal wall between two rooms; it takes its room (or rooms) from the wall. Its sensor follows the door's contact sensor, with the rooms on each side. Sizes in {unit}, or type a unit after the number (90 cm, 3' 6\").",
+          "data": {
+            "name": "Name",
+            "host": "Wall it is in",
+            "sensor": "Contact sensor",
+            "width": "Width",
+            "height": "Height"
+          },
+          "data_description": {
+            "name": "Leave empty for a name from the wall.",
+            "host": "An outside wall, or an internal wall for a door between two rooms.",
+            "sensor": "A door or opening sensor, on when the door is open. Leave empty if the door has none."
+          }
+        }
+      },
+      "abort": {
+        "reconfigure_successful": "Saved.",
+        "no_hosts": "Add the outside or internal wall the door is in first."
+      },
+      "error": {
+        "invalid_width": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_height": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft."
+      }
+    },
     "internal_wall": {
       "entry_type": "Internal wall",
       "initiate_flow": {
@@ -565,6 +614,9 @@
     "binary_sensor": {
       "heating": {
         "name": "Heating"
+      },
+      "door": {
+        "name": "Open"
       }
     }
   },

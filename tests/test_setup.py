@@ -730,3 +730,45 @@ async def test_rooms_beside_and_above(hass: HomeAssistant, house) -> None:
     assert {(n["area_id"], n["position"]) for n in rooms[hall.id]["neighbours"]} == {
         (house["bath"].id, "beside")
     }
+
+
+async def test_a_door_follows_its_contact(hass: HomeAssistant, house) -> None:
+    entry_id = house["entry_id"]
+    entry = hass.config_entries.async_get_entry(entry_id)
+    inside = next(
+        s for s in entry.subentries.values() if s.subentry_type == "internal_wall"
+    )
+    hass.states.async_set("binary_sensor.bath_contact", "off")
+    await _add(
+        hass,
+        entry_id,
+        "door",
+        {"host": inside.subentry_id, "sensor": "binary_sensor.bath_contact"},
+    )
+    # a door with no contact gets no sensor, but is still published
+    await _add(
+        hass,
+        entry_id,
+        "door",
+        {"host": house["wall"].subentry_id, "width": "36", "height": "80"},
+    )
+
+    door = "binary_sensor.master_bedroom_door_to_upstairs_bath_open"
+    assert hass.states.get(door).state == "off"
+    attributes = hass.states.get(door).attributes
+    assert attributes["other_area_id"] == house["bath"].id
+    assert attributes["temperature_entity"] == "sensor.master_t"
+    assert attributes["other_temperature_entity"] == "sensor.bath_t"
+    hass.states.async_set("binary_sensor.bath_contact", "on")
+    await hass.async_block_till_done()
+    assert hass.states.get(door).state == "on"
+    assert hass.states.get("binary_sensor.master_bedroom_south_door_open") is None
+
+    rooms = hass.data[DOMAIN]["rooms"]
+    master, bath = rooms[house["master"].id], rooms[house["bath"].id]
+    assert sorted(d["title"] for d in master["doors"]) == [
+        "Door to Upstairs bath",
+        "South door",
+    ]
+    assert [d["sensor"] for d in bath["doors"]] == ["binary_sensor.bath_contact"]
+    assert master["walls"][0]["door_m2"] == pytest.approx(36 * 80 * 0.0254**2)

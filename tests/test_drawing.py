@@ -7,13 +7,20 @@ import math
 
 import pytest
 
-from custom_components.house_structure.constants import REGISTER, ROOM, WALL, WINDOW
+from custom_components.house_structure.constants import (
+    DOOR,
+    INTERNAL_WALL,
+    REGISTER,
+    ROOM,
+    WALL,
+    WINDOW,
+)
 from custom_components.house_structure.drawing import (
     _box,
     _footprint,
     _north,
+    _openings,
     _place,
-    _window_quads,
     house_svg,
     project,
     room_svg,
@@ -99,8 +106,8 @@ def test_a_window_is_centred_on_its_wall():
         _window("win", "s", width_m=1.0, height_m=1.2),
     )
     box = _box(elements["room-kitchen"], 0.0, 0.0, 0.0, "m")
-    (quad,) = _window_quads(box, "S", [elements["win"]])
-    xs = [x for x, _, _ in quad]
+    (glass,) = _openings(box, "S", [elements["win"]], [])
+    xs = [x for x, _, _ in glass.points]
     assert min(xs) == pytest.approx(1.5)  # 4 m wall, 1 m glass: 1.5 to 2.5
     assert max(xs) == pytest.approx(2.5)
 
@@ -196,3 +203,54 @@ def test_the_model_reads_positions_footprints_and_glass_sizes():
     assert (window.glass_width_m, window.glass_height_m) == (0.8, 1.1)
     reg = elements["reg"]
     assert (reg.at_x_m, reg.at_y_m, reg.at_z_m) == (0.5, 0.4, 0.15)
+
+
+DOOR_FILL = 'fill="#a8744a"'
+
+
+def test_a_door_stands_on_the_floor_beside_the_windows():
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0, height_m=2.4),
+        _wall("s", "kitchen", "S"),
+        _window("win", "s", width_m=1.0, height_m=1.2),
+        Raw("door", DOOR, "South door", {"host": "s", "width_m": 1.0, "height_m": 2.0}),
+    )
+    box = _box(elements["room-kitchen"], 0.0, 0.0, 0.0, "m")
+    door, glass = _openings(box, "S", [elements["win"]], [elements["door"]])
+    # a row of 2 m centred on the 4 m wall: the door from 1 to 2, the window 2 to 3
+    assert [x for x, _, _ in door.points] == pytest.approx([1.0, 2.0, 2.0, 1.0])
+    assert [z for _, _, z in door.points] == pytest.approx([0.0, 0.0, 2.0, 2.0])
+    assert min(x for x, _, _ in glass.points) == pytest.approx(2.0)
+    assert room_svg(elements, HOUSE, "kitchen").count(DOOR_FILL) == 1
+
+
+def _two_rooms(**hall):
+    return (
+        _room("kitchen", width_m=4.0, depth_m=3.0, height_m=2.4, x_m=0.0, y_m=0.0),
+        _room("hall", width_m=2.0, depth_m=3.0, height_m=2.4, **hall),
+        Raw(
+            "int",
+            INTERNAL_WALL,
+            "Wall to hall",
+            {"area_id": "kitchen", "other_area_id": "hall"},
+        ),
+        Raw("door", DOOR, "Door to hall", {"host": "int"}),
+    )
+
+
+def test_an_inside_door_is_drawn_on_the_shared_face():
+    # the hall is east of the kitchen, so the door is on the kitchen's east face
+    elements = _elements(*_two_rooms(x_m=4.0, y_m=1.0))
+    svg = room_svg(elements, HOUSE, "kitchen")
+    assert svg.count(DOOR_FILL) == 1
+    house = house_svg(elements, HOUSE)
+    assert house.count(DOOR_FILL) == 1  # drawn once, from the wall's own room
+
+
+def test_an_inside_door_without_positions_is_listed_instead():
+    elements = _elements(*_two_rooms())
+    svg = room_svg(elements, HOUSE, "kitchen")
+    assert DOOR_FILL not in svg
+    assert "Door to hall: not drawn; type both rooms" in svg
+    elements = _elements(*_two_rooms(x_m=9.0, y_m=0.0))
+    assert "do not touch" in room_svg(elements, HOUSE, "kitchen")

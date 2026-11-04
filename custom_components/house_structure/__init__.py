@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from .constants import (  # noqa: F401  (re-exported for other integrations)
     DOMAIN,
+    DOOR,
     INTERNAL_WALL,
     PLATFORMS,
     REGISTER,

@@ -1,12 +1,13 @@
 # Copyright (c) 2026 MinchinWeb
-"""The house as a set of elements: rooms, walls, roofs, windows, internal walls
-and heating registers.
+"""The house as a set of elements: rooms, walls, roofs, windows, doors, internal
+walls and heating registers.
 
 Each element is one sub-entry of the integration and sits in a Home Assistant
 area (a room). A roof may cover several rooms (``area_ids``); its device sits
 in the first. A window takes its plane from the wall or roof it is in, and its
-room too, unless it names one of a shared roof's rooms. Sizes are stored in
-metres. Standard library only.
+room too, unless it names one of a shared roof's rooms. A door is in an outside
+or internal wall, and takes its room (and, in an internal wall, the room on the
+other side) from it. Sizes are stored in metres. Standard library only.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from dataclasses import dataclass, replace
 import math
 from typing import NamedTuple
 
-from .constants import INTERNAL_WALL, REGISTER, ROOF, ROOM, WALL, WINDOW
+from .constants import DOOR, INTERNAL_WALL, REGISTER, ROOF, ROOM, WALL, WINDOW
 from .geometry import Plane, face_azimuth
 
 # Defaults for a window: the share of the light double glazing lets in as
@@ -39,20 +40,25 @@ class Element:
 
     Attributes:
         id: The sub-entry id.
-        kind: ``room``, ``wall``, ``roof``, ``window``, ``internal_wall`` or
-            ``register``.
+        kind: ``room``, ``wall``, ``roof``, ``window``, ``door``,
+            ``internal_wall`` or ``register``.
         title: Its name.
         area_id: The room it belongs to (for a window, its host's room unless
             it names one); for a roof, the first of its rooms.
         area_ids: Every room it belongs to: several for a shared roof.
-        plane: The surface the sun shines on; ``None`` for an internal wall.
+        plane: The surface the sun shines on; ``None`` for an internal wall
+            and a door in one.
         size_m2: Its area (glass for a window), if the sizes were given.
-        host: For a window, the wall or roof it is in.
-        other_area_id: For an internal wall, the room on the other side.
+        host: For a window, the wall or roof it is in; for a door, the outside
+            or internal wall it is in.
+        other_area_id: For an internal wall, the room on the other side; for a
+            door in one, the same (``None`` for a door to outside).
         transmittance: For a window, the share of light let in as heat.
         blind: For a window, the cover entity of its blind.
         blind_closed: For a window, the share a closed blind lets through.
         glass_m2: For a wall or roof, the glass of the windows in it.
+        door_m2: For an outside or internal wall, the doors in it.
+        sensor: For a door, its contact sensor (a binary sensor, on when open).
         floor_m2: For a room, its floor area.
         height_m: For a room, its ceiling height.
         volume_m3: For a room, its air volume (given, or floor times height).
@@ -76,6 +82,8 @@ class Element:
     blind: str | None = None
     blind_closed: float = BLIND_CLOSED
     glass_m2: float = 0.0
+    door_m2: float = 0.0
+    sensor: str | None = None
     floor_m2: float | None = None
     height_m: float | None = None
     volume_m3: float | None = None
@@ -99,6 +107,7 @@ class Element:
     duct: tuple[dict, ...] = ()
     # the shared duct section the register hangs off (its duct is the branch)
     upstream: str | None = None
+    # For a door: its width and height (``width_m`` and ``height_m``).
     # For a room: its footprint (east to west, south to north), where its
     # south-west corner sits in the house grid, and its floor's height above
     # the ground. Metres; None when not given.
@@ -118,10 +127,10 @@ class Element:
 
     @property
     def net_m2(self) -> float | None:
-        """A wall's or roof's area without its windows."""
+        """A wall's or roof's area without its windows and doors."""
         if self.size_m2 is None:
             return None
-        return max(self.size_m2 - self.glass_m2, 0.0)
+        return max(self.size_m2 - self.glass_m2 - self.door_m2, 0.0)
 
     def __post_init__(self) -> None:
         if not self.area_ids and self.area_id:
@@ -139,6 +148,8 @@ class Element:
             out["area_m2"] = round(self.size_m2, 3)
         if self.kind in (WALL, ROOF):
             out["glass_m2"] = round(self.glass_m2, 3)
+            if self.kind == WALL:
+                out["door_m2"] = round(self.door_m2, 3)
             if self.net_m2 is not None:
                 out["net_m2"] = round(self.net_m2, 3)
         if self.kind == WINDOW:
@@ -149,6 +160,11 @@ class Element:
                 out["blind_closed"] = self.blind_closed
         if self.kind == INTERNAL_WALL:
             out["other_area_id"] = self.other_area_id
+            out["door_m2"] = round(self.door_m2, 3)
+        if self.kind == DOOR:
+            out["host"] = self.host
+            out["other_area_id"] = self.other_area_id
+            out["sensor"] = self.sensor
         if self.kind == ROOM:
             for key in ("floor_m2", "height_m", "volume_m3"):
                 if getattr(self, key) is not None:
@@ -362,7 +378,48 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
             elements[host.id] = replace(
                 elements[host.id], glass_m2=elements[host.id].glass_m2 + glass
             )
+    for raw in raws:
+        if raw.kind == DOOR:
+            _add_door(elements, problems, raw)
     return elements, problems
+
+
+def _add_door(elements: dict[str, Element], problems: list[str], raw: Raw) -> None:
+    """A door, in the outside or internal wall it names, whose area it adds to."""
+    d = raw.data
+    host = elements.get(d.get("host", ""))
+    if host is None or host.kind not in (WALL, INTERNAL_WALL):
+        problems.append(f"{raw.title}: the wall it is in was removed")
+        return
+    size = _area(d, "width_m", "height_m")
+    elements[raw.id] = Element(
+        raw.id,
+        DOOR,
+        raw.title,
+        host.area_id,
+        plane=host.plane,
+        size_m2=size,
+        host=host.id,
+        other_area_id=host.other_area_id,
+        sensor=d.get("sensor") or None,
+        width_m=_optional(d.get("width_m")),
+        height_m=_optional(d.get("height_m")),
+    )
+    if size:
+        elements[host.id] = replace(
+            elements[host.id], door_m2=elements[host.id].door_m2 + size
+        )
+
+
+def doors_in(elements: dict[str, Element], area_id: str | None) -> list[Element]:
+    """A room's doors: in its outside walls, and in internal walls on either side."""
+    if area_id is None:
+        return []
+    return [
+        e
+        for e in elements.values()
+        if e.kind == DOOR and area_id in (e.area_id, e.other_area_id)
+    ]
 
 
 def windows_in(elements: dict[str, Element], area_id: str | None) -> list[Element]:
@@ -434,6 +491,21 @@ def _plane_summary(element: Element) -> dict:
     }
 
 
+def _door_summary(door: Element, host: Element, other: str | None) -> dict:
+    """A door as one of its rooms lists it."""
+    return {
+        "title": door.title,
+        "in": host.kind,
+        "wall": host.title,
+        "other_area_id": other,
+        "azimuth": None if door.plane is None else round(door.plane.azimuth, 2),
+        "width_m": door.width_m,
+        "height_m": door.height_m,
+        "area_m2": door.size_m2,
+        "sensor": door.sensor,
+    }
+
+
 def _empty_room(area_id: str, temperature: str | None) -> dict:
     return {
         "area_id": area_id,
@@ -448,6 +520,7 @@ def _empty_room(area_id: str, temperature: str | None) -> dict:
         "below_ground": False,
         "temperature_entity": temperature,
         "windows": [],
+        "doors": [],
         "walls": [],
         "roofs": [],
         "internal_walls": [],
@@ -470,6 +543,10 @@ def rooms_summary(
     south to north in the house's grid); ``below_grade_default`` says its
     ``below_grade_m`` is the house's default. A wall gives its ``face`` in
     the house's grid, and its ``length_m`` and ``height_m`` when typed.
+    A door is listed in its room, and a door in an internal wall in the rooms
+    on both sides, each with the other room as ``other_area_id`` (``None`` for
+    a door to outside); outside and internal walls give their doors' area as
+    ``door_m2``.
 
     Args:
         elements: The parts, from ``build``.
@@ -522,9 +599,18 @@ def rooms_summary(
                     "height_m": e.height_m,
                     "area_m2": e.size_m2,
                     "glass_m2": e.glass_m2,
+                    "door_m2": e.door_m2,
                     "r_value_si": e.r_value_si,
                 }
             )
+        elif e.kind == DOOR:
+            sides = [(e.area_id, e.other_area_id)]
+            if e.other_area_id:  # in an internal wall: both rooms list it
+                sides.append((e.other_area_id, e.area_id))
+            for this, other in sides:
+                side = room(this)
+                if side is not None:
+                    side["doors"].append(_door_summary(e, elements[e.host], other))
         elif e.kind == WINDOW:
             here["windows"].append(
                 {
@@ -546,7 +632,12 @@ def rooms_summary(
                 side = room(this)
                 if side is not None:
                     side["internal_walls"].append(
-                        {"title": e.title, "other_area_id": other, "area_m2": e.size_m2}
+                        {
+                            "title": e.title,
+                            "other_area_id": other,
+                            "area_m2": e.size_m2,
+                            "door_m2": e.door_m2,
+                        }
                     )
         elif e.kind == REGISTER:
             here["registers"].append(

@@ -20,6 +20,7 @@ from homeassistant.helpers import entity_registry as er
 
 from .constants import (
     DOMAIN,
+    DOOR,
     INTERNAL_WALL,
     REGISTER,
     ROOF,
@@ -39,6 +40,7 @@ _MODELS = {
     WALL: "Outside wall",
     ROOF: "Roof",
     WINDOW: "Window",
+    DOOR: "Door",
     INTERNAL_WALL: "Internal wall",
     REGISTER: "Heating register",
 }

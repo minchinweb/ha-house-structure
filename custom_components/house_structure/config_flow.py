@@ -7,11 +7,13 @@ sizes are typed in, and where the sky's light comes from (Open-Meteo, or a
 solar radiation sensor). The house form measures the rotation from the
 building outline on OpenStreetMap and shows a drawing to check it against (see
 ``orientation.py``); ticking "Redraw the map" redraws it for another value
-without saving. Each part (room, wall, roof, window, internal wall,
+without saving. Each part (room, wall, roof, window, door, internal wall,
 heating register) is a sub-entry, added from the integration's page, and sits
 in an area (a room); a roof may cover several. A window is placed in a wall
 or roof and takes its plane from it, and its room too unless it is in a roof
-over several rooms. A room part holds the room's own size, one per area.
+over several rooms. A door is placed in an outside or internal wall and takes
+its room (or rooms) from it, with its contact sensor. A room part holds the
+room's own size, one per area.
 
 Sizes are shown in the house's unit and stored in metres, so changing the unit
 keeps every size. They are typed as text: a bare number is in the house's
@@ -43,6 +45,7 @@ import voluptuous as vol
 
 from .constants import (
     DOMAIN,
+    DOOR,
     INTERNAL_WALL,
     OPEN_METEO,
     OUTLINE,
@@ -85,6 +88,9 @@ _TEXT = selector.TextSelector()
 _TEXT_LINES = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
 _COVER = selector.EntitySelector(selector.EntitySelectorConfig(domain="cover"))
 _CLIMATE = selector.EntitySelector(selector.EntitySelectorConfig(domain="climate"))
+_CONTACT = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain="binary_sensor")
+)
 _FAN = selector.EntitySelector(
     selector.EntitySelectorConfig(domain=["fan", "switch", "cover"])
 )
@@ -150,6 +156,7 @@ _SIZES = {
     WALL: ("length", "height"),
     ROOF: ("length", "slope"),
     WINDOW: ("width", "height"),
+    DOOR: ("width", "height"),
     INTERNAL_WALL: ("length", "height"),
     ROOM: ("width", "depth", "height", "below_grade"),
     REGISTER: (),
@@ -169,22 +176,25 @@ def _unit_label(unit: str) -> str:
 
 def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
     fields: dict = {}
-    if kind == WINDOW:
+    if kind in (WINDOW, DOOR):
         fields[vol.Required("host")] = selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=hosts, mode=selector.SelectSelectorMode.DROPDOWN
             )
         )
+    if kind == WINDOW:
         fields[vol.Optional("area_id")] = _AREA
     elif kind == ROOF:
         fields[vol.Required("area_ids")] = _AREAS
-    else:
+    elif kind != DOOR:
         fields[vol.Required("area_id")] = _AREA
     if kind == INTERNAL_WALL:
         fields[vol.Required("other_area_id")] = _AREA
     fields[vol.Optional("name")] = _TEXT
     if kind == ROOM:
         fields[vol.Optional("floor")] = _TEXT
+    if kind == DOOR:
+        fields[vol.Optional("sensor")] = _CONTACT
     if kind == REGISTER:
         fields[vol.Required("climate")] = _CLIMATE
         fields[vol.Optional("fan")] = _FAN
@@ -278,6 +288,7 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
         "fan",
         "glazing",
         "frame",
+        "sensor",
     ):
         if form.get(key):
             data[key] = form[key]
@@ -371,6 +382,7 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
             WALL: WallFlow,
             ROOF: RoofFlow,
             WINDOW: WindowFlow,
+            DOOR: DoorFlow,
             INTERNAL_WALL: InternalWallFlow,
             REGISTER: RegisterFlow,
         }
@@ -580,11 +592,13 @@ class _PartFlow(ConfigSubentryFlow):
         return dict(self._get_entry().data)
 
     def _hosts(self) -> list[dict]:
-        """The walls and roofs a window can be in, with their rooms."""
+        """The walls and roofs a window can be in, or the outside and internal
+        walls a door can be in, with their rooms."""
+        kinds = (WALL, INTERNAL_WALL) if self.kind == DOOR else (WALL, ROOF)
         areas = ar.async_get(self.hass)
         out = []
         for sub in self._get_entry().subentries.values():
-            if sub.subentry_type not in (WALL, ROOF):
+            if sub.subentry_type not in kinds:
                 continue
             names = [
                 area.name
@@ -709,6 +723,14 @@ class _PartFlow(ConfigSubentryFlow):
                 return "Window"
             what = "skylight" if host.subentry_type == ROOF else "window"
             return f"{facing(host.data)} {what}".strip().capitalize()
+        if self.kind == DOOR:
+            host = self._get_entry().subentries.get(data.get("host", ""))
+            if host is None:
+                return "Door"
+            if host.subentry_type == INTERNAL_WALL:
+                other = areas.async_get_area(host.data.get("other_area_id") or "")
+                return f"Door to {other.name if other else 'another room'}"
+            return f"{facing(host.data)} door".strip().capitalize()
         if self.kind == INTERNAL_WALL:
             other = areas.async_get_area(data.get("other_area_id") or "")
             return f"Wall to {other.name if other else 'another room'}"
@@ -735,8 +757,8 @@ class _PartFlow(ConfigSubentryFlow):
         self, step_id: str, user_input: dict[str, Any] | None, current: dict
     ) -> SubentryFlowResult:
         house = self._house()
-        hosts = self._hosts() if self.kind == WINDOW else []
-        if self.kind == WINDOW and not hosts:
+        hosts = self._hosts() if self.kind in (WINDOW, DOOR) else []
+        if self.kind in (WINDOW, DOOR) and not hosts:
             return self.async_abort(reason="no_hosts")
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -826,6 +848,12 @@ class WindowFlow(_PartFlow):
     """A window in a wall or roof."""
 
     kind = WINDOW
+
+
+class DoorFlow(_PartFlow):
+    """A door in an outside or internal wall, and its contact sensor."""
+
+    kind = DOOR
 
 
 class InternalWallFlow(_PartFlow):
