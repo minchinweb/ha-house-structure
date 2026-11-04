@@ -261,12 +261,24 @@ def test_floors_drawn_apart_lift_each_floor_above_the_one_below():
     elements = _elements(
         _room("rec", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=-2.4),
         _room("kitchen", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=0.0),
-        # a split-level step is still the main floor
+        # a split level's half flight up is still the main floor
         _room("den", width_m=3.0, depth_m=3.0, x_m=4.0, y_m=0.0, level_m=0.2),
+        _room("landing", width_m=2.0, depth_m=2.0, x_m=7.0, y_m=0.0, level_m=1.0),
         _room("office", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=2.7),
     )
     boxes, _ = _place(elements, "m")
     assert floor_lifts(boxes, gap=2.5) == [(-2.4, 0.0), (0.0, 2.5), (2.7, 5.0)]
+
+
+def test_more_than_three_and_a_half_feet_up_is_another_floor():
+    elements = _elements(
+        _room("main", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=0.0),
+        _room("half", width_m=4.0, depth_m=3.0, x_m=4.0, y_m=0.0, level_m=1.06),
+        _room("loft", width_m=4.0, depth_m=3.0, x_m=8.0, y_m=0.0, level_m=1.08),
+    )
+    boxes, _ = _place(elements, "m")
+    # 3 1/2 ft is 1.067 m: the half level stays, the loft starts a floor
+    assert floor_lifts(boxes, gap=2.5) == [(0.0, 0.0), (1.08, 2.5)]
 
 
 def test_floors_drawn_apart_keep_the_real_run_lengths():

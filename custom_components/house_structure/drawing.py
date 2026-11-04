@@ -45,7 +45,10 @@ SILL = 0.9  # m above the floor, for a window's sill
 DEFAULT_OUTLET = 0.1  # m above the floor, where a register has no height
 GAP = 1.0  # m between rooms drawn in a row (no position typed)
 EXPLODE_GAP = 2.5  # m added between floors when they are drawn apart
-LEVEL_STEP = 0.3  # m: rooms whose floors are closer than this share a floor
+# Rooms whose floors are less than this above a floor's lowest room share that
+# floor: a split level's half flight (3 1/2 ft, a little under half a wall)
+# stays with its floor, while a full storey above starts a new one.
+LEVEL_STEP = 3.5 * FOOT
 SHEET_HEIGHT = 520  # px for the drawing, before the captions
 MARGIN = 16  # px
 LINE = 16  # px per caption line
