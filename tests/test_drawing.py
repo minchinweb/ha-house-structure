@@ -21,8 +21,10 @@ from custom_components.house_structure.drawing import (
     _north,
     _openings,
     _place,
+    face_order,
     floor_lifts,
     house_svg,
+    near_faces,
     project,
     room_svg,
 )
@@ -302,3 +304,113 @@ def test_floors_drawn_apart_keep_the_real_run_lengths():
 def test_one_floor_draws_the_same_apart_or_together():
     elements = _elements(_room("kitchen", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0))
     assert house_svg(elements, HOUSE, exploded=True) == house_svg(elements, HOUSE)
+
+
+@pytest.mark.parametrize(
+    ("view", "near"),
+    [(0, ("S", "W")), (1, ("N", "W")), (2, ("N", "E")), (3, ("S", "E"))],
+)
+def test_each_quarter_turn_looks_from_the_next_corner(view, near):
+    assert near_faces(view) == near
+    assert face_order(view)[2:] == near  # the near faces are drawn last
+    # the corner looked from is the nearest point: lowest on the page
+    corners = {"S": 0.0, "W": 0.0, "N": 10.0, "E": 10.0}
+    seen = (
+        corners["E"] if "E" in near else corners["W"],
+        corners["N"] if "N" in near else corners["S"],
+        0.0,
+    )
+    others = [
+        (x, y, 0.0) for x in (0.0, 10.0) for y in (0.0, 10.0) if (x, y, 0.0) != seen
+    ]
+    assert all(project(seen, view)[1] > project(p, view)[1] for p in others)
+
+
+def test_a_turned_drawing_says_where_it_looks_from():
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0),
+        _wall("s", "kitchen", "S"),
+    )
+    straight = house_svg(elements, HOUSE)
+    turned = house_svg(elements, HOUSE, view=2)
+    assert "Looking from the south-west." in straight
+    assert "Looking from the north-east." in turned
+    assert turned != straight
+    assert house_svg(elements, HOUSE, view=4) == straight  # a full turn
+    assert "Looking from the south-east." in room_svg(
+        elements, HOUSE, "kitchen", view=3
+    )
+
+
+def test_overlays_have_anchors_for_rooms_walls_and_outlets():
+    elements = _elements(
+        _room(
+            "rec",
+            width_m=4.0,
+            depth_m=3.0,
+            x_m=0.0,
+            y_m=0.0,
+            level_m=-2.4,
+            height_m=2.4,
+        ),
+        _room("kitchen", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=0.0),
+        _room("living", width_m=4.0, depth_m=3.0, x_m=4.0, y_m=0.0, level_m=0.0),
+        _wall("s", "kitchen", "S"),
+        _register("reg", "living"),
+    )
+    for exploded in (False, True):
+        svg = house_svg(elements, HOUSE, exploded=exploded)
+        assert '<g data-layer="anchors" visibility="hidden">' in svg
+        for area in ("rec", "kitchen", "living"):
+            assert f'data-room="{area}"' in svg
+        assert 'data-between="kitchen|living"' in svg  # side by side
+        assert 'data-between="kitchen|rec"' in svg  # one over the other
+        assert 'data-between="living|rec"' not in svg  # not over each other
+        assert 'data-outside="kitchen|S"' in svg
+        assert 'data-register="reg" data-room="living"' in svg
+        assert '<g data-layer="rooms">' in svg
+        assert '<g data-layer="notes">' in svg
+
+
+def _roof(id_: str, areas: list[str], face: str, pitch: float = 30.0) -> Raw:
+    return Raw(
+        id_, "roof", f"{face} roof", {"area_ids": areas, "face": face, "pitch": pitch}
+    )
+
+
+def _roofs_layer(svg: str) -> str:
+    return svg.split('<g data-layer="roofs">', 1)[1].split("</g>", 1)[0]
+
+
+def test_a_gable_meets_at_the_ridge_and_has_its_two_ends():
+    elements = _elements(
+        _room("loft", width_m=6.0, depth_m=4.0, x_m=0.0, y_m=0.0, height_m=2.4),
+        _roof("s", ["loft"], "S"),
+        _roof("n", ["loft"], "N"),
+    )
+    layer = _roofs_layer(house_svg(elements, HOUSE))
+    assert layer.count("<polygon") == 4  # two slopes, two gable ends
+    assert layer.count(WALL_FILL) == 2
+
+
+def test_one_roof_over_two_rooms_has_no_gable_between_them():
+    elements = _elements(
+        _room("office", width_m=4.0, depth_m=4.0, x_m=0.0, y_m=0.0),
+        _room("master", width_m=6.0, depth_m=4.0, x_m=4.0, y_m=0.0),
+        _roof("s", ["office", "master"], "S"),
+        _roof("n", ["office", "master"], "N"),
+    )
+    layer = _roofs_layer(house_svg(elements, HOUSE))
+    assert layer.count(WALL_FILL) == 2  # the two outer ends only
+
+
+def test_a_lean_to_spans_its_room_and_no_roof_draws_no_layer():
+    elements = _elements(
+        _room("porch", width_m=3.0, depth_m=2.0, x_m=0.0, y_m=0.0),
+        _roof("s", ["porch"], "S", pitch=15.0),
+    )
+    layer = _roofs_layer(house_svg(elements, HOUSE))
+    assert layer.count("<polygon") == 1
+    bare = _elements(_room("porch", width_m=3.0, depth_m=2.0, x_m=0.0, y_m=0.0))
+    assert 'data-layer="roofs"' not in house_svg(bare, HOUSE)
+    assert 'data-layer="roofs"' in room_svg(elements, HOUSE, "porch")

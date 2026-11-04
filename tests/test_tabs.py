@@ -6,7 +6,7 @@ from __future__ import annotations
 from custom_components.house_structure.issues import missing, needed_by
 from custom_components.house_structure.model import Element
 from custom_components.house_structure.panel import house_view
-from custom_components.house_structure.tabs import ordered
+from custom_components.house_structure.tabs import ordered, ordered_overlays
 
 
 def test_tabs_are_sorted_by_order_then_title():
@@ -96,3 +96,20 @@ def test_a_missing_size_matters_only_when_something_needs_it():
         "w1": ("wall_size", "Home Thermal Lab and Manual J"),
         "r1": ("room_floor", "Manual J"),
     }
+
+
+def test_overlays_need_a_title_and_a_command():
+    registry = {
+        "heat_flow": {"title": "Heat flow", "command": "home_thermal_lab/heat_flow"},
+        "airflow": {
+            "title": "Airflow",
+            "command": "manual_j/airflow",
+            "refresh_s": "x",
+        },
+        "no_command": {"title": "No command"},
+        "bad_command": {"title": "Bad", "command": "not a command"},
+        "Bad Key": {"title": "Bad key", "command": "a/b"},
+    }
+    found = ordered_overlays(registry)
+    assert [o["key"] for o in found] == ["airflow", "heat_flow"]  # by title
+    assert all(o["refresh_s"] == 60.0 for o in found)

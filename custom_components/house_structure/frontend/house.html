@@ -8,7 +8,14 @@
   House Structure's own tab on the Thermal Lab page: the house drawn from its
   rooms (or one room on its own), and its heating and cooling equipment and
   detached buildings. Data from house_structure/house; the drawings from
-  /api/house_structure/plan.svg and room.svg.
+  /api/house_structure/plan.svg and room.svg, put inline so their layers
+  (data-layer="rooms", "runs") can be switched and overlays drawn at their
+  anchors (data-layer="anchors").
+
+  Overlays come from other integrations (house_structure/overlays). Each has a
+  websocket command that answers, in watts (positive into a room):
+    {as_of, between: [{from, to, w}], outside: [{room, face, w}],
+     heating: [{room, w, register?}], solar: [{room, w}], notes: [...]}
 -->
 <style>
   :root {
@@ -49,7 +56,7 @@
   button.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
   .drawing { text-align: center; }
   /* the drawings are dark lines on white, so they keep a white sheet in dark mode */
-  .drawing img { max-width: 100%; height: auto; background: #fff; border-radius: 8px; }
+  .drawing svg { max-width: 100%; height: auto; background: #fff; border-radius: 8px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 16px; }
   .part { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
   .row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
@@ -57,6 +64,7 @@
   .row .k { color: var(--muted); flex: 0 0 auto; max-width: 50%; }
   .row .v { text-align: right; font-variant-numeric: tabular-nums; min-width: 0; overflow-wrap: anywhere; }
   .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+  ul.notes { color: var(--muted); font-size: 12px; margin: 8px 0 0; padding-left: 18px; }
   .banner { background: #fff3e0; color: #6d4c00; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
   .hidden { display: none !important; }
 </style>
@@ -68,13 +76,21 @@
   <section class="card">
     <h2>Drawing</h2>
     <div class="bar" id="rooms" role="group" aria-label="Show"></div>
+    <div class="bar" id="turn" role="group" aria-label="View">
+      <span class="label">View</span>
+      <button class="chip" type="button" data-turn="-1" title="Turn the view a quarter anticlockwise" aria-label="Turn anticlockwise">⟲</button>
+      <button class="chip" type="button" data-turn="1" title="Turn the view a quarter clockwise" aria-label="Turn clockwise">⟳</button>
+      <span id="view-name" class="label" aria-live="polite"></span>
+    </div>
     <div class="bar" id="floors" role="group" aria-label="Floors">
       <span class="label">Floors</span>
       <button class="chip" type="button" data-exploded="false">Together</button>
       <button class="chip" type="button" data-exploded="true">Apart</button>
     </div>
-    <div class="drawing"><img id="drawing" alt="The house, drawn from its rooms"></div>
+    <div class="bar" id="layers" role="group" aria-label="Layers"></div>
+    <div class="drawing" id="drawing" role="img" aria-label="The house, drawn from its rooms"></div>
     <p class="hint" id="drawing-hint"></p>
+    <ul class="notes" id="overlay-notes"></ul>
   </section>
 
   <section class="card">
@@ -91,11 +107,25 @@
 <script>
 "use strict";
 const lab = window.thermalLab;
+const SVG = "http://www.w3.org/2000/svg";
 const W_PER_BTUH = 0.29307107;
 const W_PER_TON = 12000 * W_PER_BTUH;
 const CFM = 0.000471947;  // m³/s
 const INWC = 249.089;  // Pa
-const state = { house: null, room: null, exploded: false };
+// overlay colours: on a white sheet in either theme
+const COLOURS = { between: "#ef6c00", gain: "#d32f2f", loss: "#1e6fd9", heat: "#d84315", sun: "#f9a825" };
+// the corner the drawing looks from, by quarter turns (drawing.py VIEWS)
+const VIEWS = ["south-west", "north-west", "north-east", "south-east"];
+const state = {
+  house: null, room: null, exploded: false, view: 0,
+  runs: true,            // the heating runs layer
+  roofs: false,          // the roofs layer: off, as it hides the rooms
+  overlays: [],          // registered overlays
+  on: new Set(),         // overlays switched on
+  results: {},           // the last answer of each overlay that is on
+  errors: {},            // why an overlay could not be loaded
+  timers: {},
+};
 
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
@@ -105,6 +135,12 @@ function el(tag, attrs = {}, ...children) {
     else node.setAttribute(k, v);
   }
   for (const c of children) if (c !== null && c !== undefined) node.append(c);
+  return node;
+}
+function svgEl(tag, attrs = {}, text = null) {
+  const node = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  if (text !== null) node.textContent = text;
   return node;
 }
 const grouped = (s) => s.replace(/^([+-]?)(\d+)/, (m, sign, int) => sign + int.replace(/\B(?=(\d{3})+(?!\d))/g, ","));
@@ -118,47 +154,276 @@ function showError(text) {
   box.classList.toggle("hidden", !text);
 }
 
-function drawRooms() {
-  const bar = document.getElementById("rooms");
-  const choices = [{ area_id: null, name: "Whole house" }, ...state.house.rooms];
-  bar.replaceChildren(...choices.map((r) => el("button", {
-    class: "chip", type: "button", "aria-pressed": String(r.area_id === state.room),
-    title: r.floor ? `${r.name} (${r.floor})` : r.name,
-    onclick: () => { state.room = r.area_id; lab.remember("house.room", r.area_id); drawRooms(); drawDrawing(); },
-  }, r.name)));
+/* ---------- choosing what to draw ---------- */
+
+function chip(label, pressed, onclick, title) {
+  return el("button", { class: "chip", type: "button", "aria-pressed": String(pressed), title: title || label, onclick }, label);
 }
 
-function drawFloors() {
-  // floors apart or together only means something for the whole house
-  document.getElementById("floors").classList.toggle("hidden", Boolean(state.room));
+function drawRooms() {
+  const choices = [{ area_id: null, name: "Whole house" }, ...state.house.rooms];
+  document.getElementById("rooms").replaceChildren(...choices.map((r) => chip(
+    r.name, r.area_id === state.room,
+    () => { state.room = r.area_id; lab.remember("house.room", r.area_id); drawControls(); loadDrawing(); },
+    r.floor ? `${r.name} (${r.floor})` : r.name)));
+}
+
+function drawControls() {
+  const whole = !state.room;
+  document.getElementById("view-name").textContent = `from the ${VIEWS[state.view]}`;
+  // floors and overlays only mean something for the whole house
+  document.getElementById("floors").classList.toggle("hidden", !whole);
   for (const b of document.querySelectorAll("#floors button")) {
     b.setAttribute("aria-pressed", String(b.dataset.exploded === String(state.exploded)));
   }
+  const chips = [el("span", { class: "label" }, "Show"),
+    chip("Heating runs", state.runs, () => {
+      state.runs = !state.runs; lab.remember("house.runs", state.runs); drawControls(); showLayers();
+    }),
+    chip("Roofs", state.roofs, () => {
+      state.roofs = !state.roofs; lab.remember("house.roofs", state.roofs); drawControls(); showLayers();
+    })];
+  if (whole) {
+    for (const o of state.overlays) {
+      chips.push(chip(o.title, state.on.has(o.key), () => toggleOverlay(o.key)));
+    }
+  }
+  document.getElementById("layers").replaceChildren(...chips);
 }
 
-function drawDrawing() {
-  const img = document.getElementById("drawing");
+/* ---------- the drawing ---------- */
+
+let drawingTicket = 0;
+async function loadDrawing() {
+  const box = document.getElementById("drawing");
   const hint = document.getElementById("drawing-hint");
   const stamp = Date.now();  // the drawing follows the saved parts, so never cached
-  drawFloors();
+  let url;
   if (state.room) {
     const room = state.house.rooms.find((r) => r.area_id === state.room);
-    img.src = `/api/house_structure/room.svg?area=${encodeURIComponent(state.room)}&v=${stamp}`;
-    img.alt = `${room ? room.name : "The room"}, from the south-west`;
-    hint.textContent = "The room from its size and its parts, looking from the south-west. "
+    url = `/api/house_structure/room.svg?area=${encodeURIComponent(state.room)}&view=${state.view}&v=${stamp}`;
+    box.setAttribute("aria-label", `${room ? room.name : "The room"}, from the ${VIEWS[state.view]}`);
+    hint.textContent = `The room from its size and its parts, looking from the ${VIEWS[state.view]}. `
       + "Dashed faces have no wall part yet; the dots are the registers' outlets.";
   } else {
-    img.src = `/api/house_structure/plan.svg?exploded=${state.exploded ? 1 : 0}&v=${stamp}`;
-    img.alt = state.exploded
-      ? "The house, drawn from its rooms with the floors pulled apart, with the heating runs"
-      : "The house, drawn from its rooms, with the heating runs";
+    url = `/api/house_structure/plan.svg?exploded=${state.exploded ? 1 : 0}&view=${state.view}&v=${stamp}`;
+    box.setAttribute("aria-label", (state.exploded
+      ? "The house, drawn from its rooms with the floors pulled apart"
+      : "The house, drawn from its rooms") + `, from the ${VIEWS[state.view]}`);
     hint.textContent = (state.exploded
       ? "The floors pulled apart, so each can be seen. "
       : "The rooms at their positions and floor levels. ")
       + "The heating runs go from the plenum to each register; they are schematic.";
   }
-  img.onerror = () => { hint.textContent = "Nothing to draw yet: give the rooms their sizes."; };
+  const ticket = ++drawingTicket;
+  let text;
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(String(response.status));
+    text = await response.text();
+  } catch (err) {
+    if (ticket !== drawingTicket) return;
+    box.replaceChildren();
+    hint.textContent = "Nothing to draw yet: give the rooms their sizes.";
+    return;
+  }
+  if (ticket !== drawingTicket) return;  // a newer choice was made meanwhile
+  // our own server's drawing, with every name escaped (drawing.py)
+  const doc = new DOMParser().parseFromString(text, "image/svg+xml");
+  const svg = doc.documentElement;
+  if (svg.nodeName !== "svg") { box.replaceChildren(); return; }
+  box.replaceChildren(document.importNode(svg, true));
+  showLayers();
+  drawOverlays();
 }
+
+function currentSvg() {
+  return document.querySelector("#drawing svg");
+}
+
+function showLayers() {
+  const svg = currentSvg();
+  if (!svg) return;
+  for (const g of svg.querySelectorAll('[data-layer="runs"]')) {
+    g.style.display = state.runs ? "" : "none";
+  }
+  for (const g of svg.querySelectorAll('[data-layer="roofs"]')) {
+    g.style.display = state.roofs ? "" : "none";
+  }
+}
+
+/* ---------- overlays ---------- */
+
+function anchors(svg) {
+  const out = { room: {}, between: {}, outside: {}, register: {} };
+  for (const c of svg.querySelectorAll('[data-layer="anchors"] circle')) {
+    const point = [Number(c.getAttribute("cx")), Number(c.getAttribute("cy"))];
+    const d = c.dataset;
+    if (d.register) out.register[d.register] = { point, room: d.room };
+    else if (d.room) out.room[d.room] = point;
+    if (d.between) out.between[d.between] = point;
+    if (d.outside) out.outside[d.outside] = point;
+  }
+  return out;
+}
+
+const pair = (a, b) => [a, b].sort().join("|");
+function unit(dx, dy) {
+  const n = Math.hypot(dx, dy);
+  return n > 1e-6 ? [dx / n, dy / n] : null;
+}
+
+function label(g, x, y, text, colour) {
+  g.append(svgEl("text", {
+    x: x.toFixed(1), y: y.toFixed(1), fill: colour, "font-size": "11", "font-weight": "600",
+    "text-anchor": "middle", stroke: "#ffffff", "stroke-width": "3", "paint-order": "stroke",
+  }, text));
+}
+
+/* An arrow centred on (x, y) pointing along (dx, dy), its weight by its share of the largest flow. */
+function arrow(g, [x, y], [dx, dy], share, colour, text) {
+  const length = 16 + 14 * share;
+  const width = 1.5 + 4 * share;
+  const head = 5 + 3 * share;
+  const x0 = x - dx * length / 2, y0 = y - dy * length / 2;
+  const x1 = x + dx * length / 2, y1 = y + dy * length / 2;
+  const bx = x1 - dx * head, by = y1 - dy * head;
+  g.append(svgEl("line", {
+    x1: x0.toFixed(1), y1: y0.toFixed(1), x2: bx.toFixed(1), y2: by.toFixed(1),
+    stroke: colour, "stroke-width": width.toFixed(1), "stroke-linecap": "round",
+  }));
+  const px = -dy * head * 0.7, py = dx * head * 0.7;
+  g.append(svgEl("polygon", {
+    points: [[x1, y1], [bx + px, by + py], [bx - px, by - py]].map((p) => p.map((v) => v.toFixed(1)).join(",")).join(" "),
+    fill: colour,
+  }));
+  // the label beside the arrow, away from its line
+  label(g, x + px * 2.2 + (Math.abs(dy) > 0.9 ? 18 : 0), y + py * 2.2 + 4, text, colour);
+}
+
+function glyph(g, [x, y], symbol, text, colour) {
+  g.append(svgEl("text", { x: x.toFixed(1), y: (y + 5).toFixed(1), "font-size": "15", "text-anchor": "middle" }, symbol));
+  label(g, x, y + 19, text, colour);
+}
+
+const watts = (w) => `${fmt(Math.abs(w))} W`;
+
+function drawOverlay(svg, key, data) {
+  const where = anchors(svg);
+  const g = svgEl("g", { "data-layer": `overlay-${key}` });
+  const flows = [...(data.between || []), ...(data.outside || []), ...(data.heating || []), ...(data.solar || [])];
+  const largest = Math.max(1, ...flows.map((f) => Math.abs(Number(f.w) || 0)));
+  const share = (w) => Math.sqrt(Math.min(Math.abs(w) / largest, 1));
+  let missed = 0;
+
+  for (const f of data.between || []) {
+    const at = where.between[pair(f.from, f.to)];
+    const a = where.room[f.from], b = where.room[f.to];
+    const dir = at && a && b ? unit(b[0] - a[0], b[1] - a[1]) : null;
+    if (!dir) { missed++; continue; }
+    const w = Number(f.w) || 0;
+    arrow(g, at, w >= 0 ? dir : [-dir[0], -dir[1]], share(w), COLOURS.between, watts(w));
+  }
+  for (const f of data.outside || []) {
+    const at = where.outside[`${f.room}|${f.face}`];
+    const c = where.room[f.room];
+    const out = at && c ? unit(at[0] - c[0], at[1] - c[1]) : null;
+    if (!out) { missed++; continue; }
+    const w = Number(f.w) || 0;  // positive: into the room
+    arrow(g, at, w >= 0 ? [-out[0], -out[1]] : out, share(w), w >= 0 ? COLOURS.gain : COLOURS.loss, watts(w));
+  }
+  for (const f of data.heating || []) {
+    let points = [];
+    if (f.register && where.register[f.register]) points = [where.register[f.register].point];
+    else points = Object.values(where.register).filter((r) => r.room === f.room).map((r) => r.point);
+    if (!points.length && where.room[f.room]) points = [where.room[f.room]];
+    if (!points.length) { missed++; continue; }
+    // shared over the room's outlets when the overlay names none
+    const each = (Number(f.w) || 0) / points.length;
+    for (const p of points) glyph(g, p, "🔥", watts(each), COLOURS.heat);
+  }
+  for (const f of data.solar || []) {
+    const c = where.room[f.room];
+    if (!c) { missed++; continue; }
+    glyph(g, [c[0], c[1] - 14], "☀", watts(f.w), COLOURS.sun);
+  }
+  const notes = svg.querySelector('[data-layer="notes"]');
+  svg.insertBefore(g, notes);  // over the drawing, under nothing
+  return missed;
+}
+
+function drawOverlays() {
+  const svg = currentSvg();
+  const list = document.getElementById("overlay-notes");
+  if (!svg) { list.replaceChildren(); return; }
+  for (const g of svg.querySelectorAll('[data-layer^="overlay-"]')) g.remove();
+  const notes = [];
+  if (!state.room) {
+    for (const o of state.overlays) {
+      if (!state.on.has(o.key)) continue;
+      if (state.errors[o.key]) { notes.push(`${o.title}: ${state.errors[o.key]}`); continue; }
+      const data = state.results[o.key];
+      if (!data) { notes.push(`${o.title}: loading…`); continue; }
+      const missed = drawOverlay(svg, o.key, data);
+      const when = data.as_of ? new Date(data.as_of) : null;
+      if (when && !isNaN(when)) {
+        notes.push(`${o.title}, as of ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`);
+      }
+      if (missed) notes.push(`${o.title}: ${missed} value${missed === 1 ? "" : "s"} with no place on the drawing (a room not drawn, or rooms that don't touch).`);
+      for (const n of data.notes || []) notes.push(`${o.title}: ${n}`);
+    }
+  }
+  list.replaceChildren(...notes.map((n) => el("li", {}, n)));
+}
+
+async function fetchOverlay(key) {
+  const o = state.overlays.find((x) => x.key === key);
+  if (!o || !state.on.has(key)) return;
+  try {
+    state.results[key] = await lab.ask({ type: o.command });
+    delete state.errors[key];
+  } catch (err) {
+    state.errors[key] = "could not load (" + (err && (err.message || err.code) || err) + ")";
+  }
+  drawOverlays();
+}
+
+function startOverlay(o) {
+  clearInterval(state.timers[o.key]);
+  fetchOverlay(o.key);
+  state.timers[o.key] = setInterval(() => fetchOverlay(o.key), o.refresh_s * 1000);
+}
+
+function stopOverlay(key) {
+  clearInterval(state.timers[key]);
+  delete state.timers[key];
+  delete state.results[key];
+  delete state.errors[key];
+}
+
+function toggleOverlay(key) {
+  const o = state.overlays.find((x) => x.key === key);
+  if (state.on.has(key)) { state.on.delete(key); stopOverlay(key); }
+  else if (o) { state.on.add(key); startOverlay(o); }
+  lab.remember("house.overlays", [...state.on]);
+  drawControls();
+  drawOverlays();
+}
+
+function overlaysChanged(list) {
+  state.overlays = list || [];
+  const known = new Set(state.overlays.map((o) => o.key));
+  for (const key of [...state.on]) {
+    if (!known.has(key)) stopOverlay(key);  // kept on, in case it comes back
+  }
+  for (const o of state.overlays) {
+    if (state.on.has(o.key) && !state.timers[o.key]) startOverlay(o);
+  }
+  drawControls();
+  drawOverlays();
+}
+
+/* ---------- equipment ---------- */
 
 function blower(points) {
   if (!points || !points.length) return "–";
@@ -195,6 +460,8 @@ function drawEquipment() {
     el("div", { class: "part" }, el("h3", {}, b.title), row("Rooms", b.rooms.join(", ") || "–"))));
 }
 
+/* ---------- start ---------- */
+
 async function load() {
   try {
     state.house = await lab.ask({ type: "house_structure/house" });
@@ -203,23 +470,38 @@ async function load() {
     showError("Could not load the house: " + (err && (err.message || err.code) || err));
     return;
   }
-  state.exploded = lab.recall("house.exploded", false) === true;
   const saved = lab.recall("house.room", null);
   state.room = state.house.rooms.some((r) => r.area_id === saved) ? saved : null;
   drawRooms();
-  drawDrawing();
+  drawControls();
   drawEquipment();
+  await loadDrawing();
 }
 
 for (const b of document.querySelectorAll("#floors button")) {
   b.addEventListener("click", () => {
     state.exploded = b.dataset.exploded === "true";
     lab.remember("house.exploded", state.exploded);
-    drawDrawing();
+    drawControls();
+    loadDrawing();
   });
 }
+for (const b of document.querySelectorAll("#turn button")) {
+  b.addEventListener("click", () => {
+    state.view = (state.view + Number(b.dataset.turn) + 4) % 4;
+    lab.remember("house.view", state.view);
+    drawControls();
+    loadDrawing();
+  });
+}
+state.exploded = lab.recall("house.exploded", false) === true;
+state.view = [0, 1, 2, 3].includes(lab.recall("house.view", 0)) ? lab.recall("house.view", 0) : 0;
+state.runs = lab.recall("house.runs", true) !== false;
+state.roofs = lab.recall("house.roofs", false) === true;
+state.on = new Set(lab.recall("house.overlays", []));
 lab.applyTheme();
-load();
+load().then(() => lab.subscribe((event) => overlaysChanged(event.overlays), { type: "house_structure/overlays" })
+  .catch(() => { /* no overlays without the subscription */ }));
 </script>
 </body>
 </html>

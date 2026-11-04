@@ -17,6 +17,8 @@ from custom_components.house_structure.constants import (
     DOMAIN,
     NEEDS,
     NEEDS_EVENT,
+    OVERLAYS,
+    OVERLAYS_EVENT,
     TABS,
     TABS_EVENT,
     UPDATED_EVENT,
@@ -216,3 +218,30 @@ async def test_repairs_wait_until_something_needs_the_size(
     hass.bus.async_fire(NEEDS_EVENT)
     await hass.async_block_till_done()
     assert ours() == {}
+
+
+async def test_overlays_are_sent_as_they_change(
+    hass: HomeAssistant, house, hass_ws_client
+) -> None:
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": "house_structure/overlays"})
+    assert (await client.receive_json())["success"]
+    assert (await client.receive_json())["event"] == {"overlays": []}
+
+    hass.data.setdefault(OVERLAYS, {})["heat_flow"] = {
+        "title": "Heat flow",
+        "command": "home_thermal_lab/heat_flow",
+        "refresh_s": 1,
+    }
+    hass.bus.async_fire(OVERLAYS_EVENT)
+    event = (await client.receive_json())["event"]
+    assert event == {
+        "overlays": [
+            {
+                "key": "heat_flow",
+                "title": "Heat flow",
+                "command": "home_thermal_lab/heat_flow",
+                "refresh_s": 10.0,  # no more often than every 10 s
+            }
+        ]
+    }

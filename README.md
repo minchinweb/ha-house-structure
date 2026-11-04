@@ -135,6 +135,25 @@ own, picked above the drawing) and lists the furnace, air conditioner and
 detached buildings. The tab you were on is remembered, and is in the address
 (`/thermal-lab#house`), so it can be bookmarked.
 
+Above the drawing:
+
+- **View** turns it a quarter turn at a time, to look from the south-west,
+  north-west, north-east or south-east corner.
+- **Floors** draws the house's floors together or pulled apart. Apart, each is
+  lifted 2.5 m more than the one below, so an upper floor doesn't hide the one
+  under it. A room less than 3 1/2 ft above a floor's lowest room (a split
+  level's half flight) stays on that floor.
+- **Show** switches the layers: the **heating runs** (on to start with), the
+  **roofs** (off, as they hide the rooms), and any overlay another
+  integration adds, such as Home Thermal Lab's heat flow between the rooms.
+
+A roof is drawn as a slope rising from its eave at its pitch. A room with roofs
+on opposite faces gets a gable: the two meet half way across, with the gable
+ends drawn as walls (except between rooms under the same roof). Roofs on
+adjacent faces (a hip) are each drawn as if the other weren't there.
+
+The choices are remembered in your browser.
+
 ## Repairs
 
 A wall or roof with no size, or a room with no floor area, raises a repair in
@@ -283,6 +302,43 @@ theme (`window.thermalLab.ask`, `subscribe`, `applyTheme`), and
 `/house_structure_static/chart.umd.min.js` for Chart.js, so you don't ship
 your own. The frame also passes on `window.hassConnection`, so a page that
 used `window.parent.hassConnection` as a sidebar panel of its own still works.
+
+### Drawing over the house
+
+An overlay adds a chip to the House tab; switched on, the tab asks your
+websocket command for flows in watts and draws them as arrows and labels on the
+house. Register it as you would a tab, in `hass.data["house_structure_overlays"]`
+with the event `house_structure_overlays_updated`:
+
+```python
+overlays = hass.data.setdefault("house_structure_overlays", {})
+overlays["heat_flow"] = {
+    "title": "Heat flow",
+    "command": "home_thermal_lab/heat_flow",  # your websocket command
+    "refresh_s": 60,  # how often it is asked again (10 at least)
+}
+hass.bus.async_fire("house_structure_overlays_updated")
+```
+
+The command answers with any of these (watts, positive into a room):
+
+```python
+{
+    "as_of": "2026-11-04T21:00:00Z",
+    "between": [{"from": "kitchen", "to": "office", "w": 85.0}],  # across a shared wall or floor
+    "outside": [{"room": "office", "face": "N", "w": -140.0}],  # through an outside wall
+    "heating": [{"room": "office", "w": 420.0}],  # at its registers ("register": id for one)
+    "solar": [{"room": "office", "w": 60.0}],
+    "notes": ["Z3 has no fitted model yet."],
+}
+```
+
+House Structure draws them at points it puts in the drawing: each room's
+centre, the middle of each wall or floor two rooms share, each outside face
+with a wall part, and each register's outlet. They follow the view and the
+floors, so an overlay needn't know where anything is on the page. A value
+with no such point (a room not drawn, or two rooms that don't touch) is
+counted under the drawing.
 
 ### Saying what you need
 

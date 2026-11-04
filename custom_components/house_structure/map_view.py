@@ -29,6 +29,14 @@ def _saved_house(hass: HomeAssistant):
     return elements_of(entry), dict(entry.data)
 
 
+def _view(request: web.Request) -> int:
+    """The quarter turns of the view, from ``?view=`` (0 to 3; 0 if not given)."""
+    try:
+        return int(request.query.get("view", "0")) % 4
+    except ValueError:
+        return 0
+
+
 class RoomDrawingView(HomeAssistantView):
     """``/api/house_structure/room.svg?area=kitchen``: one room, isometric."""
 
@@ -45,7 +53,7 @@ class RoomDrawingView(HomeAssistantView):
         area = request.query.get("area")
         if saved is None or not area:
             return web.Response(status=404)
-        text = room_svg(*saved, area)
+        text = room_svg(*saved, area, view=_view(request))
         if text is None:
             return web.Response(status=404)
         return web.Response(
@@ -72,7 +80,7 @@ class HousePlanView(HomeAssistantView):
             return web.Response(status=404)
         exploded = request.query.get("exploded", "") in ("1", "true", "yes")
         return web.Response(
-            text=house_svg(*saved, exploded=exploded),
+            text=house_svg(*saved, exploded=exploded, view=_view(request)),
             content_type="image/svg+xml",
             headers={"Cache-Control": "no-store"},
         )

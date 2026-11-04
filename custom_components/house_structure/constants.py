@@ -36,6 +36,9 @@ UPDATED_EVENT = "house_structure_updated"
 # (see ``panel.py``).
 TABS = f"{DOMAIN}_tabs"
 TABS_EVENT = f"{DOMAIN}_tabs_updated"
+# What other integrations draw over the House tab's drawing (see ``tabs.py``).
+OVERLAYS = f"{DOMAIN}_overlays"
+OVERLAYS_EVENT = f"{DOMAIN}_overlays_updated"
 
 # What other integrations need from the house, so a missing size raises a
 # repair only when something uses it (see ``issues.py``).

@@ -20,6 +20,8 @@ Websocket commands, asked over the sidebar page's own connection:
 
 * ``house_structure/tabs``: a subscription; sends ``{"tabs": [...]}`` now and
   whenever an integration adds or removes a tab.
+* ``house_structure/overlays``: the same for the overlays other integrations
+  draw over the House tab's drawing (``{"overlays": [...]}``).
 * ``house_structure/house``: the rooms (with their names and floors), the
   equipment and the buildings, for the House tab.
 """
@@ -36,8 +38,8 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import floor_registry as fr
 import voluptuous as vol
 
-from .constants import DOMAIN, TABS, TABS_EVENT
-from .tabs import HOUSE_ORDER, ordered
+from .constants import DOMAIN, OVERLAYS, OVERLAYS_EVENT, TABS, TABS_EVENT
+from .tabs import HOUSE_ORDER, ordered, ordered_overlays
 
 STATIC_URL = "/house_structure_static"
 PANEL_PATH = "thermal-lab"
@@ -63,6 +65,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         [StaticPathConfig(STATIC_URL, str(FRONTEND), cache_headers=True)]
     )
     websocket_api.async_register_command(hass, ws_tabs)
+    websocket_api.async_register_command(hass, ws_overlays)
     websocket_api.async_register_command(hass, ws_house)
     version = await hass.async_add_executor_job(_version)
     tabs = hass.data.setdefault(TABS, {})
@@ -83,22 +86,43 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     )
 
 
+@callback
+def _follow(hass: HomeAssistant, connection, msg: dict, event: str, make) -> None:
+    """Send ``make()`` now, and again each time ``event`` fires."""
+
+    @callback
+    def send(_event=None) -> None:
+        connection.send_message(websocket_api.event_message(msg["id"], make()))
+
+    connection.subscriptions[msg["id"]] = hass.bus.async_listen(event, send)
+    connection.send_result(msg["id"])
+    send()
+
+
 @websocket_api.websocket_command({vol.Required("type"): "house_structure/tabs"})
 @callback
 def ws_tabs(hass: HomeAssistant, connection, msg: dict) -> None:
     """Send the tabs now, and again whenever they change."""
+    _follow(
+        hass,
+        connection,
+        msg,
+        TABS_EVENT,
+        lambda: {"tabs": ordered(hass.data.get(TABS))},
+    )
 
-    @callback
-    def send(_event=None) -> None:
-        connection.send_message(
-            websocket_api.event_message(
-                msg["id"], {"tabs": ordered(hass.data.get(TABS))}
-            )
-        )
 
-    connection.subscriptions[msg["id"]] = hass.bus.async_listen(TABS_EVENT, send)
-    connection.send_result(msg["id"])
-    send()
+@websocket_api.websocket_command({vol.Required("type"): "house_structure/overlays"})
+@callback
+def ws_overlays(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Send the overlays now, and again whenever they change."""
+    _follow(
+        hass,
+        connection,
+        msg,
+        OVERLAYS_EVENT,
+        lambda: {"overlays": ordered_overlays(hass.data.get(OVERLAYS))},
+    )
 
 
 def house_view(

@@ -6,7 +6,8 @@ Standard library only, so the tests run without Home Assistant.
 The frame is the house grid: x runs east and y north along the house's own
 faces (its N face is the wall at the top of each room's footprint), z is height,
 and the origin is the house's south-west corner on the ground. The drawing looks
-down from the south-west, so east runs right and away, and north left and away.
+down from the south-west, so east runs right and away, and north left and away;
+``view`` turns that by quarter turns, to look from the other corners.
 Compass north is drawn as an arrow, from the house rotation.
 
 A room is a box of its footprint and ceiling height. Its outside walls are
@@ -31,7 +32,7 @@ import math
 import textwrap
 from typing import NamedTuple
 
-from .constants import DOOR, INTERNAL_WALL, REGISTER, ROOM, WALL, WINDOW
+from .constants import DOOR, INTERNAL_WALL, REGISTER, ROOF, ROOM, WALL, WINDOW
 from .geometry import FACES, FOOT, format_size
 from .model import Element
 
@@ -67,21 +68,30 @@ FLOOR_FILL, FLOOR_LINE = "#f3efe6", "#8a8170"
 WALL_FILL, WALL_LINE = "#e2d3ae", "#7a6a46"
 WINDOW_FILL, WINDOW_LINE = "#9fd3f0", "#3b7bb0"
 DOOR_FILL, DOOR_LINE = "#a8744a", "#5c3b1e"
+ROOF_FILL, ROOF_LINE = "#9c7b6b", "#4e342e"
+OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E"}
+# the way into a room from each face, along the house grid
+INWARD = {"S": (0.0, 1.0), "N": (0.0, -1.0), "W": (1.0, 0.0), "E": (-1.0, 0.0)}
 MISSING_LINE = "#b0a58c"
 FACE_ORDER = ("N", "E", "S", "W")  # far faces first, so the near ones overlay them
 NEAR_FACES = ("S", "W")
+# The corner the drawing looks from, by quarter turns of the view (``view``):
+# 0 is the south-west, then each turn goes a corner clockwise round the house.
+VIEWS = ("south-west", "north-west", "north-east", "south-east")
+_NEAR_BY_VIEW = (("S", "W"), ("N", "W"), ("N", "E"), ("S", "E"))
 
 Point = tuple[float, float, float]  # metres in the house grid
 
 
 class Poly(NamedTuple):
-    """A flat shape: its corners, fill and outline."""
+    """A flat shape: its corners, fill, outline and layer."""
 
     points: list[Point]
     fill: str
     stroke: str
     opacity: float = 1.0
     dashed: bool = False
+    layer: str = "rooms"
 
 
 class Run(NamedTuple):
@@ -93,11 +103,12 @@ class Run(NamedTuple):
 
 
 class Dot(NamedTuple):
-    """A point with a label (an outlet, the plenum)."""
+    """A point with a label (an outlet, the plenum), and its layer."""
 
     point: Point
     colour: str
     label: str = ""
+    layer: str = "runs"
 
 
 @dataclass(frozen=True)
@@ -115,21 +126,59 @@ class Box:
     notes: tuple[str, ...] = ()
 
 
+class Anchor(NamedTuple):
+    """A point an overlay can draw at, named by ``data-`` attributes.
+
+    Not drawn: ``render`` puts anchors in a hidden group, in the drawing's own
+    pixel space, so a page can draw arrows and labels at them without knowing
+    the projection.
+    """
+
+    point: Point
+    attrs: dict[str, str]
+
+
 @dataclass
 class Scene:
-    """What to draw, and the caption under it."""
+    """What to draw, and the caption under it.
+
+    The walls, floors, windows and doors are the ``rooms`` layer; the duct
+    runs, the plenum and the outlets (``Dot.layer``) are the ``runs`` layer.
+    """
 
     polygons: list[Poly] = field(default_factory=list)
     lines: list[Run] = field(default_factory=list)
     dots: list[Dot] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     north: tuple[float, float] | None = None  # the direction of true north, on the page
+    anchors: list[Anchor] = field(default_factory=list)
+    view: int = 0  # quarter turns of the view (see ``VIEWS``)
 
 
-def project(point: Point) -> tuple[float, float]:
-    """Where a point of the house grid sits on the page (y grows downwards)."""
-    x, y, z = point
+def _turn(x: float, y: float, view: int) -> tuple[float, float]:
+    """A point of the house grid turned so the corner seen from is the south-west."""
+    return ((x, y), (-y, x), (-x, -y), (y, -x))[view % 4]
+
+
+def project(point: Point, view: int = 0) -> tuple[float, float]:
+    """Where a point of the house grid sits on the page (y grows downwards).
+
+    ``view`` is the quarter turns of the view (see ``VIEWS``).
+    """
+    x, y = _turn(point[0], point[1], view)
+    z = point[2]
     return (x - y) * COS30, -(x + y) * SIN30 - z
+
+
+def near_faces(view: int = 0) -> tuple[str, str]:
+    """The two faces of a room that look towards the viewer."""
+    return _NEAR_BY_VIEW[view % 4]
+
+
+def face_order(view: int = 0) -> tuple[str, ...]:
+    """The faces far first, so the near ones are drawn over them."""
+    near = near_faces(view)
+    return (*(f for f in FACE_ORDER if f not in near), *near)
 
 
 def _distance(a: Point, b: Point) -> float:
@@ -357,8 +406,9 @@ def _add_room(
     by_face: dict[str, list[Element]] = {face: [] for face in FACE_ORDER}
     for wall in parts.walls.get(box.area, []):
         by_face[_face_of(wall, rotation)].append(wall)
-    for face in FACE_ORDER:
-        opacity = 0.6 if face in NEAR_FACES else 0.9
+    near = near_faces(scene.view)
+    for face in face_order(scene.view):
+        opacity = 0.6 if face in near else 0.9
         if not by_face[face]:
             outline = _quad(box, face, 0.0, _span(box, face), 0.0, box.height)
             scene.polygons.append(Poly(outline, "none", MISSING_LINE, 1.0, True))
@@ -377,7 +427,7 @@ def _add_room(
             if on == face:
                 scene.polygons.append(_inside_door(box, door, face, start, end))
     for reg in parts.outlets.get(box.area, []):
-        scene.dots.append(Dot(_outlet(box, reg), colours[reg.id], reg.title))
+        scene.dots.append(Dot(_outlet(box, reg), colours[reg.id], reg.title, "runs"))
 
 
 def _placed_box(room: Element, unit: str) -> Box | None:
@@ -473,9 +523,151 @@ def _lifted(point: Point, lift: float) -> Point:
     return point[0], point[1], point[2] + lift
 
 
-def _depth_key(box: Box) -> float:
-    """Draw far and low rooms first: the painter's order from the south-west."""
-    return 2 * box.z - (box.x + box.width / 2 + box.y + box.depth / 2)
+def _roof_faces(elements: dict[str, Element], rotation: float) -> dict[str, list]:
+    """Each room's roofs, as ``(roof, face)``, by area."""
+    out: dict[str, list] = {}
+    for roof in (e for e in elements.values() if e.kind == ROOF and e.plane):
+        face = _face_of(roof, rotation)
+        for area in roof.area_ids:
+            out.setdefault(area, []).append((roof, face))
+    return out
+
+
+def _add_roofs(
+    scene: Scene,
+    boxes: list[Box],
+    elements: dict[str, Element],
+    rotation: float,
+) -> None:
+    """Each roof as a slope on top of its rooms: the ``roofs`` layer.
+
+    A roof rises from its eave, on its face's side of the room, at its pitch.
+    It spans the room, or half of it when the room also has a roof on the
+    opposite face (a gable: the two meet at the ridge, and the gable ends are
+    drawn as walls, except where the room beyond is under the same roof).
+    Roofs on adjacent faces (a hip) are each drawn as if the
+    other weren't there. The ceiling is taken as flat under it.
+    """
+    faces_by_area = _roof_faces(elements, rotation)
+    order = {face: i for i, face in enumerate(face_order(scene.view))}
+
+    def roof_goes_on(box: Box, end: str, roof: Element) -> bool:
+        """Whether the room beyond this end is under the same roof (no gable)."""
+        for other in boxes:
+            shared = _shared_face(box, other) if other.area != box.area else None
+            if shared and shared[0] == end and other.area in roof.area_ids:
+                return True
+        return False
+
+    shapes = []
+    for box in boxes:
+        roofs = faces_by_area.get(box.area, [])
+        faces = {face for _, face in roofs}
+        top = box.height
+        for roof, face in roofs:
+            gable = OPPOSITE[face] in faces
+            across = box.depth if face in ("S", "N") else box.width
+            run = across / 2 if gable else across
+            rise = run * math.tan(math.radians(roof.plane.tilt))
+            ix, iy = INWARD[face]
+            length = _span(box, face)
+            eave = [_on_face(box, face, 0.0, top), _on_face(box, face, length, top)]
+            ridge = [
+                (x + ix * run, y + iy * run, z + rise) for x, y, z in reversed(eave)
+            ]
+            slope = Poly([*eave, *ridge], ROOF_FILL, ROOF_LINE, 0.92, layer="roofs")
+            polys = [slope]
+            # each gable end once: from the south or west roof of the pair
+            if gable and face in ("S", "W"):
+                for end in ("W", "E") if face == "S" else ("S", "N"):
+                    if roof_goes_on(box, end, roof):
+                        continue
+                    middle = _span(box, end) / 2
+                    peak = _on_face(box, end, middle, top + rise)
+                    sides = [_on_face(box, end, 0.0, top), peak]
+                    sides.append(_on_face(box, end, _span(box, end), top))
+                    polys.append(Poly(sides, WALL_FILL, WALL_LINE, 0.9, layer="roofs"))
+            shapes.append((_depth_key(box, scene.view), order[face], polys))
+    for _, _, polys in sorted(shapes, key=lambda s: (s[0], s[1])):
+        scene.polygons.extend(polys)
+
+
+def _overlap(a0: float, a1: float, b0: float, b1: float) -> tuple[float, float]:
+    """Where two spans overlap (empty when the end is not past the start)."""
+    return max(a0, b0), min(a1, b1)
+
+
+def _pair(a: str, b: str) -> str:
+    """Two areas as one key, the same either way round."""
+    return "|".join(sorted((a, b)))
+
+
+def _add_anchors(
+    scene: Scene,
+    real: list[Box],
+    drawn: list[Box],
+    parts: Parts,
+    rotation: float,
+) -> None:
+    """The points overlays draw at, worked out on the drawn (maybe lifted) rooms.
+
+    Which rooms touch is found where they really are (``real``), so drawing
+    the floors apart doesn't lose a room above another. Each anchor is:
+
+    * ``data-room``: the room's centre, half way up;
+    * ``data-between="a|b"`` (the two areas, sorted): the middle of the wall
+      two rooms share, half way up the height they share; or, for a room over
+      another, the middle of the floor between them (half way across the gap
+      when the floors are apart);
+    * ``data-outside="area|face"``: the middle of each face with an outside
+      wall part, half way up;
+    * ``data-register`` (its part id), with ``data-room``: each outlet.
+    """
+    lifted = {box.area: box for box in drawn}
+    for box in drawn:
+        centre = (box.x + box.width / 2, box.y + box.depth / 2, box.z + box.height / 2)
+        scene.anchors.append(Anchor(centre, {"room": box.area}))
+        faces = {_face_of(wall, rotation) for wall in parts.walls.get(box.area, [])}
+        for face in sorted(faces):
+            point = _on_face(box, face, _span(box, face) / 2, box.height / 2)
+            scene.anchors.append(Anchor(point, {"outside": f"{box.area}|{face}"}))
+        for reg in parts.outlets.get(box.area, []):
+            scene.anchors.append(
+                Anchor(_outlet(box, reg), {"register": reg.id, "room": box.area})
+            )
+    seen: set[str] = set()
+    for a, b in itertools.combinations(real, 2):
+        key = _pair(a.area, b.area)
+        if a.area == b.area or key in seen:
+            continue
+        la = lifted[a.area]  # a side anchor follows the first room's floor
+        side = _shared_face(a, b)
+        if side is not None:
+            face, start, end = side
+            low, high = _overlap(a.z, a.z + a.height, b.z, b.z + b.height)
+            point = _on_face(la, face, (start + end) / 2, (low + high) / 2 - a.z)
+            scene.anchors.append(Anchor(point, {"between": key}))
+            seen.add(key)
+            continue
+        lower, upper = (a, b) if a.z <= b.z else (b, a)
+        if abs(lower.z + lower.height - upper.z) >= TOUCH:
+            continue
+        x0, x1 = _overlap(a.x, a.x + a.width, b.x, b.x + b.width)
+        y0, y1 = _overlap(a.y, a.y + a.depth, b.y, b.y + b.depth)
+        if x1 - x0 <= 0.3 or y1 - y0 <= 0.3:
+            continue
+        lo, up = lifted[lower.area], lifted[upper.area]
+        z = (lo.z + lo.height + up.z) / 2
+        scene.anchors.append(
+            Anchor(((x0 + x1) / 2, (y0 + y1) / 2, z), {"between": key})
+        )
+        seen.add(key)
+
+
+def _depth_key(box: Box, view: int = 0) -> float:
+    """Draw far and low rooms first: the painter's order from the view's corner."""
+    x, y = _turn(box.x + box.width / 2, box.y + box.depth / 2, view)
+    return 2 * box.z - (x + y)
 
 
 def _plenum(house: dict) -> Point | None:
@@ -535,19 +727,20 @@ def _add_runs(
         scene.notes.append(f"{reg.title}: run {drawn:.0f} ft drawn, {stated}")
 
 
-def _north(rotation: float) -> tuple[float, float]:
+def _north(rotation: float, view: int = 0) -> tuple[float, float]:
     """True north on the page: the house's y axis turned back by its rotation."""
     turn = math.radians(rotation)
-    dx, dy = project((-math.sin(turn), math.cos(turn), 0.0))
+    dx, dy = project((-math.sin(turn), math.cos(turn), 0.0), view)
     length = math.hypot(dx, dy) or 1.0
     return dx / length, dy / length
 
 
 def render(scene: Scene, width: int = 360) -> str:
     """The scene as an SVG, the captions under the drawing."""
-    corners = [project(p) for poly in scene.polygons for p in poly.points]
-    corners += [project(p) for run in scene.lines for p in run.points]
-    corners += [project(dot.point) for dot in scene.dots]
+    view = scene.view
+    corners = [project(p, view) for poly in scene.polygons for p in poly.points]
+    corners += [project(p, view) for run in scene.lines for p in run.points]
+    corners += [project(dot.point, view) for dot in scene.dots]
     xs = [x for x, _ in corners] or [0.0]
     ys = [y for _, y in corners] or [0.0]
     left, top = min(xs), min(ys)
@@ -560,39 +753,58 @@ def render(scene: Scene, width: int = 360) -> str:
     draw_h = span_y * scale + 2 * MARGIN
 
     def at(point: Point) -> str:
-        x, y = project(point)
+        x, y = project(point, view)
         return f"{MARGIN + (x - left) * scale:.1f},{MARGIN + (y - top) * scale:.1f}"
 
-    out: list[str] = []
+    # the order the layers are drawn in: the roofs over the rooms and runs
+    layers: dict[str, list[str]] = {"rooms": [], "runs": [], "roofs": []}
     for poly in scene.polygons:
         dash = ' stroke-dasharray="4 3"' if poly.dashed else ""
-        out.append(
+        layers.setdefault(poly.layer, []).append(
             f'<polygon points="{" ".join(at(p) for p in poly.points)}" '
             f'fill="{poly.fill}" fill-opacity="{poly.opacity}" '
             f'stroke="{poly.stroke}" stroke-width="1.2"{dash}/>'
         )
     for run in scene.lines:
-        out.append(
+        layers["runs"].append(
             f'<polyline points="{" ".join(at(p) for p in run.points)}" fill="none" '
             f'stroke="{run.colour}" stroke-width="{run.width}" '
             'stroke-linejoin="round" stroke-linecap="round"/>'
         )
     for dot in scene.dots:
         x, y = at(dot.point).split(",")
-        out.append(
+        layers.setdefault(dot.layer, []).append(
             f'<circle cx="{x}" cy="{y}" r="4.5" fill="{dot.colour}" '
             f'stroke="#ffffff" stroke-width="1.5">'
             f"<title>{escape(dot.label, quote=False)}</title></circle>"
         )
+    out = [
+        f'<g data-layer="{name}">{"".join(items)}</g>'
+        for name, items in layers.items()
+        if items
+    ]
+    if scene.anchors:
+        points = []
+        for anchor in scene.anchors:
+            x, y = at(anchor.point).split(",")
+            attrs = "".join(
+                f' data-{key}="{escape(value, quote=True)}"'
+                for key, value in anchor.attrs.items()
+            )
+            points.append(f'<circle cx="{x}" cy="{y}" r="0"{attrs}/>')
+        out.append(f'<g data-layer="anchors" visibility="hidden">{"".join(points)}</g>')
     if scene.north is not None:
         dx, dy = scene.north
-        base_x, base_y = width - MARGIN - 6, MARGIN + 6
-        tip_x, tip_y = base_x + 22 * dx, base_y + 22 * dy
+        # centred in its corner, so the arrow and its N fit whichever way it points
+        cx, cy = width - MARGIN - 20, MARGIN + 20
+        base_x, base_y = cx - 11 * dx, cy - 11 * dy
+        tip_x, tip_y = cx + 11 * dx, cy + 11 * dy
         out.append(
+            '<g data-layer="north">'
             f'<line x1="{base_x:.1f}" y1="{base_y:.1f}" x2="{tip_x:.1f}" '
             f'y2="{tip_y:.1f}" stroke="#333333" stroke-width="2"/>'
-            f'<text x="{tip_x + 4 * dx:.1f}" y="{tip_y + 4 * dy + 4:.1f}" '
-            'fill="#333333" font-weight="bold">N</text>'
+            f'<text x="{cx + 19 * dx:.1f}" y="{cy + 19 * dy + 4:.1f}" '
+            'fill="#333333" font-weight="bold" text-anchor="middle">N</text></g>'
         )
     wrapped = [
         line
@@ -610,12 +822,19 @@ def render(scene: Scene, width: int = 360) -> str:
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" '
         f'height="{total:.0f}" viewBox="0 0 {width} {total:.0f}" '
-        f'font-family="sans-serif" font-size="12">{body}{"".join(lines)}</svg>'
+        f'data-drawing-height="{draw_h:.0f}" '
+        f'font-family="sans-serif" font-size="12">{body}'
+        f'<g data-layer="notes">{"".join(lines)}</g></svg>'
     )
 
 
-def room_svg(elements: dict[str, Element], house: dict, area_id: str) -> str | None:
-    """One room's isometric drawing, or None when the area has no room part."""
+def room_svg(
+    elements: dict[str, Element], house: dict, area_id: str, view: int = 0
+) -> str | None:
+    """One room's isometric drawing, or None when the area has no room part.
+
+    ``view`` turns the view by quarter turns (see ``VIEWS``).
+    """
     room = next(
         (e for e in elements.values() if e.kind == ROOM and e.area_id == area_id),
         None,
@@ -624,7 +843,7 @@ def room_svg(elements: dict[str, Element], house: dict, area_id: str) -> str | N
         return None
     rotation = float(house.get("rotation") or 0.0)
     unit = house.get("unit", "m")
-    scene = Scene(north=_north(rotation))
+    scene = Scene(north=_north(rotation, view), view=view % 4)
     box = _box(room, 0.0, 0.0, 0.0, unit)
     if box is None:
         scene.notes.append(
@@ -635,6 +854,7 @@ def room_svg(elements: dict[str, Element], house: dict, area_id: str) -> str | N
     faces = {_face_of(w, rotation) for w in parts.walls.get(area_id, [])}
     inside, door_notes = _inside_doors(elements, parts, area_id, unit)
     _add_room(scene, box, rotation, parts, _colours(elements), inside)
+    _add_roofs(scene, [box], elements, rotation)
     scene.notes.extend(box.notes)
     scene.notes.extend(door_notes)
     missing = [face for face in FACE_ORDER if face not in faces]
@@ -643,18 +863,24 @@ def room_svg(elements: dict[str, Element], house: dict, area_id: str) -> str | N
             "Dashed faces have no wall part yet: " + ", ".join(missing) + "."
         )
     scene.notes.append(
-        "Looking from the south-west. Windows and doors (brown) sit centred, "
+        f"Looking from the {VIEWS[view % 4]}. Windows and doors (brown) sit centred, "
         f"window sills at {SILL:g} m."
     )
     return render(scene)
 
 
-def house_svg(elements: dict[str, Element], house: dict, exploded: bool = False) -> str:
+def house_svg(
+    elements: dict[str, Element],
+    house: dict,
+    exploded: bool = False,
+    view: int = 0,
+) -> str:
     """The house from its rooms at their positions, with the heating runs on it.
 
     ``exploded`` draws the floors apart, each lifted ``EXPLODE_GAP`` more than
     the one below, so an upper floor doesn't hide the one under it. The runs
-    are drawn to the lifted floors but measured on the real ones.
+    are drawn to the lifted floors but measured on the real ones. ``view``
+    turns the view by quarter turns (see ``VIEWS``).
     """
     rotation = float(house.get("rotation") or 0.0)
     unit = house.get("unit", "m")
@@ -663,15 +889,17 @@ def house_svg(elements: dict[str, Element], house: dict, exploded: bool = False)
     drawn = [replace(b, z=b.z + _lift_of(b.z, lifts)) for b in boxes]
     colours = _colours(elements)
     parts = _parts(elements)
-    scene = Scene(north=_north(rotation))
-    for box in sorted(drawn, key=_depth_key):
+    scene = Scene(north=_north(rotation, view), view=view % 4)
+    for box in sorted(drawn, key=lambda b: _depth_key(b, view)):
         inside, door_notes = _inside_doors(elements, parts, box.area, unit)
         _add_room(scene, box, rotation, parts, colours, inside)
         notes.extend(door_notes)
     _add_runs(scene, boxes, elements, house, colours, lifts)
+    _add_roofs(scene, drawn, elements, rotation)
+    _add_anchors(scene, boxes, drawn, parts, rotation)
     if not boxes:
         notes.append("No rooms are drawn yet.")
-    key = "Looking from the south-west: east and north from the house's corner."
+    key = f"Looking from the {VIEWS[view % 4]}."
     if len(lifts) > 1:
         key += (
             f" Floors drawn apart: each is lifted {format_size(EXPLODE_GAP, unit)} "
