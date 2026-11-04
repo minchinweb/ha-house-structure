@@ -84,6 +84,15 @@ class Element:
     above: tuple[str, ...] = ()
     climate: str | None = None
     fan: str | None = None
+    r_value_si: float | None = None
+    glazing: str | None = None
+    frame: str | None = None
+    below_grade_m: float | None = None
+    free_area_in2: float | None = None
+    flow_cfm: float | None = None
+    duct: tuple[dict, ...] = ()
+    # the shared duct section the register hangs off (its duct is the branch)
+    upstream: str | None = None
 
     @property
     def net_m2(self) -> float | None:
@@ -130,6 +139,11 @@ class Element:
             if self.fan:
                 out["fan"] = self.fan
         return out
+
+
+def _optional(value) -> float | None:
+    """A number from stored data, or None when it is missing."""
+    return None if value in (None, "") else float(value)
 
 
 def _area(data: dict, width: str, height: str) -> float | None:
@@ -215,6 +229,7 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 height_m=height,
                 volume_m3=volume,
                 below_ground=bool(d.get("below_ground", False)),
+                below_grade_m=_optional(d.get("below_grade_m")),
                 beside=_others(d.get("beside"), area),
                 above=_others(d.get("above"), area),
             )
@@ -226,6 +241,10 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 d.get("area_id"),
                 climate=d.get("climate"),
                 fan=d.get("fan") or None,
+                free_area_in2=_optional(d.get("free_area_in2")),
+                flow_cfm=_optional(d.get("flow_cfm")),
+                duct=tuple(d.get("duct") or ()),
+                upstream=d.get("upstream") or None,
             )
         elif raw.kind == WALL:
             elements[raw.id] = Element(
@@ -235,6 +254,7 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 d.get("area_id"),
                 plane=_plane(d, house, 90.0),
                 size_m2=_area(d, "length_m", "height_m"),
+                r_value_si=_optional(d.get("r_value_si")),
             )
         elif raw.kind == ROOF:
             areas = roof_areas(d)
@@ -246,6 +266,7 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 area_ids=tuple(areas),
                 plane=_plane(d, house, float(d.get("pitch", 45.0))),
                 size_m2=_roof_area(d, float(d.get("pitch", 45.0)), areas, room_floors),
+                r_value_si=_optional(d.get("r_value_si")),
             )
         elif raw.kind == INTERNAL_WALL:
             elements[raw.id] = Element(
@@ -279,6 +300,8 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
             transmittance=float(d.get("transmittance", TRANSMITTANCE)),
             blind=d.get("blind") or None,
             blind_closed=float(d.get("blind_closed", BLIND_CLOSED)),
+            glazing=d.get("glazing") or None,
+            frame=d.get("frame") or None,
         )
         if glass:
             elements[host.id] = replace(
@@ -363,6 +386,7 @@ def _empty_room(area_id: str, temperature: str | None) -> dict:
         "floor_m2": None,
         "height_m": None,
         "volume_m3": None,
+        "below_grade_m": None,
         "below_ground": False,
         "temperature_entity": temperature,
         "windows": [],
@@ -407,6 +431,7 @@ def rooms_summary(
                         **_plane_summary(e),
                         "area_m2": e.size_m2,
                         "glass_m2": e.glass_m2,
+                        "r_value_si": e.r_value_si,
                         "area_ids": list(e.area_ids),
                     }
                 )
@@ -421,10 +446,16 @@ def rooms_summary(
                 height_m=e.height_m,
                 volume_m3=e.volume_m3,
                 below_ground=e.below_ground,
+                below_grade_m=e.below_grade_m,
             )
         elif e.kind == WALL:
             here["walls"].append(
-                {**_plane_summary(e), "area_m2": e.size_m2, "glass_m2": e.glass_m2}
+                {
+                    **_plane_summary(e),
+                    "area_m2": e.size_m2,
+                    "glass_m2": e.glass_m2,
+                    "r_value_si": e.r_value_si,
+                }
             )
         elif e.kind == WINDOW:
             here["windows"].append(
@@ -433,6 +464,8 @@ def rooms_summary(
                     "in": elements[e.host].kind,
                     "glass_m2": e.size_m2,
                     "transmittance": e.transmittance,
+                    "glazing": e.glazing,
+                    "frame": e.frame,
                     "blind": e.blind,
                     "blind_closed": e.blind_closed,
                 }
@@ -449,7 +482,15 @@ def rooms_summary(
                     )
         elif e.kind == REGISTER:
             here["registers"].append(
-                {"title": e.title, "climate": e.climate, "fan": e.fan}
+                {
+                    "title": e.title,
+                    "climate": e.climate,
+                    "fan": e.fan,
+                    "free_area_in2": e.free_area_in2,
+                    "flow_cfm": e.flow_cfm,
+                    "duct": [dict(seg) for seg in e.duct],
+                    "upstream": e.upstream,
+                }
             )
     # an area without parts (a garage, say) is a neighbour, but not a room
     for area_id, items in neighbours(elements).items():

@@ -263,6 +263,10 @@ def test_rooms_summary_for_other_integrations():
             "title": "Master register",
             "climate": "climate.z3",
             "fan": "fan.master_register",
+            "free_area_in2": None,
+            "flow_cfm": None,
+            "duct": [],
+            "upstream": None,
         }
     ]
     # the internal wall is in both rooms; the bath has no other parts
@@ -442,3 +446,91 @@ def test_format_size_reads_back():
         for power in (1, 2, 3):
             shown = format_size(3.0, unit, power)
             assert parse_size(shown, unit, power) == pytest.approx(3.0, rel=1e-3)
+
+
+def test_envelope_and_duct_fields_reach_the_summary():
+    raws = [
+        Raw(
+            "room",
+            ROOM,
+            "Basement",
+            {
+                "area_id": "basement",
+                "floor_m2": 40.0,
+                "height_m": 2.3,
+                "below_ground": True,
+                "below_grade_m": 1.8,
+            },
+        ),
+        Raw(
+            "wall",
+            WALL,
+            "South wall",
+            {
+                "area_id": "basement",
+                "face": "S",
+                "length_m": 10.0,
+                "height_m": 2.0,
+                "r_value_si": 3.5,
+            },
+        ),
+        Raw(
+            "win",
+            WINDOW,
+            "Window",
+            {
+                "host": "wall",
+                "width_m": 1.0,
+                "height_m": 1.0,
+                "glazing": "triple",
+                "frame": "vinyl",
+            },
+        ),
+        Raw(
+            "reg",
+            REGISTER,
+            "Basement register",
+            {
+                "area_id": "basement",
+                "climate": "climate.basement",
+                "free_area_in2": 60.0,
+                "flow_cfm": 90.0,
+                "duct": [
+                    {
+                        "shape": "round",
+                        "diameter_in": 4.0,
+                        "length_ft": 14.0,
+                        "fittings_k": 0.9,
+                    }
+                ],
+            },
+        ),
+    ]
+    elements, problems = build({"rotation": 0.0}, raws)
+    assert problems == []
+    rooms = rooms_summary(elements)
+    room = rooms["basement"]
+    assert room["below_grade_m"] == pytest.approx(1.8)
+    assert room["walls"][0]["r_value_si"] == pytest.approx(3.5)
+    assert room["windows"][0]["glazing"] == "triple"
+    assert room["windows"][0]["frame"] == "vinyl"
+    register = room["registers"][0]
+    assert register["free_area_in2"] == pytest.approx(60.0)
+    assert register["flow_cfm"] == pytest.approx(90.0)
+    assert register["duct"][0]["diameter_in"] == pytest.approx(4.0)
+    assert register["upstream"] is None
+
+
+def test_missing_envelope_fields_are_none_not_errors():
+    raws = [
+        Raw("room", ROOM, "Office", {"area_id": "office"}),
+        Raw(
+            "wall",
+            WALL,
+            "Wall",
+            {"area_id": "office", "face": "S", "length_m": 4.0, "height_m": 2.0},
+        ),
+    ]
+    elements, _ = build({"rotation": 0.0}, raws)
+    wall = rooms_summary(elements)["office"]["walls"][0]
+    assert wall["r_value_si"] is None

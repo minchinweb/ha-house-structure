@@ -29,6 +29,7 @@ from .constants import (
     WINDOW,
 )
 from .coordinator import SkyCoordinator
+from .ducts import parse_sections
 from .model import SUMMARY_VERSION, Element, Raw, build, rooms_summary
 
 _LOGGER = logging.getLogger(__name__)
@@ -130,8 +131,21 @@ def area_temperature(hass: HomeAssistant, area_id: str | None) -> str | None:
     return found.pop() if len(found) == 1 else None
 
 
-def publish_rooms(hass: HomeAssistant, elements: dict[str, Element] | None) -> None:
-    """Share the rooms' parts, and tell listeners when they changed.
+def sections_of(entry) -> dict[str, dict]:
+    """The house's shared duct sections (the plenum and trunks), by name."""
+    try:
+        return parse_sections(entry.data.get("duct_sections") or "")
+    except ValueError as err:
+        _LOGGER.warning("The duct sections are not used: %s", err)
+        return {}
+
+
+def publish_rooms(
+    hass: HomeAssistant,
+    elements: dict[str, Element] | None,
+    sections: dict[str, dict] | None = None,
+) -> None:
+    """Share the rooms' parts and the duct sections, and tell listeners of changes.
 
     ``None`` takes the rooms away (the integration was removed).
     """
@@ -141,7 +155,8 @@ def publish_rooms(hass: HomeAssistant, elements: dict[str, Element] | None) -> N
         areas |= {e.other_area_id for e in elements.values()}
         temperature = {a: area_temperature(hass, a) for a in areas if a}
         rooms = rooms_summary(elements, temperature)
-    old = hass.data.get(DOMAIN, {}).get("rooms")
-    hass.data[DOMAIN] = {"version": SUMMARY_VERSION, "rooms": rooms}
-    if old != rooms:
+    ducts = sections or {}
+    old = hass.data.get(DOMAIN, {})
+    hass.data[DOMAIN] = {"version": SUMMARY_VERSION, "rooms": rooms, "ducts": ducts}
+    if old.get("rooms") != rooms or old.get("ducts") != ducts:
         hass.bus.async_fire(UPDATED_EVENT, {"rooms": sorted(rooms)})

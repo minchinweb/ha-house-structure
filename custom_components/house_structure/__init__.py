@@ -39,14 +39,20 @@ from .constants import (  # noqa: F401  (re-exported for other integrations)
 async def async_setup_entry(hass, entry) -> bool:
     """Fetch the sky, then create the devices and sensors."""
     from .coordinator import sky_coordinator
-    from .devices import HouseData, elements_of, publish_rooms, register_devices
+    from .devices import (
+        HouseData,
+        elements_of,
+        publish_rooms,
+        register_devices,
+        sections_of,
+    )
     from .issues import check
 
     elements = elements_of(entry)
     register_devices(hass, entry, elements)
     check(hass, entry.entry_id, elements)
     # the rooms are known before the sky, which may not answer yet
-    publish_rooms(hass, elements)
+    publish_rooms(hass, elements, sections_of(entry))
     coordinator = sky_coordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = HouseData(coordinator, elements, dict(entry.data))
@@ -77,7 +83,7 @@ async def _updated(hass, entry) -> None:
     """
     from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-    from .devices import elements_of, publish_rooms, register_devices
+    from .devices import elements_of, publish_rooms, register_devices, sections_of
     from .entity import parts_signal
     from .issues import check
 
@@ -88,5 +94,5 @@ async def _updated(hass, entry) -> None:
     data.elements = elements_of(entry)
     register_devices(hass, entry, data.elements)
     check(hass, entry.entry_id, data.elements)
-    publish_rooms(hass, data.elements)
+    publish_rooms(hass, data.elements, sections_of(entry))
     async_dispatcher_send(hass, parts_signal(entry.entry_id))

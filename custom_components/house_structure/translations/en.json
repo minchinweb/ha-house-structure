@@ -10,7 +10,8 @@
           "shade_below": "Shaded below sun elevation (degrees)",
           "unit": "Unit for sizes",
           "sky_source": "Sky source",
-          "sky_sensor": "Solar radiation sensor"
+          "sky_sensor": "Solar radiation sensor",
+          "duct_sections": "Shared duct sections (plenum and trunks)"
         },
         "data_description": {
           "rotation": "Degrees the house is turned clockwise from true north: the value measured from OpenStreetMap is filled in. Its four faces then look this far past north, east, south and west.",
@@ -18,7 +19,8 @@
           "shade_below": "Treat the south-east to south-west sun as blocked by trees and neighbours below this elevation. A wall or roof can set its own.",
           "unit": "Sizes are typed in this unit and kept in metres, so changing it later keeps them. A size typed with its own unit (3.2 m, 12' 6\", 14 sq ft) is read in that unit instead. In feet and inches, type lengths like 12' 6\" (or 12 6); floor areas and volumes are in square and cubic feet.",
           "sky_source": "Where the sun and sky light comes from. Open-Meteo is fetched over the internet every 15 minutes (no key needed). A solar radiation sensor, such as a weather station's, is read every 5 minutes and split into the sun's beam and the rest of the sky.",
-          "sky_sensor": "Only for the sensor source: a sensor reading all the sun and sky light on a flat surface, in W/m²."
+          "sky_sensor": "Only for the sensor source: a sensor reading all the sun and sky light on a flat surface, in W/m².",
+          "duct_sections": "One per line: 'Name: segments' for a section off the plenum, or 'Name from Upstream: segments' for one that hangs off another. Segments are written as a register's duct is (no cfm needed: a section carries what the registers behind it need). A register names its upstream section, and its own duct is then only the branch from that section."
         }
       },
       "reconfigure": {
@@ -30,7 +32,8 @@
           "shade_below": "Shaded below sun elevation (degrees)",
           "unit": "Unit for sizes",
           "sky_source": "Sky source",
-          "sky_sensor": "Solar radiation sensor"
+          "sky_sensor": "Solar radiation sensor",
+          "duct_sections": "Shared duct sections (plenum and trunks)"
         },
         "data_description": {
           "rotation": "Degrees the house is turned clockwise from true north. Check it against the map.",
@@ -38,12 +41,14 @@
           "shade_below": "Treat the south-east to south-west sun as blocked below this elevation.",
           "unit": "Sizes are typed in this unit, unless typed with their own, and kept in metres, so changing it keeps them.",
           "sky_source": "Open-Meteo over the internet, or a solar radiation sensor.",
-          "sky_sensor": "Only for the sensor source: the light on a flat surface, in W/m²."
+          "sky_sensor": "Only for the sensor source: the light on a flat surface, in W/m².",
+          "duct_sections": "One per line: 'Name: segments' for a section off the plenum, or 'Name from Upstream: segments' for one that hangs off another. Segments are written as a register's duct is (no cfm needed: a section carries what the registers behind it need). A register names its upstream section, and its own duct is then only the branch from that section."
         }
       }
     },
     "error": {
-      "invalid_sky_sensor": "Choose the solar radiation sensor to read the sky from."
+      "invalid_sky_sensor": "Choose the solar radiation sensor to read the sky from.",
+      "invalid_duct_sections": "Check each duct section: a name, a colon, and segments, with upstream sections that exist and no loops."
     },
     "abort": {
       "single_instance_allowed": "House Structure is already set up.",
@@ -69,14 +74,16 @@
             "volume": "Volume",
             "below_ground": "Below ground",
             "beside": "Rooms beside it",
-            "above": "Rooms above it"
+            "above": "Rooms above it",
+            "below_grade": "Wall depth below ground"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
             "volume": "Leave empty for floor area times ceiling height. Give it for a sloped ceiling.",
             "below_ground": "Tick for a basement room: its walls trade heat with the soil.",
             "beside": "Rooms on the same floor that share a wall with this one. A room linked here is linked both ways, so each pair is entered once. When first shown, the other rooms on the same floor are ticked: untick the ones that do not touch.",
-            "above": "Rooms over its ceiling (this room is below them). Areas without a room, such as an unheated attic, can be chosen too."
+            "above": "Rooms over its ceiling (this room is below them). Areas without a room, such as an unheated attic, can be chosen too.",
+            "below_grade": "For a basement: how far its walls go into the soil, such as 1.8 m or 6 ft. Blank for a room above ground."
           }
         },
         "reconfigure": {
@@ -90,14 +97,16 @@
             "volume": "Volume",
             "below_ground": "Below ground",
             "beside": "Rooms beside it",
-            "above": "Rooms above it"
+            "above": "Rooms above it",
+            "below_grade": "Wall depth below ground"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
             "volume": "Leave empty for floor area times ceiling height. Give it for a sloped ceiling.",
             "below_ground": "Tick for a basement room: its walls trade heat with the soil.",
             "beside": "Rooms on the same floor that share a wall with this one. A room linked here is linked both ways, so each pair is entered once. When first shown, the other rooms on the same floor are ticked: untick the ones that do not touch.",
-            "above": "Rooms over its ceiling (this room is below them). Areas without a room, such as an unheated attic, can be chosen too."
+            "above": "Rooms over its ceiling (this room is below them). Areas without a room, such as an unheated attic, can be chosen too.",
+            "below_grade": "For a basement: how far its walls go into the soil, such as 1.8 m or 6 ft. Blank for a room above ground."
           }
         }
       },
@@ -135,14 +144,16 @@
             "facing": "Facing (degrees, instead of the face)",
             "shade_below": "Shaded below sun elevation (degrees)",
             "length": "Length",
-            "height": "Height"
+            "height": "Height",
+            "r_imperial": "R-value (ft²·°F·h/BTU)"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
             "face": "The way it looks out, on the house's own grid; the compass bearing is shown.",
             "facing": "Only for a part not square to the house: its compass bearing, 0 north, 90 east.",
             "shade_below": "Leave empty to use the house's setting.",
-            "length": "Along the floor, inside or out; be consistent."
+            "length": "Along the floor, inside or out; be consistent.",
+            "r_imperial": "The insulation as built, such as 20 for 2x6 framing with batts. Blank uses the default in the thermal lab."
           }
         },
         "reconfigure": {
@@ -155,14 +166,16 @@
             "facing": "Facing (degrees, instead of the face)",
             "shade_below": "Shaded below sun elevation (degrees)",
             "length": "Length",
-            "height": "Height"
+            "height": "Height",
+            "r_imperial": "R-value (ft²·°F·h/BTU)"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
             "face": "The way it looks out, on the house's own grid; the compass bearing is shown.",
             "facing": "Only for a part not square to the house: its compass bearing, 0 north, 90 east.",
             "shade_below": "Leave empty to use the house's setting.",
-            "length": "Along the floor, inside or out; be consistent."
+            "length": "Along the floor, inside or out; be consistent.",
+            "r_imperial": "The insulation as built, such as 20 for 2x6 framing with batts. Blank uses the default in the thermal lab."
           }
         }
       },
@@ -179,7 +192,8 @@
         "invalid_floor": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_volume": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_other_area_id": "The two sides must be different rooms.",
-        "room_exists": "This area already has a room; edit that one instead."
+        "room_exists": "This area already has a room; edit that one instead.",
+        "invalid_r_imperial": "An R-value must be more than 0."
       }
     },
     "roof": {
@@ -201,7 +215,8 @@
             "pitch": "Pitch",
             "length": "Length along the eave (if no floor area)",
             "slope": "Slope length, eave to ridge (if no floor area)",
-            "floor": "Floor area under the roof"
+            "floor": "Floor area under the roof",
+            "r_imperial": "R-value (ft²·°F·h/BTU)"
           },
           "data_description": {
             "area_ids": "Every room under this part of the roof. Its device goes in the first; each room lists the roof.",
@@ -210,7 +225,8 @@
             "facing": "Only for a part not square to the house: its compass bearing, 0 north, 90 east.",
             "shade_below": "Leave empty to use the house's setting.",
             "pitch": "Degrees (45) or rise:run (12:12).",
-            "floor": "Measure the floor under the roof, out to the walls. Easier than the slope; the slope length is worked out from the pitch. Leave blank to use the floor areas of its rooms, once they have one."
+            "floor": "Measure the floor under the roof, out to the walls. Easier than the slope; the slope length is worked out from the pitch. Leave blank to use the floor areas of its rooms, once they have one.",
+            "r_imperial": "The roof's insulation as built, such as 35. Blank uses the default in the thermal lab."
           }
         },
         "reconfigure": {
@@ -225,7 +241,8 @@
             "pitch": "Pitch",
             "length": "Length along the eave (if no floor area)",
             "slope": "Slope length, eave to ridge (if no floor area)",
-            "floor": "Floor area under the roof"
+            "floor": "Floor area under the roof",
+            "r_imperial": "R-value (ft²·°F·h/BTU)"
           },
           "data_description": {
             "area_ids": "Every room under this part of the roof. Its device goes in the first; each room lists the roof.",
@@ -234,7 +251,8 @@
             "facing": "Only for a part not square to the house: its compass bearing, 0 north, 90 east.",
             "shade_below": "Leave empty to use the house's setting.",
             "pitch": "Degrees (45) or rise:run (12:12).",
-            "floor": "Measure the floor under the roof, out to the walls. Easier than the slope; the slope length is worked out from the pitch. Leave blank to use the floor areas of its rooms, once they have one."
+            "floor": "Measure the floor under the roof, out to the walls. Easier than the slope; the slope length is worked out from the pitch. Leave blank to use the floor areas of its rooms, once they have one.",
+            "r_imperial": "The roof's insulation as built, such as 35. Blank uses the default in the thermal lab."
           }
         }
       },
@@ -252,7 +270,8 @@
         "invalid_volume": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead.",
-        "invalid_area_ids": "Choose at least one room."
+        "invalid_area_ids": "Choose at least one room.",
+        "invalid_r_imperial": "An R-value must be more than 0."
       }
     },
     "window": {
@@ -273,14 +292,18 @@
             "height": "Glass height",
             "transmittance": "Share of light let in as heat",
             "blind": "Blind or shade",
-            "blind_closed": "Share let in with the blind closed"
+            "blind_closed": "Share let in with the blind closed",
+            "glazing": "Glazing",
+            "frame": "Frame"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
             "area_id": "For a skylight in a roof over several rooms: the room it lights. Leave empty to use the roof's first room, or the wall's room.",
             "transmittance": "About 0.7 for double glazing, 0.5 for low-e.",
             "blind": "A cover entity; its position (0 to 100) says how open it is.",
-            "blind_closed": "How much of the sun still gets in with the blind shut."
+            "blind_closed": "How much of the sun still gets in with the blind shut.",
+            "glazing": "Double or triple pane.",
+            "frame": "The frame material."
           }
         },
         "reconfigure": {
@@ -294,14 +317,18 @@
             "height": "Glass height",
             "transmittance": "Share of light let in as heat",
             "blind": "Blind or shade",
-            "blind_closed": "Share let in with the blind closed"
+            "blind_closed": "Share let in with the blind closed",
+            "glazing": "Glazing",
+            "frame": "Frame"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
             "area_id": "For a skylight in a roof over several rooms: the room it lights. Leave empty to use the roof's first room, or the wall's room.",
             "transmittance": "About 0.7 for double glazing, 0.5 for low-e.",
             "blind": "A cover entity; its position (0 to 100) says how open it is.",
-            "blind_closed": "How much of the sun still gets in with the blind shut."
+            "blind_closed": "How much of the sun still gets in with the blind shut.",
+            "glazing": "Double or triple pane.",
+            "frame": "The frame material."
           }
         }
       },
@@ -388,12 +415,20 @@
             "name": "Name",
             "area_id": "Room (area)",
             "climate": "Thermostat",
-            "fan": "Register fan or damper"
+            "fan": "Register fan or damper",
+            "free_area_in2": "Register free area (in²)",
+            "flow_cfm": "Design airflow (CFM)",
+            "duct": "Duct, from the plenum to the register",
+            "upstream": "Upstream duct section (optional)"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
             "climate": "The thermostat of the zone whose heat comes out of this register.",
-            "fan": "Optional: a booster fan or a damper on the register."
+            "fan": "Optional: a booster fan or a damper on the register.",
+            "free_area_in2": "The open area of the register's grille, from its data sheet or measured.",
+            "flow_cfm": "The airflow to this register at design. Blank: the thermal lab works it out from the room's load.",
+            "duct": "Segments separated by ';', such as '8 round 12 ft trunk cfm=400; 4 round 14 ft k=0.9'. Round: a diameter in inches. Rectangular: '10x6 rect' (inches). Length in feet, or m. Options: trunk, k= (fitting loss), cfm= (airflow carried).",
+            "upstream": "The shared section (named in the house's duct sections) this register's branch hangs off. Leave it empty to type the whole duct from the plenum above."
           }
         },
         "reconfigure": {
@@ -403,12 +438,20 @@
             "name": "Name",
             "area_id": "Room (area)",
             "climate": "Thermostat",
-            "fan": "Register fan or damper"
+            "fan": "Register fan or damper",
+            "free_area_in2": "Register free area (in²)",
+            "flow_cfm": "Design airflow (CFM)",
+            "duct": "Duct, from the plenum to the register",
+            "upstream": "Upstream duct section (optional)"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
             "climate": "The thermostat of the zone whose heat comes out of this register.",
-            "fan": "Optional: a booster fan or a damper on the register."
+            "fan": "Optional: a booster fan or a damper on the register.",
+            "free_area_in2": "The open area of the register's grille, from its data sheet or measured.",
+            "flow_cfm": "The airflow to this register at design. Blank: the thermal lab works it out from the room's load.",
+            "duct": "Segments separated by ';', such as '8 round 12 ft trunk cfm=400; 4 round 14 ft k=0.9'. Round: a diameter in inches. Rectangular: '10x6 rect' (inches). Length in feet, or m. Options: trunk, k= (fitting loss), cfm= (airflow carried).",
+            "upstream": "The shared section (named in the house's duct sections) this register's branch hangs off. Leave it empty to type the whole duct from the plenum above."
           }
         }
       },
@@ -425,7 +468,9 @@
         "invalid_floor": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_volume": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_other_area_id": "The two sides must be different rooms.",
-        "room_exists": "This area already has a room; edit that one instead."
+        "room_exists": "This area already has a room; edit that one instead.",
+        "invalid_duct": "The duct could not be read. Check each segment, such as '4 round 14 ft'.",
+        "invalid_upstream": "No duct section has that name: check the house's duct sections."
       }
     }
   },

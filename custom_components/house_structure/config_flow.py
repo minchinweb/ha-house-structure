@@ -53,6 +53,14 @@ from .constants import (
     WALL,
     WINDOW,
 )
+from .ducts import (
+    FRAMES,
+    GLAZINGS,
+    R_IMPERIAL_TO_SI,
+    format_duct,
+    parse_duct,
+    parse_sections,
+)
 from .geometry import (
     FACE_NAMES,
     FACES,
@@ -73,6 +81,7 @@ _LOGGER = logging.getLogger(__name__)
 _AREA = selector.AreaSelector()
 _AREAS = selector.AreaSelector(selector.AreaSelectorConfig(multiple=True))
 _TEXT = selector.TextSelector()
+_TEXT_LINES = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
 _COVER = selector.EntitySelector(selector.EntitySelectorConfig(domain="cover"))
 _CLIMATE = selector.EntitySelector(selector.EntitySelectorConfig(domain="climate"))
 _FAN = selector.EntitySelector(
@@ -110,6 +119,14 @@ def _number(unit: str | None = None) -> selector.NumberSelector:
     )
 
 
+def _choice(options: tuple[str, ...]) -> selector.SelectSelector:
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=list(options), mode=selector.SelectSelectorMode.DROPDOWN
+        )
+    )
+
+
 def _faces(rotation: float) -> selector.SelectSelector:
     """The four faces, each with the compass bearing it looks towards."""
     return selector.SelectSelector(
@@ -133,7 +150,7 @@ _SIZES = {
     ROOF: ("length", "slope"),
     WINDOW: ("width", "height"),
     INTERNAL_WALL: ("length", "height"),
-    ROOM: ("height",),
+    ROOM: ("height", "below_grade"),
     REGISTER: (),
 }
 
@@ -164,6 +181,15 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
     if kind == REGISTER:
         fields[vol.Required("climate")] = _CLIMATE
         fields[vol.Optional("fan")] = _FAN
+        fields[vol.Optional("free_area_in2")] = _number("in²")
+        fields[vol.Optional("flow_cfm")] = _number("CFM")
+        fields[vol.Optional("duct")] = _TEXT
+        fields[vol.Optional("upstream")] = _TEXT
+    if kind == WINDOW:
+        fields[vol.Optional("glazing")] = _choice(GLAZINGS)
+        fields[vol.Optional("frame")] = _choice(FRAMES)
+    if kind in (WALL, ROOF):
+        fields[vol.Optional("r_imperial")] = _number("ft²·°F·h/BTU")
     if kind in (WALL, ROOF):
         fields[vol.Required("face", default="S")] = _faces(
             float(house.get("rotation") or 0.0)
@@ -200,6 +226,14 @@ def _size(size: str, value: Any, unit: str, power: int = 1) -> float:
     return metres
 
 
+def _section_names(house: dict) -> set[str]:
+    """The names of the house's duct sections (none if they are not valid)."""
+    try:
+        return set(parse_sections(house.get("duct_sections") or ""))
+    except ValueError:
+        return set()
+
+
 def _from_form(kind: str, form: dict, house: dict) -> dict:
     """Stored data from a form, sizes in metres."""
     unit = house.get("unit", "m")
@@ -208,9 +242,37 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
         data["area_ids"] = list(form.get("area_ids") or [])
         if not data["area_ids"]:
             raise FieldError("area_ids", "choose the rooms the roof covers")
-    for key in ("area_id", "other_area_id", "host", "face", "blind", "climate", "fan"):
+    for key in (
+        "area_id",
+        "other_area_id",
+        "host",
+        "face",
+        "blind",
+        "climate",
+        "fan",
+        "glazing",
+        "frame",
+    ):
         if form.get(key):
             data[key] = form[key]
+    if kind in (WALL, ROOF) and form.get("r_imperial") not in (None, ""):
+        if float(form["r_imperial"]) <= 0:
+            raise FieldError("r_imperial", "an R-value must be more than 0")
+        data["r_value_si"] = float(form["r_imperial"]) * R_IMPERIAL_TO_SI
+    if kind == REGISTER:
+        for key in ("free_area_in2", "flow_cfm"):
+            if form.get(key) not in (None, ""):
+                data[key] = float(form[key])
+        if form.get("duct"):
+            try:
+                data["duct"] = parse_duct(form["duct"])
+            except ValueError as err:
+                raise FieldError("duct", str(err)) from None
+        if form.get("upstream"):
+            name = form["upstream"].strip()
+            if name not in _section_names(house):
+                raise FieldError("upstream", f"no duct section called {name!r}")
+            data["upstream"] = name
     if kind == ROOM:
         data["below_ground"] = bool(form.get("below_ground", False))
         own = form.get("area_id")
@@ -237,7 +299,15 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
 def _to_form(kind: str, data: dict, house: dict, title: str) -> dict:
     """A form's values from stored data, sizes in the house's unit."""
     unit = house.get("unit", "m")
-    form = {k: v for k, v in data.items() if not k.endswith(("_m", "_m2", "_m3"))}
+    form = {
+        k: v
+        for k, v in data.items()
+        if not k.endswith(("_m", "_m2", "_m3")) and k not in ("duct", "r_value_si")
+    }
+    if data.get("r_value_si") is not None:
+        form["r_imperial"] = data["r_value_si"] / R_IMPERIAL_TO_SI
+    if data.get("duct"):
+        form["duct"] = format_duct(data["duct"])
     if kind == ROOF:
         form.pop("area_id", None)
         form["area_ids"] = roof_areas(data)
@@ -327,6 +397,7 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Required("unit"): _UNIT,
                 vol.Required("sky_source", default=OPEN_METEO): _SKY_SOURCE,
                 vol.Optional("sky_sensor"): _RADIATION,
+                vol.Optional("duct_sections"): _TEXT_LINES,
             }
         )
         return self.async_show_form(
@@ -394,6 +465,12 @@ def _house(form: dict) -> dict:
         data["sky_sensor"] = form["sky_sensor"]
     elif data["sky_source"] == SENSOR:
         raise FieldError("sky_sensor", "choose the solar radiation sensor")
+    if form.get("duct_sections") is not None:
+        try:
+            parse_sections(form["duct_sections"])
+        except ValueError as err:
+            raise FieldError("duct_sections", str(err)) from None
+        data["duct_sections"] = form["duct_sections"]
     return data
 
 
