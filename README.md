@@ -325,9 +325,15 @@ The command answers with any of these (watts, positive into a room):
 ```python
 {
     "as_of": "2026-11-04T21:00:00Z",
-    "between": [{"from": "kitchen", "to": "office", "w": 85.0}],  # across a shared wall or floor
-    "outside": [{"room": "office", "face": "N", "w": -140.0}],  # through an outside wall
-    "heating": [{"room": "office", "w": 420.0}],  # at its registers ("register": id for one)
+    "between": [
+        {"from": "kitchen", "to": "office", "w": 85.0}
+    ],  # across a shared wall or floor
+    "outside": [
+        {"room": "office", "face": "N", "w": -140.0}
+    ],  # through an outside wall
+    "heating": [
+        {"room": "office", "w": 420.0}
+    ],  # at its registers ("register": id for one)
     "solar": [{"room": "office", "w": 60.0}],
     "notes": ["Z3 has no fitted model yet."],
 }

@@ -550,6 +550,7 @@ def _add_roofs(
     """
     faces_by_area = _roof_faces(elements, rotation)
     order = {face: i for i, face in enumerate(face_order(scene.view))}
+    near = near_faces(scene.view)
 
     def roof_goes_on(box: Box, end: str, roof: Element) -> bool:
         """Whether the room beyond this end is under the same roof (no gable)."""
@@ -576,7 +577,8 @@ def _add_roofs(
                 (x + ix * run, y + iy * run, z + rise) for x, y, z in reversed(eave)
             ]
             slope = Poly([*eave, *ridge], ROOF_FILL, ROOF_LINE, 0.92, layer="roofs")
-            polys = [slope]
+            key = _depth_key(box, scene.view)
+            shapes.append((key, order[face], slope))
             # each gable end once: from the south or west roof of the pair
             if gable and face in ("S", "W"):
                 for end in ("W", "E") if face == "S" else ("S", "N"):
@@ -586,10 +588,12 @@ def _add_roofs(
                     peak = _on_face(box, end, middle, top + rise)
                     sides = [_on_face(box, end, 0.0, top), peak]
                     sides.append(_on_face(box, end, _span(box, end), top))
-                    polys.append(Poly(sides, WALL_FILL, WALL_LINE, 0.9, layer="roofs"))
-            shapes.append((_depth_key(box, scene.view), order[face], polys))
-    for _, _, polys in sorted(shapes, key=lambda s: (s[0], s[1])):
-        scene.polygons.extend(polys)
+                    gable_end = Poly(sides, WALL_FILL, WALL_LINE, 0.9, layer="roofs")
+                    # a far end faces away: behind the slopes, which hide it
+                    rank = len(order) if end in near else -1
+                    shapes.append((key, rank, gable_end))
+    for *_, poly in sorted(shapes, key=lambda s: (s[0], s[1])):
+        scene.polygons.append(poly)
 
 
 def _overlap(a0: float, a1: float, b0: float, b1: float) -> tuple[float, float]:

@@ -414,3 +414,21 @@ def test_a_lean_to_spans_its_room_and_no_roof_draws_no_layer():
     bare = _elements(_room("porch", width_m=3.0, depth_m=2.0, x_m=0.0, y_m=0.0))
     assert 'data-layer="roofs"' not in house_svg(bare, HOUSE)
     assert 'data-layer="roofs"' in room_svg(elements, HOUSE, "porch")
+
+
+@pytest.mark.parametrize("view", [0, 1, 2, 3])
+def test_the_far_gable_end_is_drawn_behind_the_roof(view):
+    elements = _elements(
+        _room("loft", width_m=6.0, depth_m=4.0, x_m=0.0, y_m=0.0),
+        _roof("s", ["loft"], "S"),
+        _roof("n", ["loft"], "N"),
+    )
+    layer = _roofs_layer(house_svg(elements, HOUSE, view=view))
+    fills = [
+        part.split('fill="', 1)[1].split('"', 1)[0]
+        for part in layer.split("<polygon")[1:]
+    ]
+    roof = "#9c7b6b"  # ROOF_FILL
+    wall = WALL_FILL.split('"')[1]
+    # one gable end before both slopes (the far one), one after (the near one)
+    assert fills == [wall, roof, roof, wall]
