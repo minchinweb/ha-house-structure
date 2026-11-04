@@ -1,6 +1,9 @@
 {
   "domain": "house_structure",
   "name": "House Structure",
+  "after_dependencies": [
+    "frontend"
+  ],
   "categories": [
     "climate",
     "helpers.calculate_value"
@@ -10,7 +13,8 @@
   ],
   "config_flow": true,
   "dependencies": [
-    "http"
+    "http",
+    "websocket_api"
   ],
   "documentation": "https://github.com/minchinweb/ha-house-structure",
   "integration_type": "service",

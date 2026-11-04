@@ -3,8 +3,10 @@
 published for other integrations.
 
 Other integrations read ``hass.data["house_structure"]``: ``{"version": 1,
-"rooms": {area_id: summary}}`` (see ``model.rooms_summary``), and listen for
-the ``house_structure_updated`` event, fired when the summary changes.
+"rooms": {area_id: summary}, "ducts": {...}, "equipment": {"furnaces": [...],
+"air_conditioners": [...]}, "buildings": [...]}`` (see ``model.rooms_summary``
+and ``equipment.equipment_summary``), and listen for the
+``house_structure_updated`` event, fired when the summary changes.
 """
 
 from __future__ import annotations
@@ -19,8 +21,11 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .constants import (
+    AIR_CONDITIONER,
+    BUILDING,
     DOMAIN,
     DOOR,
+    FURNACE,
     INTERNAL_WALL,
     REGISTER,
     ROOF,
@@ -31,6 +36,7 @@ from .constants import (
 )
 from .coordinator import SkyCoordinator
 from .ducts import parse_sections
+from .equipment import equipment_summary
 from .model import SUMMARY_VERSION, Element, Raw, build, rooms_summary
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,6 +49,9 @@ _MODELS = {
     DOOR: "Door",
     INTERNAL_WALL: "Internal wall",
     REGISTER: "Heating register",
+    FURNACE: "Furnace",
+    AIR_CONDITIONER: "Air conditioner",
+    BUILDING: "Detached building",
 }
 
 
@@ -62,12 +71,17 @@ class HouseData:
     house: dict
 
 
-def elements_of(entry) -> dict[str, Element]:
-    """The parts of the house from the entry's sub-entries."""
-    raws = [
+def raws_of(entry) -> list[Raw]:
+    """The entry's sub-entries, as plain data."""
+    return [
         Raw(s.subentry_id, s.subentry_type, s.title, dict(s.data))
         for s in entry.subentries.values()
     ]
+
+
+def elements_of(entry) -> dict[str, Element]:
+    """The parts of the house from the entry's sub-entries."""
+    raws = raws_of(entry)
     elements, problems = build(dict(entry.data), raws)
     for problem in problems:
         _LOGGER.warning("Skipping %s", problem)
@@ -78,24 +92,32 @@ def register_devices(hass, entry, elements: dict[str, Element]) -> None:
     """Make a device for each part and put it in the part's area.
 
     The part's settings choose its room and name; a device moved by hand goes
-    back when the parts next change.
+    back when the parts next change. Equipment and buildings are devices too
+    (a building in the first of its rooms).
     """
     devices = dr.async_get(hass)
     areas = ar.async_get(hass)
-    for element in elements.values():
+    parts = [(e.id, e.kind, e.title, e.area_id) for e in elements.values()]
+    for raw in raws_of(entry):
+        if raw.kind in (FURNACE, AIR_CONDITIONER, BUILDING):
+            area = raw.data.get("area_id") or next(
+                iter(raw.data.get("area_ids") or []), None
+            )
+            parts.append((raw.id, raw.kind, raw.title, area))
+    for part_id, kind, title, area_id in parts:
         device = devices.async_get_or_create(
             config_entry_id=entry.entry_id,
-            config_subentry_id=element.id,
-            identifiers={(DOMAIN, element.id)},
-            name=element.title,
+            config_subentry_id=part_id,
+            identifiers={(DOMAIN, part_id)},
+            name=title,
             manufacturer="House Structure",
-            model=_MODELS[element.kind],
+            model=_MODELS[kind],
         )
-        if element.area_id and device.area_id != element.area_id:
-            if areas.async_get_area(element.area_id) is None:
-                _LOGGER.warning("%s: its area was deleted", element.title)
+        if area_id and device.area_id != area_id:
+            if areas.async_get_area(area_id) is None:
+                _LOGGER.warning("%s: its area was deleted", title)
             else:
-                devices.async_update_device(device.id, area_id=element.area_id)
+                devices.async_update_device(device.id, area_id=area_id)
 
 
 def area_temperature(hass: HomeAssistant, area_id: str | None) -> str | None:
@@ -146,10 +168,13 @@ def publish_rooms(
     hass: HomeAssistant,
     elements: dict[str, Element] | None,
     sections: dict[str, dict] | None = None,
+    raws: list[Raw] | None = None,
 ) -> None:
-    """Share the rooms' parts and the duct sections, and tell listeners of changes.
+    """Share the rooms' parts, the duct sections, the equipment and buildings.
 
-    ``None`` takes the rooms away (the integration was removed).
+    Tell listeners when any of them change. ``None`` takes the rooms away (the
+    integration was removed). ``raws`` are the sub-entries, for the equipment
+    and buildings.
     """
     rooms: dict = {}
     if elements is not None:
@@ -158,7 +183,15 @@ def publish_rooms(
         temperature = {a: area_temperature(hass, a) for a in areas if a}
         rooms = rooms_summary(elements, temperature)
     ducts = sections or {}
+    equipment, buildings = equipment_summary(raws or [])
     old = hass.data.get(DOMAIN, {})
-    hass.data[DOMAIN] = {"version": SUMMARY_VERSION, "rooms": rooms, "ducts": ducts}
-    if old.get("rooms") != rooms or old.get("ducts") != ducts:
+    new = {
+        "version": SUMMARY_VERSION,
+        "rooms": rooms,
+        "ducts": ducts,
+        "equipment": equipment,
+        "buildings": buildings,
+    }
+    hass.data[DOMAIN] = new
+    if any(old.get(k) != new[k] for k in ("rooms", "ducts", "equipment", "buildings")):
         hass.bus.async_fire(UPDATED_EVENT, {"rooms": sorted(rooms)})

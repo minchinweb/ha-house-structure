@@ -29,6 +29,9 @@ def test_every_part_has_its_forms():
         "door",
         "internal_wall",
         "register",
+        "furnace",
+        "air_conditioner",
+        "building",
     ):
         steps = strings["config_subentries"][kind]["step"]
         assert set(steps) == {"user", "reconfigure"}

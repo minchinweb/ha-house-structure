@@ -478,7 +478,7 @@ def neighbours(elements: dict[str, Element]) -> dict[str, list[dict]]:
     return out
 
 
-SUMMARY_VERSION = 1
+SUMMARY_VERSION = 1  # new keys may be added; a reader ignores what it does not know
 
 
 def _plane_summary(element: Element) -> dict:

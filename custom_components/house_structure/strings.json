@@ -579,6 +579,151 @@
         "invalid_at_y": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south.",
         "invalid_at_z": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south."
       }
+    },
+    "furnace": {
+      "entry_type": "Furnace",
+      "initiate_flow": {
+        "user": "Add furnace",
+        "reconfigure": "Reconfigure"
+      },
+      "step": {
+        "user": {
+          "title": "Furnace",
+          "description": "The furnace, from its nameplate. Manual J checks its size against the house's heat loss, and Manual D its blower against the ducts.",
+          "data": {
+            "name": "Name",
+            "area_id": "Room it's in (area)",
+            "input_high_btuh": "Input, high stage (BTU/h)",
+            "input_low_btuh": "Input, low stage (BTU/h)",
+            "afue": "AFUE (%)",
+            "blower_curve": "Blower curve"
+          },
+          "data_description": {
+            "name": "Leave empty for 'Furnace'.",
+            "area_id": "Optional: the room the furnace stands in.",
+            "input_high_btuh": "The gas input on the nameplate (not the output). For a one-stage furnace, this is its only input.",
+            "input_low_btuh": "Optional: a two-stage furnace's low-stage input.",
+            "afue": "Optional: such as 95. Without it, the output is taken as the input.",
+            "blower_curve": "Optional: airflow against external static pressure, from the blower table, such as '400 cfm = 0.30 inWC, 800 = 0.20, 1200 = 0.05'. Units: cfm, l/s or m3/s; inWC or Pa."
+          }
+        },
+        "reconfigure": {
+          "title": "Furnace",
+          "description": "The furnace, from its nameplate. Manual J checks its size against the house's heat loss, and Manual D its blower against the ducts.",
+          "data": {
+            "name": "Name",
+            "area_id": "Room it's in (area)",
+            "input_high_btuh": "Input, high stage (BTU/h)",
+            "input_low_btuh": "Input, low stage (BTU/h)",
+            "afue": "AFUE (%)",
+            "blower_curve": "Blower curve"
+          },
+          "data_description": {
+            "name": "Leave empty for 'Furnace'.",
+            "area_id": "Optional: the room the furnace stands in.",
+            "input_high_btuh": "The gas input on the nameplate (not the output). For a one-stage furnace, this is its only input.",
+            "input_low_btuh": "Optional: a two-stage furnace's low-stage input.",
+            "afue": "Optional: such as 95. Without it, the output is taken as the input.",
+            "blower_curve": "Optional: airflow against external static pressure, from the blower table, such as '400 cfm = 0.30 inWC, 800 = 0.20, 1200 = 0.05'. Units: cfm, l/s or m3/s; inWC or Pa."
+          }
+        }
+      },
+      "abort": {
+        "reconfigure_successful": "Saved."
+      },
+      "error": {
+        "invalid_input_high_btuh": "Give the furnace's input, more than 0.",
+        "invalid_input_low_btuh": "Give a low-stage input more than 0 and no more than the high stage's.",
+        "invalid_afue": "Give the AFUE as a percentage, such as 95.",
+        "invalid_blower_curve": "The blower curve could not be read: give at least two points, such as '400 cfm = 0.30 inWC, 800 = 0.20'."
+      }
+    },
+    "air_conditioner": {
+      "entry_type": "Air conditioner",
+      "initiate_flow": {
+        "user": "Add air conditioner",
+        "reconfigure": "Reconfigure"
+      },
+      "step": {
+        "user": {
+          "title": "Air conditioner",
+          "description": "The air conditioner, from its nameplate or the installer. Manual J checks its size against the house's cooling load.",
+          "data": {
+            "name": "Name",
+            "area_id": "Room its indoor coil is in (area)",
+            "tons": "Size (tons)",
+            "sensible_btuh": "Sensible capacity (BTU/h)"
+          },
+          "data_description": {
+            "name": "Leave empty for 'Air conditioner'.",
+            "area_id": "Optional: usually the furnace's room.",
+            "tons": "The nominal cooling capacity: 12,000 BTU/h per ton.",
+            "sensible_btuh": "Optional: the part that cools the air rather than drying it, from the expanded performance data. Without it, 75% of the total is used."
+          }
+        },
+        "reconfigure": {
+          "title": "Air conditioner",
+          "description": "The air conditioner, from its nameplate or the installer. Manual J checks its size against the house's cooling load.",
+          "data": {
+            "name": "Name",
+            "area_id": "Room its indoor coil is in (area)",
+            "tons": "Size (tons)",
+            "sensible_btuh": "Sensible capacity (BTU/h)"
+          },
+          "data_description": {
+            "name": "Leave empty for 'Air conditioner'.",
+            "area_id": "Optional: usually the furnace's room.",
+            "tons": "The nominal cooling capacity: 12,000 BTU/h per ton.",
+            "sensible_btuh": "Optional: the part that cools the air rather than drying it, from the expanded performance data. Without it, 75% of the total is used."
+          }
+        }
+      },
+      "abort": {
+        "reconfigure_successful": "Saved."
+      },
+      "error": {
+        "invalid_tons": "Give the size in tons, more than 0.",
+        "invalid_sensible_btuh": "Give a sensible capacity more than 0 and no more than the total."
+      }
+    },
+    "building": {
+      "entry_type": "Detached building",
+      "initiate_flow": {
+        "user": "Add detached building",
+        "reconfigure": "Reconfigure"
+      },
+      "step": {
+        "user": {
+          "title": "Detached building",
+          "description": "A building apart from the house, such as a detached garage. Its rooms are kept out of the house's loads and sized on their own. Its design temperatures are set in Manual J.",
+          "data": {
+            "name": "Name",
+            "area_ids": "Rooms (areas)"
+          },
+          "data_description": {
+            "name": "Leave empty for 'Detached building'.",
+            "area_ids": "The rooms in the building."
+          }
+        },
+        "reconfigure": {
+          "title": "Detached building",
+          "description": "A building apart from the house, such as a detached garage. Its rooms are kept out of the house's loads and sized on their own. Its design temperatures are set in Manual J.",
+          "data": {
+            "name": "Name",
+            "area_ids": "Rooms (areas)"
+          },
+          "data_description": {
+            "name": "Leave empty for 'Detached building'.",
+            "area_ids": "The rooms in the building."
+          }
+        }
+      },
+      "abort": {
+        "reconfigure_successful": "Saved."
+      },
+      "error": {
+        "invalid_area_ids": "Choose the building's rooms."
+      }
     }
   },
   "selector": {
@@ -623,15 +768,15 @@
   "issues": {
     "missing_wall_size": {
       "title": "A wall has no size",
-      "description": "{part} {room} needs its length and height. Its solar exposure sensor and the room's figures are incomplete until they are given: edit the wall in the integration."
+      "description": "{part} {room} needs its length and height: {needed_by} uses them. Edit the wall in the integration."
     },
     "missing_roof_size": {
       "title": "A roof has no size",
-      "description": "{part} {room} has no floor area under it, and its rooms have none either. Give its floor area under the roof, or its length along the eave and its slope length. Its solar exposure sensor is incomplete until then: edit the roof in the integration."
+      "description": "{part} {room} has no floor area under it, and its rooms have none either: {needed_by} uses it. Give its floor area under the roof, or its length along the eave and its slope length: edit the roof in the integration."
     },
     "missing_floor": {
       "title": "A room has no floor area",
-      "description": "The room {part} needs its floor area. Its volume and the air it holds are incomplete until it is given: edit the room in the integration."
+      "description": "The room {part} needs its floor area: {needed_by} uses it. Edit the room in the integration."
     }
   }
 }

@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>House</title>
+<!--
+  House Structure's own tab on the Thermal Lab page: the house drawn from its
+  rooms (or one room on its own), and its heating and cooling equipment and
+  detached buildings. Data from house_structure/house; the drawings from
+  /api/house_structure/plan.svg and room.svg.
+-->
+<style>
+  :root {
+    --bg: #fafafa; --card: #ffffff; --text: #212121; --muted: #727272;
+    --line: #e0e0e0; --accent: #03a9f4; --chip: #eeeeee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111111; --card: #1c1c1c; --text: #e1e1e1; --muted: #9b9b9b;
+      --line: #333333; --chip: #2a2a2a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #111111; --card: #1c1c1c; --text: #e1e1e1; --muted: #9b9b9b;
+    --line: #333333; --chip: #2a2a2a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 Roboto, "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  h2 {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 12px;
+  }
+  h3 { font-size: 15px; font-weight: 500; margin: 0 0 6px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px; margin-bottom: 16px; min-width: 0;
+  }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .bar .label { color: var(--muted); font-size: 12px; margin-right: 4px; }
+  button.chip {
+    border: 1px solid var(--line); background: var(--chip); color: var(--text);
+    border-radius: 16px; padding: 4px 12px; font: inherit; cursor: pointer;
+  }
+  button.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .drawing { text-align: center; }
+  /* the drawings are dark lines on white, so they keep a white sheet in dark mode */
+  .drawing img { max-width: 100%; height: auto; background: #fff; border-radius: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 16px; }
+  .part { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row .k { color: var(--muted); flex: 0 0 auto; max-width: 50%; }
+  .row .v { text-align: right; font-variant-numeric: tabular-nums; min-width: 0; overflow-wrap: anywhere; }
+  .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+  .banner { background: #fff3e0; color: #6d4c00; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div id="error" class="banner hidden"></div>
+
+  <section class="card">
+    <h2>Drawing</h2>
+    <div class="bar" id="rooms" role="group" aria-label="Show"></div>
+    <div class="drawing"><img id="drawing" alt="The house, drawn from its rooms"></div>
+    <p class="hint" id="drawing-hint"></p>
+  </section>
+
+  <section class="card">
+    <h2>Heating and cooling</h2>
+    <div class="grid" id="equipment"></div>
+  </section>
+
+  <section class="card" id="buildings-card">
+    <h2>Detached buildings</h2>
+    <div class="grid" id="buildings"></div>
+  </section>
+</main>
+<script src="tab.js"></script>
+<script>
+"use strict";
+const lab = window.thermalLab;
+const W_PER_BTUH = 0.29307107;
+const W_PER_TON = 12000 * W_PER_BTUH;
+const CFM = 0.000471947;  // m³/s
+const INWC = 249.089;  // Pa
+const state = { house: null, room: null };
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) if (c !== null && c !== undefined) node.append(c);
+  return node;
+}
+const grouped = (s) => s.replace(/^([+-]?)(\d+)/, (m, sign, int) => sign + int.replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+const fmt = (v, digits = 0, unit = "") =>
+  v === null || v === undefined || isNaN(Number(v)) ? "–" : grouped(Number(v).toFixed(digits)) + unit;
+const row = (k, v) => el("div", { class: "row" }, el("span", { class: "k" }, k), el("span", { class: "v" }, v));
+
+function showError(text) {
+  const box = document.getElementById("error");
+  box.textContent = text || "";
+  box.classList.toggle("hidden", !text);
+}
+
+function drawRooms() {
+  const bar = document.getElementById("rooms");
+  const choices = [{ area_id: null, name: "Whole house" }, ...state.house.rooms];
+  bar.replaceChildren(...choices.map((r) => el("button", {
+    class: "chip", type: "button", "aria-pressed": String(r.area_id === state.room),
+    title: r.floor ? `${r.name} (${r.floor})` : r.name,
+    onclick: () => { state.room = r.area_id; lab.remember("house.room", r.area_id); drawRooms(); drawDrawing(); },
+  }, r.name)));
+}
+
+function drawDrawing() {
+  const img = document.getElementById("drawing");
+  const hint = document.getElementById("drawing-hint");
+  const stamp = Date.now();  // the drawing follows the saved parts, so never cached
+  if (state.room) {
+    const room = state.house.rooms.find((r) => r.area_id === state.room);
+    img.src = `/api/house_structure/room.svg?area=${encodeURIComponent(state.room)}&v=${stamp}`;
+    img.alt = `${room ? room.name : "The room"}, from the south-west`;
+    hint.textContent = "The room from its size and its parts, looking from the south-west. "
+      + "Dashed faces have no wall part yet; the dots are the registers' outlets.";
+  } else {
+    img.src = `/api/house_structure/plan.svg?v=${stamp}`;
+    img.alt = "The house, drawn from its rooms, with the heating runs";
+    hint.textContent = "The rooms at their positions and floor levels, with the heating runs "
+      + "from the plenum to each register. The runs are schematic.";
+  }
+  img.onerror = () => { hint.textContent = "Nothing to draw yet: give the rooms their sizes."; };
+}
+
+function blower(points) {
+  if (!points || !points.length) return "–";
+  return points.map(([flow, pa]) => `${fmt(flow / CFM)} cfm = ${fmt(pa / INWC, 2)} inWC`).join(", ");
+}
+
+function drawEquipment() {
+  const { equipment, names } = state.house;
+  const room = (id) => (id ? names[id] || id : "–");
+  const parts = [];
+  for (const f of equipment.furnaces || []) {
+    parts.push(el("div", { class: "part" }, el("h3", {}, f.title),
+      row("Room", room(f.area_id)),
+      row("Input, high", `${fmt(f.input_high_w / W_PER_BTUH)} BTU/h (${fmt(f.input_high_w / 1000, 1)} kW)`),
+      row("Input, low", f.input_low_w ? `${fmt(f.input_low_w / W_PER_BTUH)} BTU/h` : "one stage"),
+      row("AFUE", f.afue ? fmt(f.afue * 100, 1, "%") : "not given"),
+      row("Blower", blower(f.blower))));
+  }
+  for (const a of equipment.air_conditioners || []) {
+    parts.push(el("div", { class: "part" }, el("h3", {}, a.title),
+      row("Room", room(a.area_id)),
+      row("Size", `${fmt(a.total_w / W_PER_TON, 1)} tons (${fmt(a.total_w / W_PER_BTUH)} BTU/h)`),
+      row("Sensible", a.sensible_w ? `${fmt(a.sensible_w / W_PER_BTUH)} BTU/h` : "not given")));
+  }
+  if (!parts.length) {
+    parts.push(el("p", { class: "hint" },
+      "No furnace or air conditioner yet: add them on House Structure's integration page."));
+  }
+  document.getElementById("equipment").replaceChildren(...parts);
+
+  const buildings = state.house.buildings || [];
+  document.getElementById("buildings-card").classList.toggle("hidden", !buildings.length);
+  document.getElementById("buildings").replaceChildren(...buildings.map((b) =>
+    el("div", { class: "part" }, el("h3", {}, b.title), row("Rooms", b.rooms.join(", ") || "–"))));
+}
+
+async function load() {
+  try {
+    state.house = await lab.ask({ type: "house_structure/house" });
+    showError("");
+  } catch (err) {
+    showError("Could not load the house: " + (err && (err.message || err.code) || err));
+    return;
+  }
+  const saved = lab.recall("house.room", null);
+  state.room = state.house.rooms.some((r) => r.area_id === saved) ? saved : null;
+  drawRooms();
+  drawDrawing();
+  drawEquipment();
+}
+
+lab.applyTheme();
+load();
+</script>
+</body>
+</html>

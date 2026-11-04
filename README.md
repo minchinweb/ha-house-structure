@@ -12,6 +12,10 @@ for them again. [Home Thermal Lab](https://github.com/minchinweb/ha-home-thermal
 uses it for each zone's windows, roofs, sunlit walls, thermostat and room
 temperature sensor.
 
+It also adds the **Thermal Lab** page to the sidebar. House Structure's own
+tab there, **House**, draws the house; other integrations add their own tabs
+to the same page.
+
 ## Installation
 
 [![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=minchinweb&repository=ha-house-structure&category=integration)
@@ -81,6 +85,18 @@ its room from there: a door in an internal wall joins the rooms on both sides.
 | Door | the outside or internal wall it is in, its contact sensor (a binary sensor, on when open), width, height | open (follows the contact; only for a door with one) |
 | Internal wall | the room on the other side, length, height | this room minus the other (°C) |
 | Heating register | thermostat, its fan or damper | heating (on while the thermostat heats) |
+| Furnace | its room, input per stage (BTU/h), AFUE (%), blower curve | none |
+| Air conditioner | its indoor coil's room, size (tons), sensible capacity (BTU/h) | none |
+| Detached building | its rooms, such as a garage's | none |
+
+The **furnace**, **air conditioner** and **detached building** are for
+integrations that size the heating and cooling, such as Manual J. Type the
+furnace's *input* from its nameplate, not its output; AFUE turns one into the
+other. Its **blower curve** is the blower table's airflow against external
+static pressure, such as `400 cfm = 0.30 inWC, 800 = 0.20, 1200 = 0.05`
+(airflow in cfm, l/s or m3/s; static in inWC or Pa). A detached building's
+rooms are sized apart from the house; its design temperatures are set in
+Manual J.
 
 A room's **rooms beside it** and **rooms above it** say which rooms it trades
 heat with through its walls and ceiling. Each link counts both ways (a room
@@ -109,6 +125,23 @@ and every area with the parts in it, so a room you missed has none. If the
 house form has measured the outline from OpenStreetMap since Home Assistant
 started, it also gives the outline's walls: the way each faces and its length,
 to compare with your outside walls. The file never says where the house is.
+
+## The Thermal Lab page
+
+House Structure adds **Thermal Lab** to Home Assistant's sidebar: a row of tabs
+across the top, each showing one integration's page. Its own tab, **House**,
+draws the whole house from its rooms with the heating runs (or one room on its
+own, picked above the drawing) and lists the furnace, air conditioner and
+detached buildings. The tab you were on is remembered, and is in the address
+(`/thermal-lab#house`), so it can be bookmarked.
+
+## Repairs
+
+A wall or roof with no size, or a room with no floor area, raises a repair in
+**Settings > Repairs**, but only when another integration says it needs that
+number (see below). House Structure's own sensors don't use them. The repair
+names the integration that needs it, links to the part's device, and goes away
+once the size is given or nothing needs it any more.
 
 ## For other integrations
 
@@ -189,10 +222,81 @@ House Structure publishes each room's parts as plain data in
 }
 ```
 
-Every area with a part is a room. When the rooms change, it fires the
+Next to `"rooms"` are the duct sections (`"ducts"`), the equipment and the
+detached buildings. Powers are in W, airflow in m³/s, static pressure in Pa,
+AFUE as a fraction:
+
+```python
+{
+    "equipment": {
+        "furnaces": [
+            {
+                "id": "01J...",  # the sub-entry id
+                "title": "Furnace",
+                "area_id": "utility",
+                "input_high_w": 23446.0,
+                "input_low_w": 15240.0,  # None for one stage
+                "afue": 0.96,  # None if not given
+                "blower": [[0.189, 74.7], [0.378, 49.8]],  # [m³/s, Pa], by airflow
+            }
+        ],
+        "air_conditioners": [
+            {
+                "id": "01J...",
+                "title": "Air conditioner",
+                "area_id": "utility",
+                "total_w": 7034.0,
+                "sensible_w": None,
+            }
+        ],
+    },
+    "buildings": [{"id": "01J...", "title": "Garage", "area_ids": ["garage"]}],
+}
+```
+
+Every area with a part is a room. When any of this changes, it fires the
 `house_structure_updated` event. Add `"after_dependencies": ["house_structure"]`
-to your manifest so it is set up first. The `version` goes up only when a key
-changes meaning or goes away.
+to your manifest so it is set up first, or `"dependencies"` if your
+integration can't work without it. The `version` goes up only when a key
+changes meaning or goes away; new keys may be added without it.
+
+### Adding a tab to the Thermal Lab page
+
+Put the tab in `hass.data["house_structure_tabs"]` and fire
+`house_structure_tabs_updated`; remove it, and fire the event again, when your
+integration unloads. There's nothing to import, and the order you load in
+doesn't matter:
+
+```python
+tabs = hass.data.setdefault("house_structure_tabs", {})
+tabs["hvac_design"] = {  # the key goes in the address: a-z, 0-9 and _
+    "title": "HVAC design",
+    "url": "/manual_j_static/index.html?v=1a2b3c",  # a page on Home Assistant
+    "order": 20,  # low first: House is 10
+}
+hass.bus.async_fire("house_structure_tabs_updated")
+```
+
+The tab's page is shown in a frame. Load
+`/house_structure_static/tab.js` in it for Home Assistant's connection and
+theme (`window.thermalLab.ask`, `subscribe`, `applyTheme`), and
+`/house_structure_static/chart.umd.min.js` for Chart.js, so you don't ship
+your own. The frame also passes on `window.hassConnection`, so a page that
+used `window.parent.hassConnection` as a sidebar panel of its own still works.
+
+### Saying what you need
+
+To have a missing size raise a repair, say which ones you use, and fire
+`house_structure_needs_updated` (remove the entry when you unload):
+
+```python
+needs = hass.data.setdefault("house_structure_needs", {})
+needs["manual_j"] = {
+    "title": "Manual J",  # named in the repair
+    "needs": ["wall_size", "roof_size", "room_floor"],
+}
+hass.bus.async_fire("house_structure_needs_updated")
+```
 
 ## Development
 
@@ -207,3 +311,8 @@ run them under WSL with a Linux-side environment:
 ```
 UV_PROJECT_ENVIRONMENT=$HOME/venvs/ha-house-structure uv run pytest
 ```
+
+Chart.js is vendored into `frontend/` and pinned in `frontend/vendor.json`.
+To upgrade it, change the version and URL there, run
+`uv run invoke vendor` with a blank `sha256` to see the new hash, check it and
+pin it, then check that every tab still draws.

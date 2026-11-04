@@ -14,6 +14,11 @@ DOOR = "door"
 INTERNAL_WALL = "internal_wall"
 ROOM = "room"
 REGISTER = "register"
+# Equipment and detached buildings (``equipment.py``): not surfaces or rooms.
+FURNACE = "furnace"
+AIR_CONDITIONER = "air_conditioner"
+BUILDING = "building"
+EQUIPMENT_KINDS = (FURNACE, AIR_CONDITIONER, BUILDING)
 
 # Where the sky's light comes from (the house's ``sky_source``).
 OPEN_METEO = "open_meteo"
@@ -26,3 +31,13 @@ OUTLINE = f"{DOMAIN}_outline"
 
 # Fired when the rooms' parts change, for integrations that use them.
 UPDATED_EVENT = "house_structure_updated"
+
+# The Thermal Lab page in the sidebar, which other integrations add tabs to
+# (see ``panel.py``).
+TABS = f"{DOMAIN}_tabs"
+TABS_EVENT = f"{DOMAIN}_tabs_updated"
+
+# What other integrations need from the house, so a missing size raises a
+# repair only when something uses it (see ``issues.py``).
+NEEDS = f"{DOMAIN}_needs"
+NEEDS_EVENT = f"{DOMAIN}_needs_updated"

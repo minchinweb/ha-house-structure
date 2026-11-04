@@ -27,6 +27,7 @@ from .constants import (  # noqa: F401  (re-exported for other integrations)
     DOMAIN,
     DOOR,
     INTERNAL_WALL,
+    NEEDS_EVENT,
     PLATFORMS,
     REGISTER,
     ROOF,
@@ -38,22 +39,27 @@ from .constants import (  # noqa: F401  (re-exported for other integrations)
 
 
 async def async_setup(hass, config) -> bool:
-    """Serve the house's drawings: each room, and the plan with the heating runs."""
+    """Serve the house's drawings and the Thermal Lab page in the sidebar."""
     from .map_view import HousePlanView, RoomDrawingView
+    from .panel import async_register_panel
 
     if hass.http is not None:
         hass.http.register_view(RoomDrawingView(hass))
         hass.http.register_view(HousePlanView(hass))
+    await async_register_panel(hass)
     return True
 
 
 async def async_setup_entry(hass, entry) -> bool:
     """Fetch the sky, then create the devices and sensors."""
+    from homeassistant.core import callback
+
     from .coordinator import sky_coordinator
     from .devices import (
         HouseData,
         elements_of,
         publish_rooms,
+        raws_of,
         register_devices,
         sections_of,
     )
@@ -63,12 +69,19 @@ async def async_setup_entry(hass, entry) -> bool:
     register_devices(hass, entry, elements)
     check(hass, entry.entry_id, elements)
     # the rooms are known before the sky, which may not answer yet
-    publish_rooms(hass, elements, sections_of(entry))
+    publish_rooms(hass, elements, sections_of(entry), raws_of(entry))
     coordinator = sky_coordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = HouseData(coordinator, elements, dict(entry.data))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_updated))
+
+    @callback
+    def needs_changed(_event) -> None:
+        """Another integration needs more (or less) of the house."""
+        check(hass, entry.entry_id, entry.runtime_data.elements)
+
+    entry.async_on_unload(hass.bus.async_listen(NEEDS_EVENT, needs_changed))
     return True
 
 
@@ -94,7 +107,13 @@ async def _updated(hass, entry) -> None:
     """
     from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-    from .devices import elements_of, publish_rooms, register_devices, sections_of
+    from .devices import (
+        elements_of,
+        publish_rooms,
+        raws_of,
+        register_devices,
+        sections_of,
+    )
     from .entity import parts_signal
     from .issues import check
 
@@ -105,5 +124,5 @@ async def _updated(hass, entry) -> None:
     data.elements = elements_of(entry)
     register_devices(hass, entry, data.elements)
     check(hass, entry.entry_id, data.elements)
-    publish_rooms(hass, data.elements, sections_of(entry))
+    publish_rooms(hass, data.elements, sections_of(entry), raws_of(entry))
     async_dispatcher_send(hass, parts_signal(entry.entry_id))

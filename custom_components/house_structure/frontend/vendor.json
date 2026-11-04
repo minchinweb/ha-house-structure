@@ -1,0 +1,9 @@
+{
+  "chart.umd.min.js": {
+    "package": "chart.js",
+    "version": "4.4.1",
+    "license": "MIT",
+    "url": "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js",
+    "sha256": "74401d738dd3e03ee5dfb3b6841210fe2c4ead8a960c4011ca4ba0b78a9fd8f3"
+  }
+}

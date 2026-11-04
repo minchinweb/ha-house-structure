@@ -1,1 +1,5 @@
 # Git attributes (line-ending normalisation is not yet standard; see the style guide).
+
+# Vendored scripts are pinned by their SHA-256 (frontend/vendor.json): keep
+# their bytes exactly, whatever the line-ending settings.
+custom_components/house_structure/frontend/*.js -text

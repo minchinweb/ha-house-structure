@@ -44,8 +44,11 @@ from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 import voluptuous as vol
 
 from .constants import (
+    AIR_CONDITIONER,
+    BUILDING,
     DOMAIN,
     DOOR,
+    FURNACE,
     INTERNAL_WALL,
     OPEN_METEO,
     OUTLINE,
@@ -65,6 +68,7 @@ from .ducts import (
     parse_duct,
     parse_sections,
 )
+from .equipment import FORMS as EQUIPMENT_FORMS
 from .geometry import (
     FACE_NAMES,
     FACES,
@@ -385,6 +389,9 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
             DOOR: DoorFlow,
             INTERNAL_WALL: InternalWallFlow,
             REGISTER: RegisterFlow,
+            FURNACE: FurnaceFlow,
+            AIR_CONDITIONER: AirConditionerFlow,
+            BUILDING: BuildingFlow,
         }
 
     async def async_step_user(
@@ -860,3 +867,110 @@ class InternalWallFlow(_PartFlow):
     """A wall between two rooms."""
 
     kind = INTERNAL_WALL
+
+
+def _equipment_schema(kind: str) -> vol.Schema:
+    """The form for a furnace, an air conditioner or a detached building."""
+    name = {vol.Optional("name"): _TEXT}
+    if kind == FURNACE:
+        return vol.Schema(
+            {
+                **name,
+                vol.Optional("area_id"): _AREA,
+                vol.Required("input_high_btuh"): _number("BTU/h"),
+                vol.Optional("input_low_btuh"): _number("BTU/h"),
+                vol.Optional("afue"): _number("%"),
+                vol.Optional("blower_curve"): _TEXT,
+            }
+        )
+    if kind == AIR_CONDITIONER:
+        return vol.Schema(
+            {
+                **name,
+                vol.Optional("area_id"): _AREA,
+                vol.Required("tons"): _number("tons"),
+                vol.Optional("sensible_btuh"): _number("BTU/h"),
+            }
+        )
+    return vol.Schema({**name, vol.Required("area_ids"): _AREAS})
+
+
+_EQUIPMENT_NAMES = {
+    FURNACE: "Furnace",
+    AIR_CONDITIONER: "Air conditioner",
+    BUILDING: "Detached building",
+}
+
+
+class _EquipmentFlow(ConfigSubentryFlow):
+    """Add or change a furnace, air conditioner or detached building.
+
+    These aren't surfaces or rooms, so they skip ``_PartFlow``'s sizes and
+    hosts; ``equipment.py`` reads and writes their forms.
+    """
+
+    kind: str
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Add one."""
+        return await self._step("user", user_input, {})
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Change one."""
+        subentry = self._get_reconfigure_subentry()
+        _, to_form = EQUIPMENT_FORMS[self.kind]
+        current = {**to_form(dict(subentry.data)), "name": subentry.title}
+        return await self._step("reconfigure", user_input, current)
+
+    async def _step(
+        self, step_id: str, user_input: dict[str, Any] | None, current: dict
+    ) -> SubentryFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            from_form, _ = EQUIPMENT_FORMS[self.kind]
+            try:
+                data = from_form(user_input)
+            except FieldError as err:
+                errors[err.field] = f"invalid_{err.field}"
+            else:
+                title = (user_input.get("name") or "").strip() or _EQUIPMENT_NAMES[
+                    self.kind
+                ]
+                if step_id == "reconfigure":
+                    return self.async_update_and_abort(
+                        self._get_entry(),
+                        self._get_reconfigure_subentry(),
+                        title=title,
+                        data=data,
+                    )
+                return self.async_create_entry(title=title, data=data)
+            current = user_input
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=self.add_suggested_values_to_schema(
+                _equipment_schema(self.kind), current
+            ),
+            errors=errors,
+        )
+
+
+class FurnaceFlow(_EquipmentFlow):
+    """A furnace: its input per stage, AFUE and blower curve."""
+
+    kind = FURNACE
+
+
+class AirConditionerFlow(_EquipmentFlow):
+    """An air conditioner: its size in tons and its sensible capacity."""
+
+    kind = AIR_CONDITIONER
+
+
+class BuildingFlow(_EquipmentFlow):
+    """A detached building, such as a garage: the rooms in it."""
+
+    kind = BUILDING
