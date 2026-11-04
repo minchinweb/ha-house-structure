@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "House Structure",
-        "description": "Set the house once.\n\n{map}\n\nThen add its parts from the integration's page: each room's size, its outside walls and roofs, the windows in them, the walls between rooms, and the heating registers. Each part is a device in its room's area.",
+        "description": "Set the house once.\n\n{map}\n\n{plan}\n\nThen add its parts from the integration's page: each room's size, its outside walls and roofs, the windows in them, the walls between rooms, and the heating registers. Each part is a device in its room's area.",
         "data": {
           "rotation": "House rotation (degrees)",
           "preview": "Redraw the map (does not save)",
@@ -11,7 +11,10 @@
           "unit": "Unit for sizes",
           "sky_source": "Sky source",
           "sky_sensor": "Solar radiation sensor",
-          "duct_sections": "Shared duct sections (plenum and trunks)"
+          "duct_sections": "Shared duct sections (plenum and trunks)",
+          "plenum_x": "Plenum east of the house's south-west corner",
+          "plenum_y": "Plenum north of the house's south-west corner",
+          "plenum_z": "Plenum height above the ground"
         },
         "data_description": {
           "rotation": "Degrees the house is turned clockwise from true north: the value measured from OpenStreetMap is filled in. Its four faces then look this far past north, east, south and west.",
@@ -20,12 +23,15 @@
           "unit": "Sizes are typed in this unit and kept in metres, so changing it later keeps them. A size typed with its own unit (3.2 m, 12' 6\", 14 sq ft) is read in that unit instead. In feet and inches, type lengths like 12' 6\" (or 12 6); floor areas and volumes are in square and cubic feet.",
           "sky_source": "Where the sun and sky light comes from. Open-Meteo is fetched over the internet every 15 minutes (no key needed). A solar radiation sensor, such as a weather station's, is read every 5 minutes and split into the sun's beam and the rest of the sky.",
           "sky_sensor": "Only for the sensor source: a sensor reading all the sun and sky light on a flat surface, in W/m².",
-          "duct_sections": "One per line: 'Name: segments' for a section off the plenum, or 'Name from Upstream: segments' for one that hangs off another. Segments are written as a register's duct is (no cfm needed: a section carries what the registers behind it need). A register names its upstream section, and its own duct is then only the branch from that section."
+          "duct_sections": "One per line: 'Name: segments' for a section off the plenum, or 'Name from Upstream: segments' for one that hangs off another. Segments are written as a register's duct is (no cfm needed: a section carries what the registers behind it need). A register names its upstream section, and its own duct is then only the branch from that section.",
+          "plenum_x": "Where the furnace's plenum is on the plan, east of the house's south-west corner (a minus sign for west). The heating runs start here. Blank both east and north to draw no runs.",
+          "plenum_y": "Where the plenum is on the plan, north of the house's south-west corner (a minus sign for south).",
+          "plenum_z": "How high the plenum is above the ground, for one in a basement or on a floor. Blank: the ground."
         }
       },
       "reconfigure": {
         "title": "House Structure",
-        "description": "Change the house's rotation, shading, unit or sky source. Every part picks up the change.\n\n{map}",
+        "description": "Change the house's rotation, shading, unit or sky source. Every part picks up the change.\n\n{map}\n\n{plan}",
         "data": {
           "rotation": "House rotation (degrees)",
           "preview": "Redraw the map (does not save)",
@@ -33,7 +39,10 @@
           "unit": "Unit for sizes",
           "sky_source": "Sky source",
           "sky_sensor": "Solar radiation sensor",
-          "duct_sections": "Shared duct sections (plenum and trunks)"
+          "duct_sections": "Shared duct sections (plenum and trunks)",
+          "plenum_x": "Plenum east of the house's south-west corner",
+          "plenum_y": "Plenum north of the house's south-west corner",
+          "plenum_z": "Plenum height above the ground"
         },
         "data_description": {
           "rotation": "Degrees the house is turned clockwise from true north. Check it against the map.",
@@ -42,13 +51,19 @@
           "unit": "Sizes are typed in this unit, unless typed with their own, and kept in metres, so changing it keeps them.",
           "sky_source": "Open-Meteo over the internet, or a solar radiation sensor.",
           "sky_sensor": "Only for the sensor source: the light on a flat surface, in W/m².",
-          "duct_sections": "One per line: 'Name: segments' for a section off the plenum, or 'Name from Upstream: segments' for one that hangs off another. Segments are written as a register's duct is (no cfm needed: a section carries what the registers behind it need). A register names its upstream section, and its own duct is then only the branch from that section."
+          "duct_sections": "One per line: 'Name: segments' for a section off the plenum, or 'Name from Upstream: segments' for one that hangs off another. Segments are written as a register's duct is (no cfm needed: a section carries what the registers behind it need). A register names its upstream section, and its own duct is then only the branch from that section.",
+          "plenum_x": "Where the furnace's plenum is on the plan, east of the house's south-west corner (a minus sign for west). The heating runs start here. Blank both east and north to draw no runs.",
+          "plenum_y": "Where the plenum is on the plan, north of the house's south-west corner (a minus sign for south).",
+          "plenum_z": "How high the plenum is above the ground, for one in a basement or on a floor. Blank: the ground."
         }
       }
     },
     "error": {
       "invalid_sky_sensor": "Choose the solar radiation sensor to read the sky from.",
-      "invalid_duct_sections": "Check each duct section: a name, a colon, and segments, with upstream sections that exist and no loops."
+      "invalid_duct_sections": "Check each duct section: a name, a colon, and segments, with upstream sections that exist and no loops.",
+      "invalid_plenum_x": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south.",
+      "invalid_plenum_y": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south.",
+      "invalid_plenum_z": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south."
     },
     "abort": {
       "single_instance_allowed": "House Structure is already set up.",
@@ -65,7 +80,7 @@
       "step": {
         "user": {
           "title": "Room",
-          "description": "A room's own size, and the rooms around it. One per area; leave a size empty if you do not know it. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).\n\nAlready linked from other rooms: {linked}.",
+          "description": "A room's own size, and the rooms around it. One per area; leave a size empty if you do not know it. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).\n\nAlready linked from other rooms: {linked}.\n\n{drawing}",
           "data": {
             "name": "Name",
             "area_id": "Room (area)",
@@ -75,7 +90,12 @@
             "below_ground": "Below ground",
             "beside": "Rooms beside it",
             "above": "Rooms above it",
-            "below_grade": "Wall depth below ground"
+            "below_grade": "Wall depth below ground",
+            "width": "Width (east to west)",
+            "depth": "Depth (south to north)",
+            "x": "East of the house's south-west corner",
+            "y": "North of the house's south-west corner",
+            "level": "Floor height above the ground"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
@@ -83,12 +103,17 @@
             "below_ground": "Tick for a basement room: its walls trade heat with the soil.",
             "beside": "Rooms on the same floor that share a wall with this one. A room linked here is linked both ways, so each pair is entered once. When first shown, the other rooms on the same floor are ticked: untick the ones that do not touch.",
             "above": "Rooms over its ceiling (this room is below them). Areas without a room, such as an unheated attic, can be chosen too.",
-            "below_grade": "For a basement: how far its walls go into the soil, such as 1.8 m or 6 ft. Blank for a room above ground."
+            "below_grade": "For a basement: how far its walls go into the soil, such as 1.8 m or 6 ft. Blank for a room above ground.",
+            "width": "The room's length east to west, along its north and south walls. Leave width and depth both empty to draw a square from the floor area; give one, and the other is worked out from the floor area.",
+            "depth": "The room's length south to north, along its east and west walls.",
+            "x": "Where the room's south-west corner sits on the plan, east of the house's south-west corner (a minus sign for west). Blank: the room is drawn in a row after the others.",
+            "y": "Where the room's south-west corner sits on the plan, north of the house's south-west corner (a minus sign for south).",
+            "level": "The floor's height above the ground: 0 for the ground floor, about 2.7 m for the one above it, and a minus sign for a basement. Blank: the ground."
           }
         },
         "reconfigure": {
           "title": "Room",
-          "description": "A room's own size, and the rooms around it. One per area; leave a size empty if you do not know it. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).\n\nAlready linked from other rooms: {linked}.",
+          "description": "A room's own size, and the rooms around it. One per area; leave a size empty if you do not know it. Sizes in {unit}, or type a unit after the number (3.2 m, 12' 6\", 14 sq ft).\n\nAlready linked from other rooms: {linked}.\n\n{drawing}",
           "data": {
             "name": "Name",
             "area_id": "Room (area)",
@@ -98,7 +123,12 @@
             "below_ground": "Below ground",
             "beside": "Rooms beside it",
             "above": "Rooms above it",
-            "below_grade": "Wall depth below ground"
+            "below_grade": "Wall depth below ground",
+            "width": "Width (east to west)",
+            "depth": "Depth (south to north)",
+            "x": "East of the house's south-west corner",
+            "y": "North of the house's south-west corner",
+            "level": "Floor height above the ground"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
@@ -106,7 +136,12 @@
             "below_ground": "Tick for a basement room: its walls trade heat with the soil.",
             "beside": "Rooms on the same floor that share a wall with this one. A room linked here is linked both ways, so each pair is entered once. When first shown, the other rooms on the same floor are ticked: untick the ones that do not touch.",
             "above": "Rooms over its ceiling (this room is below them). Areas without a room, such as an unheated attic, can be chosen too.",
-            "below_grade": "For a basement: how far its walls go into the soil, such as 1.8 m or 6 ft. Blank for a room above ground."
+            "below_grade": "For a basement: how far its walls go into the soil, such as 1.8 m or 6 ft. Blank for a room above ground.",
+            "width": "The room's length east to west, along its north and south walls. Leave width and depth both empty to draw a square from the floor area; give one, and the other is worked out from the floor area.",
+            "depth": "The room's length south to north, along its east and west walls.",
+            "x": "Where the room's south-west corner sits on the plan, east of the house's south-west corner (a minus sign for west). Blank: the room is drawn in a row after the others.",
+            "y": "Where the room's south-west corner sits on the plan, north of the house's south-west corner (a minus sign for south).",
+            "level": "The floor's height above the ground: 0 for the ground floor, about 2.7 m for the one above it, and a minus sign for a basement. Blank: the ground."
           }
         }
       },
@@ -118,13 +153,17 @@
         "invalid_pitch": "Give the pitch in degrees (45) or as rise:run (12:12).",
         "invalid_length": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_height": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
-        "invalid_width": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_width": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south.",
         "invalid_slope": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_floor": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_volume": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead.",
-        "invalid_above": "A room cannot be both beside and above this one."
+        "invalid_above": "A room cannot be both beside and above this one.",
+        "invalid_depth": "Give the depth as a length, such as 4.1 m or 13' 6\".",
+        "invalid_x": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south.",
+        "invalid_y": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south.",
+        "invalid_level": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south."
       }
     },
     "wall": {
@@ -419,7 +458,10 @@
             "free_area_in2": "Register free area (in²)",
             "flow_cfm": "Design airflow (CFM)",
             "duct": "Duct, from the plenum to the register",
-            "upstream": "Upstream duct section (optional)"
+            "upstream": "Upstream duct section (optional)",
+            "at_x": "Outlet east of the room's south-west corner",
+            "at_y": "Outlet north of the room's south-west corner",
+            "at_z": "Outlet height above the floor"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
@@ -428,7 +470,10 @@
             "free_area_in2": "The open area of the register's grille, from its data sheet or measured.",
             "flow_cfm": "The airflow to this register at design. Blank: the thermal lab works it out from the room's load.",
             "duct": "Segments separated by ';', such as '8 round 12 ft trunk cfm=400; 4 round 14 ft k=0.9'. Round: a diameter in inches. Rectangular: '10x6 rect' (inches). Length in feet, or m. Options: trunk, k= (fitting loss), cfm= (airflow carried).",
-            "upstream": "The shared section (named in the house's duct sections) this register's branch hangs off. Leave it empty to type the whole duct from the plenum above."
+            "upstream": "The shared section (named in the house's duct sections) this register's branch hangs off. Leave it empty to type the whole duct from the plenum above.",
+            "at_x": "Where the outlet is on the plan, from the room's south-west corner. Blank: the middle of the room.",
+            "at_y": "Where the outlet is on the plan, from the room's south-west corner. Blank: the middle of the room.",
+            "at_z": "How high the outlet is above the floor: the blank value is 0.1 m, at the floor. A ceiling outlet is near the ceiling height."
           }
         },
         "reconfigure": {
@@ -442,7 +487,10 @@
             "free_area_in2": "Register free area (in²)",
             "flow_cfm": "Design airflow (CFM)",
             "duct": "Duct, from the plenum to the register",
-            "upstream": "Upstream duct section (optional)"
+            "upstream": "Upstream duct section (optional)",
+            "at_x": "Outlet east of the room's south-west corner",
+            "at_y": "Outlet north of the room's south-west corner",
+            "at_z": "Outlet height above the floor"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
@@ -451,7 +499,10 @@
             "free_area_in2": "The open area of the register's grille, from its data sheet or measured.",
             "flow_cfm": "The airflow to this register at design. Blank: the thermal lab works it out from the room's load.",
             "duct": "Segments separated by ';', such as '8 round 12 ft trunk cfm=400; 4 round 14 ft k=0.9'. Round: a diameter in inches. Rectangular: '10x6 rect' (inches). Length in feet, or m. Options: trunk, k= (fitting loss), cfm= (airflow carried).",
-            "upstream": "The shared section (named in the house's duct sections) this register's branch hangs off. Leave it empty to type the whole duct from the plenum above."
+            "upstream": "The shared section (named in the house's duct sections) this register's branch hangs off. Leave it empty to type the whole duct from the plenum above.",
+            "at_x": "Where the outlet is on the plan, from the room's south-west corner. Blank: the middle of the room.",
+            "at_y": "Where the outlet is on the plan, from the room's south-west corner. Blank: the middle of the room.",
+            "at_z": "How high the outlet is above the floor: the blank value is 0.1 m, at the floor. A ceiling outlet is near the ceiling height."
           }
         }
       },
@@ -470,7 +521,10 @@
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead.",
         "invalid_duct": "The duct could not be read. Check each segment, such as '4 round 14 ft'.",
-        "invalid_upstream": "No duct section has that name: check the house's duct sections."
+        "invalid_upstream": "No duct section has that name: check the house's duct sections.",
+        "invalid_at_x": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south.",
+        "invalid_at_y": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south.",
+        "invalid_at_z": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south."
       }
     }
   },

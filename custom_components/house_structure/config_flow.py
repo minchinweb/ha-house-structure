@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import time
 from typing import Any
+from urllib.parse import quote
 
 from homeassistant.config_entries import (
     ConfigEntry,
@@ -72,7 +73,7 @@ from .geometry import (
     parse_pitch,
     parse_size,
 )
-from .map_view import OutlineMapView
+from .map_view import HousePlanView, OutlineMapView, RoomDrawingView
 from .model import BLIND_CLOSED, TRANSMITTANCE, roof_areas
 from .orientation import choose_outline, fetch_outlines, wall_rotation
 
@@ -150,9 +151,15 @@ _SIZES = {
     ROOF: ("length", "slope"),
     WINDOW: ("width", "height"),
     INTERNAL_WALL: ("length", "height"),
-    ROOM: ("height", "below_grade"),
+    ROOM: ("width", "depth", "height", "below_grade"),
     REGISTER: (),
 }
+# the positions on each kind of form (they may be negative), stored with ``_m``
+_POSITIONS = {
+    ROOM: ("x", "y", "level"),
+    REGISTER: ("at_x", "at_y", "at_z"),
+}
+PLENUM = ("plenum_x", "plenum_y", "plenum_z")
 
 
 def _unit_label(unit: str) -> str:
@@ -200,6 +207,8 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
     for size in _SIZES[kind]:
         key = vol.Required(size) if kind == WINDOW else vol.Optional(size)
         fields[key] = _TEXT
+    for position in _POSITIONS.get(kind, ()):
+        fields[vol.Optional(position)] = _TEXT
     if kind == WINDOW:
         fields[vol.Optional("transmittance", default=TRANSMITTANCE)] = _SHARE
         fields[vol.Optional("blind")] = _COVER
@@ -224,6 +233,23 @@ def _size(size: str, value: Any, unit: str, power: int = 1) -> float:
     if metres <= 0:
         raise FieldError(size, "sizes must be more than 0")
     return metres
+
+
+def _offset(field: str, value: Any, unit: str) -> float:
+    """A position in metres, from a length typed in the house's unit."""
+    text = str(value).strip()
+    negative = text.startswith("-")
+    try:
+        metres = parse_size(text.lstrip("-").strip() or "0", unit)
+    except ValueError:
+        raise FieldError(field, f"cannot read the position {value!r}") from None
+    return -metres if negative else metres
+
+
+def _signed(metres: float, unit: str) -> str:
+    """A position in metres as typed, with a minus sign when it is west or south."""
+    text = format_size(abs(metres), unit)
+    return f"-{text}" if metres < 0 else text
 
 
 def _section_names(house: dict) -> set[str]:
@@ -288,6 +314,9 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
     for size in _SIZES[kind]:
         if form.get(size) not in (None, ""):
             data[f"{size}_m"] = _size(size, form[size], unit)
+    for position in _POSITIONS.get(kind, ()):
+        if form.get(position) not in (None, ""):
+            data[f"{position}_m"] = _offset(position, form[position], unit)
     for size, power in (("floor", 2), ("volume", 3)):
         if form.get(size) not in (None, ""):
             data[f"{size}_m{power}"] = _size(size, form[size], unit, power)
@@ -319,6 +348,9 @@ def _to_form(kind: str, data: dict, house: dict, title: str) -> dict:
         if data.get(f"{size}_m") is None:
             continue
         form[size] = format_size(data[f"{size}_m"], unit)
+    for position in _POSITIONS.get(kind, ()):
+        if data.get(f"{position}_m") is not None:
+            form[position] = _signed(data[f"{position}_m"], unit)
     if kind == ROOF and "pitch" in data:
         form["pitch"] = f"{data['pitch']:g}"
     return form
@@ -363,6 +395,10 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
             measured = (await self._outline()).get("rotation")
             if measured is not None:
                 current["rotation"] = measured
+        unit = current.get("unit", "m")
+        for key in PLENUM:  # saved in metres, typed in the house's unit
+            if current.get(f"{key}_m") is not None:
+                current[key] = _signed(current[f"{key}_m"], unit)
         return await self._house_step("reconfigure", user_input, current)
 
     async def _house_step(
@@ -398,15 +434,33 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Required("sky_source", default=OPEN_METEO): _SKY_SOURCE,
                 vol.Optional("sky_sensor"): _RADIATION,
                 vol.Optional("duct_sections"): _TEXT_LINES,
+                **{vol.Optional(key): _TEXT for key in PLENUM},
             }
         )
         return self.async_show_form(
             step_id=step_id,
             data_schema=self.add_suggested_values_to_schema(schema, current),
             description_placeholders={
-                "map": await self._map_text(current.get("rotation"))
+                "map": await self._map_text(current.get("rotation")),
+                "plan": self._plan_text(step_id),
             },
             errors=errors,
+        )
+
+    def _plan_text(self, step_id: str) -> str:
+        """Markdown for the form: the plan of the saved house, once it is saved."""
+        if step_id != "reconfigure":
+            return (
+                "The plan of the rooms and heating runs appears here once the "
+                "house is saved."
+            )
+        url = f"{HousePlanView.url}?v={int(time.time())}"
+        return (
+            f"![House plan]({url})\n\nThe rooms at their positions and floor levels, "
+            "from their sizes, with the heating runs from the plenum to each register. "
+            "The runs are schematic: each is drawn straight across at the plenum's "
+            "height, then up or down to its outlet. The lengths are under the plan, "
+            "the run drawn beside the duct typed. Saved parts only."
         )
 
     async def _outline(self) -> dict:
@@ -471,6 +525,11 @@ def _house(form: dict) -> dict:
         except ValueError as err:
             raise FieldError("duct_sections", str(err)) from None
         data["duct_sections"] = form["duct_sections"]
+    for key in PLENUM:  # blank clears it: the merge keeps the old value otherwise
+        value = form.get(key)
+        data[f"{key}_m"] = (
+            None if value in (None, "") else _offset(key, value, data["unit"])
+        )
     return data
 
 
@@ -704,8 +763,23 @@ class _PartFlow(ConfigSubentryFlow):
             description_placeholders={
                 "unit": _unit_label(house.get("unit", "m")),
                 "linked": self._linked_names(step_id),
+                "drawing": self._drawing_text(step_id),
             },
             errors=errors,
+        )
+
+    def _drawing_text(self, step_id: str) -> str:
+        """Markdown for the room form: its drawing, once the room is saved."""
+        if self.kind != ROOM:
+            return ""
+        if step_id != "reconfigure":
+            return "The room's drawing appears here once it is saved."
+        area = self._get_reconfigure_subentry().data.get("area_id") or ""
+        url = f"{RoomDrawingView.url}?area={quote(area)}&v={int(time.time())}"
+        return (
+            f"![Room drawing]({url})\n\nThe room from its size and its parts as "
+            "saved, looking from the south-west. Dashed faces have no wall part yet; "
+            "the dots are the registers' outlets."
         )
 
 

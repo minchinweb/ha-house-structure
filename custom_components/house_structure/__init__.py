@@ -36,6 +36,16 @@ from .constants import (  # noqa: F401  (re-exported for other integrations)
 )
 
 
+async def async_setup(hass, config) -> bool:
+    """Serve the house's drawings: each room, and the plan with the heating runs."""
+    from .map_view import HousePlanView, RoomDrawingView
+
+    if hass.http is not None:
+        hass.http.register_view(RoomDrawingView(hass))
+        hass.http.register_view(HousePlanView(hass))
+    return True
+
+
 async def async_setup_entry(hass, entry) -> bool:
     """Fetch the sky, then create the devices and sensors."""
     from .coordinator import sky_coordinator

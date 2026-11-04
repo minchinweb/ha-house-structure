@@ -31,3 +31,21 @@ def test_every_entity_has_an_icon():
     icons = _load("icons.json")["entity"]
     for platform, keys in names.items():
         assert set(keys) == set(icons[platform])
+
+
+def test_the_drawing_fields_are_labelled():
+    # the room, register and house forms take the positions and sizes the drawings use
+    strings = _load("strings.json")
+    steps = {
+        "room": (("width", "depth", "x", "y", "level"),),
+        "register": (("at_x", "at_y", "at_z"),),
+    }
+    for kind, (fields,) in steps.items():
+        for step in ("user", "reconfigure"):
+            form = strings["config_subentries"][kind]["step"][step]
+            assert set(fields) <= set(form["data"]), (kind, step)
+            assert set(fields) <= set(form["data_description"]), (kind, step)
+    house = strings["config"]["step"]["user"]
+    for key in ("plenum_x", "plenum_y", "plenum_z"):
+        assert key in house["data"] and key in house["data_description"]
+        assert f"invalid_{key}" in strings["config"]["error"]

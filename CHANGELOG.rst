@@ -3,6 +3,9 @@ Changelog
 
 .. release:: unreleased
 
+  - :feature:`-` **Drawings** of the house, in the forms: each **room** as an isometric box (its footprint and ceiling height, its outside walls and windows, a face with no wall part dashed), and the **house** from its rooms at their positions and floor levels. Rooms take a **width, depth and position** (east and north of the house's south-west corner, and their floor's height); a room left without a position is drawn in a row.
+  - :feature:`-` The **heating runs** on the house drawing: a register's **outlet** is typed from its room's corner (and height), the **plenum** from the house form, and each run is drawn from the plenum to its outlet, with its length beside the duct's stated length as a check. The runs are schematic: they do not follow the joists or walls.
+  - :feature:`-` Windows keep their **glass width and height** for the drawings; the drawings are served at ``/api/house_structure/room.svg`` and ``/api/house_structure/plan.svg``, like the outline (not authenticated, as an image in a form cannot send the login token).
   - :feature:`-` A **repair for a missing size** names the wall or roof's **room** and links to its device, and the room to its area.
   - :feature:`-` Sizes can be typed **with their own unit**, whatever the house's: ``3.2 m``, ``12' 6"``, ``150 sq ft``, ``40 m³``. A bare number is still in the house's unit.
   - :feature:`-` A room lists the **rooms beside it and above it**; each link counts both ways, and the first edit ticks the other rooms on the same floor. Published as each room's ``neighbours`` (beside, above or below), on the room's sensor and in the diagnostics, without adding entities.

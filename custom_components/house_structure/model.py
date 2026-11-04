@@ -93,6 +93,22 @@ class Element:
     duct: tuple[dict, ...] = ()
     # the shared duct section the register hangs off (its duct is the branch)
     upstream: str | None = None
+    # For a room: its footprint (east to west, south to north), where its
+    # south-west corner sits in the house grid, and its floor's height above
+    # the ground. Metres; None when not given.
+    width_m: float | None = None
+    depth_m: float | None = None
+    x_m: float | None = None
+    y_m: float | None = None
+    level_m: float | None = None
+    # For a window: the glass's width and height.
+    glass_width_m: float | None = None
+    glass_height_m: float | None = None
+    # For a register: its outlet, from its room's south-west corner, and its
+    # height above the floor.
+    at_x_m: float | None = None
+    at_y_m: float | None = None
+    at_z_m: float | None = None
 
     @property
     def net_m2(self) -> float | None:
@@ -232,6 +248,11 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 below_grade_m=_optional(d.get("below_grade_m")),
                 beside=_others(d.get("beside"), area),
                 above=_others(d.get("above"), area),
+                width_m=_optional(d.get("width_m")),
+                depth_m=_optional(d.get("depth_m")),
+                x_m=_optional(d.get("x_m")),
+                y_m=_optional(d.get("y_m")),
+                level_m=_optional(d.get("level_m")),
             )
         elif raw.kind == REGISTER:
             elements[raw.id] = Element(
@@ -245,6 +266,9 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 flow_cfm=_optional(d.get("flow_cfm")),
                 duct=tuple(d.get("duct") or ()),
                 upstream=d.get("upstream") or None,
+                at_x_m=_optional(d.get("at_x_m")),
+                at_y_m=_optional(d.get("at_y_m")),
+                at_z_m=_optional(d.get("at_z_m")),
             )
         elif raw.kind == WALL:
             elements[raw.id] = Element(
@@ -302,6 +326,8 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
             blind_closed=float(d.get("blind_closed", BLIND_CLOSED)),
             glazing=d.get("glazing") or None,
             frame=d.get("frame") or None,
+            glass_width_m=_optional(d.get("width_m")),
+            glass_height_m=_optional(d.get("height_m")),
         )
         if glass:
             elements[host.id] = replace(
