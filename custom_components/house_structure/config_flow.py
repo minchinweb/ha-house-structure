@@ -399,6 +399,8 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
         for key in PLENUM:  # saved in metres, typed in the house's unit
             if current.get(f"{key}_m") is not None:
                 current[key] = _signed(current[f"{key}_m"], unit)
+        if current.get("below_grade_m") is not None:
+            current["below_grade"] = format_size(current["below_grade_m"], unit)
         return await self._house_step("reconfigure", user_input, current)
 
     async def _house_step(
@@ -433,6 +435,7 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Required("unit"): _UNIT,
                 vol.Required("sky_source", default=OPEN_METEO): _SKY_SOURCE,
                 vol.Optional("sky_sensor"): _RADIATION,
+                vol.Optional("below_grade"): _TEXT,
                 vol.Optional("duct_sections"): _TEXT_LINES,
                 **{vol.Optional(key): _TEXT for key in PLENUM},
             }
@@ -507,6 +510,13 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
+def _below_grade_default(house: dict) -> str:
+    """The house's default below-grade depth, as the room form shows it."""
+    if house.get("below_grade_m") is None:
+        return "none set: the whole wall is taken as below grade"
+    return format_size(house["below_grade_m"], house.get("unit", "m"))
+
+
 def _house(form: dict) -> dict:
     data = {
         "unit": form.get("unit", "m"),
@@ -530,6 +540,10 @@ def _house(form: dict) -> dict:
         data[f"{key}_m"] = (
             None if value in (None, "") else _offset(key, value, data["unit"])
         )
+    value = form.get("below_grade")
+    data["below_grade_m"] = (
+        None if value in (None, "") else _size("below_grade", value, data["unit"])
+    )
     return data
 
 
@@ -764,6 +778,7 @@ class _PartFlow(ConfigSubentryFlow):
                 "unit": _unit_label(house.get("unit", "m")),
                 "linked": self._linked_names(step_id),
                 "drawing": self._drawing_text(step_id),
+                "below_grade_default": _below_grade_default(house),
             },
             errors=errors,
         )

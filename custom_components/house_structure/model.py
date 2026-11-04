@@ -88,6 +88,12 @@ class Element:
     glazing: str | None = None
     frame: str | None = None
     below_grade_m: float | None = None
+    # For a room: whether ``below_grade_m`` is the house's default, not its own.
+    below_grade_default: bool = False
+    # For a wall: its length along the ground, and its face in the house's grid
+    # (N, E, S or W: the nearest one when the wall sets its own bearing).
+    length_m: float | None = None
+    face: str | None = None
     free_area_in2: float | None = None
     flow_cfm: float | None = None
     duct: tuple[dict, ...] = ()
@@ -194,6 +200,19 @@ def roof_areas(data: dict) -> list[str]:
     return [data["area_id"]] if data.get("area_id") else []
 
 
+def grid_face(data: dict, house: dict) -> str:
+    """The face (N, E, S or W) of the house's grid a wall or roof looks towards.
+
+    A part given a face keeps it; one given its own bearing takes the face
+    nearest that bearing, once the house's rotation is taken off.
+    """
+    if data.get("facing") is None:
+        return data.get("face", "S")
+    rotation = float(house.get("rotation") or 0.0)
+    turned = (float(data["facing"]) - rotation) % 360.0
+    return ("N", "E", "S", "W")[round(turned / 90.0) % 4]
+
+
 def _plane(data: dict, house: dict, tilt: float) -> Plane:
     rotation = float(house.get("rotation") or 0.0)
     if data.get("facing") is not None:
@@ -210,7 +229,9 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
     """Turn the sub-entries into elements.
 
     Args:
-        house: The integration's own settings (``rotation``, ``shade_below``).
+        house: The integration's own settings (``rotation``, ``shade_below``,
+            and ``below_grade_m``, the depth a below-ground room's walls go
+            below grade when the room does not give its own).
         raws: Its sub-entries.
 
     Returns:
@@ -236,6 +257,10 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
             volume = d.get("volume_m3")
             if volume is None and floor is not None and height is not None:
                 volume = float(floor) * float(height)
+            below = bool(d.get("below_ground", False))
+            depth = _optional(d.get("below_grade_m"))
+            default_depth = _optional(house.get("below_grade_m"))
+            from_house = below and depth is None and default_depth is not None
             elements[raw.id] = Element(
                 raw.id,
                 ROOM,
@@ -244,8 +269,9 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 floor_m2=floor,
                 height_m=height,
                 volume_m3=volume,
-                below_ground=bool(d.get("below_ground", False)),
-                below_grade_m=_optional(d.get("below_grade_m")),
+                below_ground=below,
+                below_grade_m=default_depth if from_house else depth,
+                below_grade_default=from_house,
                 beside=_others(d.get("beside"), area),
                 above=_others(d.get("above"), area),
                 width_m=_optional(d.get("width_m")),
@@ -279,6 +305,9 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 plane=_plane(d, house, 90.0),
                 size_m2=_area(d, "length_m", "height_m"),
                 r_value_si=_optional(d.get("r_value_si")),
+                length_m=_optional(d.get("length_m")),
+                height_m=_optional(d.get("height_m")),
+                face=grid_face(d, house),
             )
         elif raw.kind == ROOF:
             areas = roof_areas(d)
@@ -413,6 +442,9 @@ def _empty_room(area_id: str, temperature: str | None) -> dict:
         "height_m": None,
         "volume_m3": None,
         "below_grade_m": None,
+        "below_grade_default": False,
+        "width_m": None,
+        "depth_m": None,
         "below_ground": False,
         "temperature_entity": temperature,
         "windows": [],
@@ -434,6 +466,10 @@ def rooms_summary(
     listed in the rooms on both sides, and a shared roof in each of its rooms
     (with all its rooms in ``area_ids``, and its whole area). ``neighbours``
     lists the areas beside, above and below each room (see ``neighbours``).
+    A room's ``width_m`` and ``depth_m`` are its footprint (east to west and
+    south to north in the house's grid); ``below_grade_default`` says its
+    ``below_grade_m`` is the house's default. A wall gives its ``face`` in
+    the house's grid, and its ``length_m`` and ``height_m`` when typed.
 
     Args:
         elements: The parts, from ``build``.
@@ -473,11 +509,17 @@ def rooms_summary(
                 volume_m3=e.volume_m3,
                 below_ground=e.below_ground,
                 below_grade_m=e.below_grade_m,
+                below_grade_default=e.below_grade_default,
+                width_m=e.width_m,
+                depth_m=e.depth_m,
             )
         elif e.kind == WALL:
             here["walls"].append(
                 {
                     **_plane_summary(e),
+                    "face": e.face,
+                    "length_m": e.length_m,
+                    "height_m": e.height_m,
                     "area_m2": e.size_m2,
                     "glass_m2": e.glass_m2,
                     "r_value_si": e.r_value_si,

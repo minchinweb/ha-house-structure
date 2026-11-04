@@ -519,6 +519,52 @@ def test_envelope_and_duct_fields_reach_the_summary():
     assert register["flow_cfm"] == pytest.approx(90.0)
     assert register["duct"][0]["diameter_in"] == pytest.approx(4.0)
     assert register["upstream"] is None
+    assert room["below_grade_default"] is False
+    wall = room["walls"][0]
+    assert wall["face"] == "S"
+    assert wall["length_m"] == pytest.approx(10.0)
+    assert wall["height_m"] == pytest.approx(2.0)
+
+
+def test_a_basement_without_its_own_depth_takes_the_houses():
+    raws = [
+        Raw("a", ROOM, "Basement", {"area_id": "basement", "below_ground": True}),
+        Raw(
+            "b",
+            ROOM,
+            "Rec room",
+            {"area_id": "rec", "below_ground": True, "below_grade_m": 1.2},
+        ),
+        Raw("c", ROOM, "Kitchen", {"area_id": "kitchen"}),
+    ]
+    elements, _ = build({"below_grade_m": 1.8}, raws)
+    rooms = rooms_summary(elements)
+    assert rooms["basement"]["below_grade_m"] == pytest.approx(1.8)
+    assert rooms["basement"]["below_grade_default"] is True
+    assert rooms["rec"]["below_grade_m"] == pytest.approx(1.2)
+    assert rooms["rec"]["below_grade_default"] is False
+    # a room above ground takes no depth
+    assert rooms["kitchen"]["below_grade_m"] is None
+    assert rooms["kitchen"]["below_grade_default"] is False
+
+
+def test_room_footprint_and_wall_face_reach_the_summary():
+    raws = [
+        Raw(
+            "room",
+            ROOM,
+            "Den",
+            {"area_id": "den", "width_m": 4.0, "depth_m": 3.0, "height_m": 2.4},
+        ),
+        # a wall with its own bearing takes the nearest face of the turned grid
+        Raw("w", WALL, "Bay", {"area_id": "den", "face": "S", "facing": 100.0}),
+    ]
+    elements, _ = build({"rotation": 10.4}, raws)
+    room = rooms_summary(elements)["den"]
+    assert room["width_m"] == pytest.approx(4.0)
+    assert room["depth_m"] == pytest.approx(3.0)
+    assert room["walls"][0]["face"] == "E"
+    assert room["walls"][0]["length_m"] is None
 
 
 def test_missing_envelope_fields_are_none_not_errors():

@@ -3,6 +3,8 @@ Changelog
 
 .. release:: unreleased
 
+  - :feature:`-` A **default basement wall depth below ground** on the house form, used by every below-ground room that does not give its own; the room form shows the house's value next to its own field. Published as the room's ``below_grade_m``, with ``below_grade_default`` saying it is the house's.
+  - :feature:`-` The room summary also publishes each room's **width and depth**, and each wall's **face** in the house's grid and its typed **length and height**, so other integrations can size a room or wall that has no area.
   - :feature:`-` **Drawings** of the house, in the forms: each **room** as an isometric box (its footprint and ceiling height, its outside walls and windows, a face with no wall part dashed), and the **house** from its rooms at their positions and floor levels. Rooms take a **width, depth and position** (east and north of the house's south-west corner, and their floor's height); a room left without a position is drawn in a row.
   - :feature:`-` The **heating runs** on the house drawing: a register's **outlet** is typed from its room's corner (and height), the **plenum** from the house form, and each run is drawn from the plenum to its outlet, with its length beside the duct's stated length as a check. The runs are schematic: they do not follow the joists or walls.
   - :feature:`-` Windows keep their **glass width and height** for the drawings; the drawings are served at ``/api/house_structure/room.svg`` and ``/api/house_structure/plan.svg``, like the outline (not authenticated, as an image in a form cannot send the login token).
