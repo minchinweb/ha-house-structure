@@ -70,8 +70,9 @@ class HousePlanView(HomeAssistantView):
         saved = _saved_house(self._hass)
         if saved is None:
             return web.Response(status=404)
+        exploded = request.query.get("exploded", "") in ("1", "true", "yes")
         return web.Response(
-            text=house_svg(*saved),
+            text=house_svg(*saved, exploded=exploded),
             content_type="image/svg+xml",
             headers={"Cache-Control": "no-store"},
         )

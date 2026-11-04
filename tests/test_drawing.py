@@ -21,6 +21,7 @@ from custom_components.house_structure.drawing import (
     _north,
     _openings,
     _place,
+    floor_lifts,
     house_svg,
     project,
     room_svg,
@@ -254,3 +255,38 @@ def test_an_inside_door_without_positions_is_listed_instead():
     assert "Door to hall: not drawn; type both rooms" in svg
     elements = _elements(*_two_rooms(x_m=9.0, y_m=0.0))
     assert "do not touch" in room_svg(elements, HOUSE, "kitchen")
+
+
+def test_floors_drawn_apart_lift_each_floor_above_the_one_below():
+    elements = _elements(
+        _room("rec", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=-2.4),
+        _room("kitchen", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=0.0),
+        # a split-level step is still the main floor
+        _room("den", width_m=3.0, depth_m=3.0, x_m=4.0, y_m=0.0, level_m=0.2),
+        _room("office", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=2.7),
+    )
+    boxes, _ = _place(elements, "m")
+    assert floor_lifts(boxes, gap=2.5) == [(-2.4, 0.0), (0.0, 2.5), (2.7, 5.0)]
+
+
+def test_floors_drawn_apart_keep_the_real_run_lengths():
+    house = {**HOUSE, "plenum_x_m": 0.0, "plenum_y_m": 0.0, "plenum_z_m": -2.0}
+    elements = _elements(
+        _room("rec", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=-2.4),
+        _room("office", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=2.7),
+        _register("reg", "office", at_x_m=3.0, at_y_m=0.0, at_z_m=0.0),
+        house=house,
+    )
+    together = house_svg(elements, house)
+    apart = house_svg(elements, house, exploded=True)
+    drawn = (3.0 + 4.7) / FOOT  # across 3 m, then up from -2.0 to 2.7
+    assert f"run {drawn:.0f} ft drawn" in together
+    assert f"run {drawn:.0f} ft drawn" in apart
+    assert "Floors drawn apart" in apart
+    assert "Floors drawn apart" not in together
+    assert apart != together
+
+
+def test_one_floor_draws_the_same_apart_or_together():
+    elements = _elements(_room("kitchen", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0))
+    assert house_svg(elements, HOUSE, exploded=True) == house_svg(elements, HOUSE)

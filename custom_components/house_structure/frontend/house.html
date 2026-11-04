@@ -68,6 +68,11 @@
   <section class="card">
     <h2>Drawing</h2>
     <div class="bar" id="rooms" role="group" aria-label="Show"></div>
+    <div class="bar" id="floors" role="group" aria-label="Floors">
+      <span class="label">Floors</span>
+      <button class="chip" type="button" data-exploded="false">Together</button>
+      <button class="chip" type="button" data-exploded="true">Apart</button>
+    </div>
     <div class="drawing"><img id="drawing" alt="The house, drawn from its rooms"></div>
     <p class="hint" id="drawing-hint"></p>
   </section>
@@ -90,7 +95,7 @@ const W_PER_BTUH = 0.29307107;
 const W_PER_TON = 12000 * W_PER_BTUH;
 const CFM = 0.000471947;  // m³/s
 const INWC = 249.089;  // Pa
-const state = { house: null, room: null };
+const state = { house: null, room: null, exploded: false };
 
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
@@ -123,10 +128,19 @@ function drawRooms() {
   }, r.name)));
 }
 
+function drawFloors() {
+  // floors apart or together only means something for the whole house
+  document.getElementById("floors").classList.toggle("hidden", Boolean(state.room));
+  for (const b of document.querySelectorAll("#floors button")) {
+    b.setAttribute("aria-pressed", String(b.dataset.exploded === String(state.exploded)));
+  }
+}
+
 function drawDrawing() {
   const img = document.getElementById("drawing");
   const hint = document.getElementById("drawing-hint");
   const stamp = Date.now();  // the drawing follows the saved parts, so never cached
+  drawFloors();
   if (state.room) {
     const room = state.house.rooms.find((r) => r.area_id === state.room);
     img.src = `/api/house_structure/room.svg?area=${encodeURIComponent(state.room)}&v=${stamp}`;
@@ -134,10 +148,14 @@ function drawDrawing() {
     hint.textContent = "The room from its size and its parts, looking from the south-west. "
       + "Dashed faces have no wall part yet; the dots are the registers' outlets.";
   } else {
-    img.src = `/api/house_structure/plan.svg?v=${stamp}`;
-    img.alt = "The house, drawn from its rooms, with the heating runs";
-    hint.textContent = "The rooms at their positions and floor levels, with the heating runs "
-      + "from the plenum to each register. The runs are schematic.";
+    img.src = `/api/house_structure/plan.svg?exploded=${state.exploded ? 1 : 0}&v=${stamp}`;
+    img.alt = state.exploded
+      ? "The house, drawn from its rooms with the floors pulled apart, with the heating runs"
+      : "The house, drawn from its rooms, with the heating runs";
+    hint.textContent = (state.exploded
+      ? "The floors pulled apart, so each can be seen. "
+      : "The rooms at their positions and floor levels. ")
+      + "The heating runs go from the plenum to each register; they are schematic.";
   }
   img.onerror = () => { hint.textContent = "Nothing to draw yet: give the rooms their sizes."; };
 }
@@ -185,6 +203,7 @@ async function load() {
     showError("Could not load the house: " + (err && (err.message || err.code) || err));
     return;
   }
+  state.exploded = lab.recall("house.exploded", false) === true;
   const saved = lab.recall("house.room", null);
   state.room = state.house.rooms.some((r) => r.area_id === saved) ? saved : null;
   drawRooms();
@@ -192,6 +211,13 @@ async function load() {
   drawEquipment();
 }
 
+for (const b of document.querySelectorAll("#floors button")) {
+  b.addEventListener("click", () => {
+    state.exploded = b.dataset.exploded === "true";
+    lab.remember("house.exploded", state.exploded);
+    drawDrawing();
+  });
+}
 lab.applyTheme();
 load();
 </script>

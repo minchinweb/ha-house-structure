@@ -24,7 +24,7 @@ stated length as a check.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from html import escape
 import itertools
 import math
@@ -44,6 +44,8 @@ TOUCH = 0.3  # m: two rooms closer than this across a face share a wall
 SILL = 0.9  # m above the floor, for a window's sill
 DEFAULT_OUTLET = 0.1  # m above the floor, where a register has no height
 GAP = 1.0  # m between rooms drawn in a row (no position typed)
+EXPLODE_GAP = 2.5  # m added between floors when they are drawn apart
+LEVEL_STEP = 0.3  # m: rooms whose floors are closer than this share a floor
 SHEET_HEIGHT = 520  # px for the drawing, before the captions
 MARGIN = 16  # px
 LINE = 16  # px per caption line
@@ -434,6 +436,40 @@ def _place(elements: dict[str, Element], unit: str) -> tuple[list[Box], list[str
     return boxes, notes
 
 
+def floor_lifts(
+    boxes: list[Box], gap: float = EXPLODE_GAP
+) -> list[tuple[float, float]]:
+    """How far to lift each floor to draw the floors apart.
+
+    Rooms whose floor heights are within ``LEVEL_STEP`` of the floor below's
+    lowest share it (a split-level step stays on its floor). The lowest floor
+    stays put; each one above goes up ``gap`` more than the one below it.
+
+    Returns:
+        ``(level, lift)`` for each floor, lowest first: anything at or above
+        ``level`` (and below the next) goes up by ``lift``.
+    """
+    lifts: list[tuple[float, float]] = []
+    for z in sorted({round(box.z, 3) for box in boxes}):
+        if lifts and z - lifts[-1][0] < LEVEL_STEP:
+            continue
+        lifts.append((z, gap * len(lifts)))
+    return lifts
+
+
+def _lift_of(z: float, lifts: list[tuple[float, float]]) -> float:
+    """The lift for something at height ``z``: its floor's (none below the lowest)."""
+    out = 0.0
+    for level, lift in lifts:
+        if z + 1e-6 >= level:
+            out = lift
+    return out
+
+
+def _lifted(point: Point, lift: float) -> Point:
+    return point[0], point[1], point[2] + lift
+
+
 def _depth_key(box: Box) -> float:
     """Draw far and low rooms first: the painter's order from the south-west."""
     return 2 * box.z - (box.x + box.width / 2 + box.y + box.depth / 2)
@@ -453,8 +489,15 @@ def _add_runs(
     elements: dict[str, Element],
     house: dict,
     colours: dict[str, str],
+    lifts: list[tuple[float, float]] | None = None,
 ) -> None:
-    """Each register's run from the plenum, and a check of its length."""
+    """Each register's run from the plenum, and a check of its length.
+
+    ``boxes`` are where the rooms really are. With ``lifts`` (floors drawn
+    apart), each run is drawn to its outlet on the lifted floor, but its length
+    is still measured where the rooms really are.
+    """
+    lifts = lifts or []
     registers = [e for e in elements.values() if e.kind == REGISTER]
     plenum = _plenum(house)
     if plenum is None:
@@ -463,7 +506,8 @@ def _add_runs(
                 "Type the plenum's position in the house form to draw the runs."
             )
         return
-    scene.dots.append(Dot(plenum, "#222222", "Plenum"))
+    plenum_lift = _lift_of(plenum[2], lifts)
+    scene.dots.append(Dot(_lifted(plenum, plenum_lift), "#222222", "Plenum"))
     by_area = {box.area: box for box in boxes}
     for reg in sorted(registers, key=lambda e: e.title):
         box = by_area.get(reg.area_id or "")
@@ -473,6 +517,12 @@ def _add_runs(
         target = _outlet(box, reg)
         path = [plenum, (target[0], target[1], plenum[2]), target]
         drawn = sum(_distance(a, b) for a, b in itertools.pairwise(path)) / FOOT
+        if lifts:
+            path = [
+                _lifted(path[0], plenum_lift),
+                _lifted(path[1], plenum_lift),
+                _lifted(target, _lift_of(box.z, lifts)),
+            ]
         scene.lines.append(Run(path, colours[reg.id]))
         if reg.duct:
             feet = sum(seg.get("length_ft", 0.0) for seg in reg.duct)
@@ -596,21 +646,33 @@ def room_svg(elements: dict[str, Element], house: dict, area_id: str) -> str | N
     return render(scene)
 
 
-def house_svg(elements: dict[str, Element], house: dict) -> str:
-    """The house from its rooms at their positions, with the heating runs on it."""
+def house_svg(elements: dict[str, Element], house: dict, exploded: bool = False) -> str:
+    """The house from its rooms at their positions, with the heating runs on it.
+
+    ``exploded`` draws the floors apart, each lifted ``EXPLODE_GAP`` more than
+    the one below, so an upper floor doesn't hide the one under it. The runs
+    are drawn to the lifted floors but measured on the real ones.
+    """
     rotation = float(house.get("rotation") or 0.0)
     unit = house.get("unit", "m")
     boxes, notes = _place(elements, unit)
+    lifts = floor_lifts(boxes) if exploded else []
+    drawn = [replace(b, z=b.z + _lift_of(b.z, lifts)) for b in boxes]
     colours = _colours(elements)
     parts = _parts(elements)
     scene = Scene(north=_north(rotation))
-    for box in sorted(boxes, key=_depth_key):
+    for box in sorted(drawn, key=_depth_key):
         inside, door_notes = _inside_doors(elements, parts, box.area, unit)
         _add_room(scene, box, rotation, parts, colours, inside)
         notes.extend(door_notes)
-    _add_runs(scene, boxes, elements, house, colours)
+    _add_runs(scene, boxes, elements, house, colours, lifts)
     if not boxes:
         notes.append("No rooms are drawn yet.")
     key = "Looking from the south-west: east and north from the house's corner."
+    if len(lifts) > 1:
+        key += (
+            f" Floors drawn apart: each is lifted {format_size(EXPLODE_GAP, unit)} "
+            "more than the one below, so heights between floors are not to scale."
+        )
     scene.notes = [key, *notes, *scene.notes]
     return render(scene, width=420)
