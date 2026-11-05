@@ -359,7 +359,8 @@ def _outlet(box: Box, reg: Element) -> Point:
     if reg.at_y_m is None and box.depth / 2 + DEFAULT_NUDGE[1] < box.depth:
         y += DEFAULT_NUDGE[1]
     z = DEFAULT_OUTLET if reg.at_z_m is None else reg.at_z_m
-    # a register at a room's corner is set off along the wall, clear of the corner's edge
+    # a register at a room's corner is set off along the wall,
+    # clear of the corner's edge
     on_x_edge = x < CORNER_EPS or box.width - x < CORNER_EPS
     on_y_edge = y < CORNER_EPS or box.depth - y < CORNER_EPS
     if on_x_edge and on_y_edge:
@@ -947,7 +948,8 @@ def render(scene: Scene, width: int = 900) -> str:
         cx, cy = width - MARGIN - 20, MARGIN + 20
         base_x, base_y = cx - 11 * dx, cy - 11 * dy
         tip_x, tip_y = cx + 11 * dx, cy + 11 * dy
-        # the head: a triangle back from the tip; the crossbar: across the shaft's middle
+        # the head: a triangle back from the tip;
+        # the crossbar: across the shaft's middle
         px, py = -dy, dx
         back_x, back_y = tip_x - 7 * dx, tip_y - 7 * dy
         head = " ".join(
