@@ -334,6 +334,10 @@ function showLayers() {
   for (const g of svg.querySelectorAll('[data-layer="rvalues"]')) {
     g.style.display = state.rvalues ? "" : "none";
   }
+  // a roof's R-value goes with the roofs as well as with the R-values
+  for (const g of svg.querySelectorAll('[data-layer="roofvalues"]')) {
+    g.style.display = state.roofs && state.rvalues ? "" : "none";
+  }
 }
 
 /* ---------- overlays ---------- */

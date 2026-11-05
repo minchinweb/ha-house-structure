@@ -20,8 +20,10 @@ from custom_components.house_structure.drawing import (
     LARGE_TEXT,
     OPENING_GAP,
     _box,
+    _clear_shift,
     _footprint,
     _gaps,
+    _meet,
     _north,
     _openings,
     _place,
@@ -586,6 +588,16 @@ def test_a_lean_to_spans_its_room_and_no_roof_draws_no_layer():
     assert 'data-layer="roofs"' in room_svg(elements, HOUSE, "porch")
 
 
+def test_a_roofs_r_value_is_in_its_own_layer_so_it_hides_with_the_roofs():
+    elements = _elements(
+        _room("porch", width_m=3.0, depth_m=2.0, x_m=0.0, y_m=0.0),
+        _roof("s", ["porch"], "S", pitch=15.0),
+    )
+    svg = house_svg(elements, HOUSE, defaults={"roof_r": 5.0})
+    roof_values = svg.split('<g data-layer="roofvalues">', 1)[1].split("</g>", 1)[0]
+    assert "RSI 5.00" in roof_values
+
+
 @pytest.mark.parametrize("view", [0, 1, 2, 3])
 def test_the_far_gable_end_is_drawn_behind_the_roof(view):
     elements = _elements(
@@ -647,7 +659,9 @@ def test_the_room_view_labels_its_doors_and_windows():
     )
     svg = room_svg(elements, HOUSE, "kitchen")
     assert ">window 1 m x 1.2 m, double glazed<" in svg
-    assert ">door 0.9 m x 2.03 m (size assumed)<" in svg
+    assert ">door 0.9 m x 2.03 m<tspan" in svg  # footnoted a: size assumed
+    assert "a: Size assumed" in svg
+    assert "(size assumed)" not in svg
     # the house view does not label them
     assert ">window 1 m" not in house_svg(elements, HOUSE)
 
@@ -662,7 +676,7 @@ def test_an_outside_door_shows_its_r_value():
     assert ">RSI 0.88<" in room_svg(elements, HOUSE, "kitchen")
 
 
-def test_an_untyped_part_shows_manual_js_default_starred_with_a_footnote():
+def test_an_untyped_part_shows_manual_js_default_footnoted_b():
     elements = _elements(
         _room("kitchen", width_m=4.0, depth_m=3.0, height_m=2.4),
         _wall("s", "kitchen", "S"),
@@ -673,8 +687,20 @@ def test_an_untyped_part_shows_manual_js_default_starred_with_a_footnote():
         "kitchen",
         defaults={"wall_r": 3.52},
     )
-    assert ">R-20*<" in svg
-    assert "Manual J default R-value" in svg
+    assert ">R-20<tspan" in svg and ">b</tspan>" in svg
+    assert "b: Manual J default R-value" in svg
+    assert "*" not in svg
+
+
+def test_a_label_moves_to_the_nearest_clear_spot():
+    box = (0.0, 40.0, 0.0, 10.0)
+    below = (0.0, 40.0, 10.0, 20.0)  # touching the box's bottom, so clear
+    blocked = (0.0, 40.0, -5.0, 15.0)  # overlaps the box, above and below
+    assert _clear_shift(box, [], 10.0) == 0.0
+    assert _clear_shift(box, [blocked], 10.0) == pytest.approx(20.0)  # the nearest
+    everywhere = (0.0, 40.0, -1000.0, 1000.0)  # nothing clear: left where it is
+    assert _clear_shift(box, [everywhere], 10.0) == 0.0
+    assert _meet(box, below) is False
 
 
 def test_r_values_are_in_the_house_unit():

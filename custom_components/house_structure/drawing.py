@@ -93,7 +93,8 @@ OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E"}
 # the way into a room from each face, along the house grid
 INWARD = {"S": (0.0, 1.0), "N": (0.0, -1.0), "W": (1.0, 0.0), "E": (-1.0, 0.0)}
 MISSING_LINE = "#b0a58c"
-DEFAULT_NOTE = "* Manual J default R-value: none typed."
+SIZE_NOTE = "a: Size assumed: no size typed, so the drawing uses its default size."
+DEFAULT_NOTE = "b: Manual J default R-value: none typed."  # its label is marked b
 FACE_ORDER = ("N", "E", "S", "W")  # far faces first, so the near ones overlay them
 NEAR_FACES = ("S", "W")
 # The corner the drawing looks from, by quarter turns of the view (``view``):
@@ -134,11 +135,16 @@ class Dot(NamedTuple):
 
 
 class Label(NamedTuple):
-    """A short text drawn centred on a point, in its layer (``dims``, ``rvalues``)."""
+    """A short text drawn centred on a point, in its layer (``dims``, ``rvalues``).
+
+    ``note`` is the letter of a footnote (see ``SIZE_NOTE``, ``DEFAULT_NOTE``),
+    drawn small after the text.
+    """
 
     point: Point
     text: str
     layer: str = "dims"
+    note: str = ""
 
 
 @dataclass(frozen=True)
@@ -488,17 +494,25 @@ def _gaps(covered: list[tuple[float, float]], span: float) -> list[tuple[float, 
 
 def _r_text(r_si: float | None, unit: str, default_si: float | None = None) -> str:
     """An R-value as the house's unit has it: ``R-20`` in feet and inches, ``RSI 3.52``
-    in metres. A part with none typed shows the default, starred (see ``DEFAULT_NOTE``),
-    or nothing when there is no default either."""
-    value, star = r_si, ""
+    in metres. A part with none typed shows the default (see ``_r_label``), or
+    nothing when there is no default either."""
+    value = r_si
     if value is None:
         if default_si is None:
             return ""
-        value, star = default_si, "*"
+        value = default_si
     if unit == FEET_INCHES:
         r = value / R_IMPERIAL_TO_SI
-        return (f"R-{r:.0f}" if r >= 10 else f"R-{r:.1f}") + star
-    return f"RSI {value:.2f}{star}"
+        return f"R-{r:.0f}" if r >= 10 else f"R-{r:.1f}"
+    return f"RSI {value:.2f}"
+
+
+def _r_label(
+    at: Point, r_si: float | None, unit: str, default_si: float | None, layer: str
+) -> Label:
+    """An R-value label; one with only the Manual J default is footnoted ``b``."""
+    text = _r_text(r_si, unit, default_si)
+    return Label(at, text, layer, "b" if r_si is None and text else "")
 
 
 def _room_dims(box: Box, unit: str) -> list[Label]:
@@ -540,17 +554,19 @@ def _wall_labels(
             f"{format_size(end - start, unit)} x {format_size(height, unit)}",
             "dims",
         ),
-        Label(
+        _r_label(
             _on_face(box, face, middle, height * 0.25),
-            _r_text(wall.r_value_si, unit, defaults.get("wall_r")),
+            wall.r_value_si,
+            unit,
+            defaults.get("wall_r"),
             "rvalues",
         ),
     ]
 
 
-def _opening_label(e: Element, unit: str) -> str:
-    """A door's or window's size, and a window's glazing and frame. A size not
-    typed is the drawing's assumed one, and says so."""
+def _opening_label(e: Element, unit: str) -> tuple[str, bool]:
+    """A door's or window's size, and a window's glazing and frame, and whether
+    its size was typed (one not typed is the drawing's assumed size, footnoted)."""
     if e.kind == DOOR:
         width, height = _door_size(e)
         typed = e.width_m is not None and e.height_m is not None
@@ -570,7 +586,7 @@ def _opening_label(e: Element, unit: str) -> str:
         ]
         if extras:
             text += ", " + ", ".join(extras)
-    return text if typed else f"{text} (size assumed)"
+    return text, typed
 
 
 def _opening_labels(
@@ -584,15 +600,14 @@ def _opening_labels(
     labels = []
     for poly, e in zip(openings, elements, strict=True):
         middle = [sum(p[i] for p in poly.points) / len(poly.points) for i in range(3)]
-        labels.append(Label(tuple(middle), _opening_label(e, unit), "dims"))
+        text, typed = _opening_label(e, unit)
+        labels.append(Label(tuple(middle), text, "dims", "" if typed else "a"))
         if e.kind == DOOR:  # an outside door's R-value, in its lower quarter
             heights = [p[2] for p in poly.points]
             low = min(heights) + (max(heights) - min(heights)) / 4
             at = (middle[0], middle[1], low)
             labels.append(
-                Label(
-                    at, _r_text(e.r_value_si, unit, defaults.get("door_r")), "rvalues"
-                )
+                _r_label(at, e.r_value_si, unit, defaults.get("door_r"), "rvalues")
             )
     return labels
 
@@ -1011,7 +1026,7 @@ def _add_roofs(
     defaults: dict[str, float] | None = None,
 ) -> None:
     """Each roof as a slope on top of its rooms: the ``roofs`` layer, its R-value
-    on the slope in the ``rvalues`` layer.
+    on the slope in the ``roofvalues`` layer (hidden with the roofs).
 
     A roof rises from its eave, on its face's side of the room, at its pitch.
     It spans the room, or half of it when the room also has a roof on the
@@ -1054,10 +1069,12 @@ def _add_roofs(
                 sum(p[i] for p in slope.points) / len(slope.points) for i in range(3)
             ]
             scene.labels.append(
-                Label(
+                _r_label(
                     tuple(middle),
-                    _r_text(roof.r_value_si, unit, defaults.get("roof_r")),
-                    "rvalues",
+                    roof.r_value_si,
+                    unit,
+                    defaults.get("roof_r"),
+                    "roofvalues",
                 )
             )
             key = _depth_key(box, scene.view)
@@ -1222,6 +1239,40 @@ def _north(rotation: float, view: int = 0) -> tuple[float, float]:
     return dx / length, dy / length
 
 
+Rect = tuple[float, float, float, float]  # a box on the page: left, right, top, bottom
+DOT_RADIUS = 6.0  # px: a dot's circle with its outline
+LABEL_STEP = 1.3  # a label moved to clear another goes this many text sizes
+MOVES = 8  # the most steps a label is moved, up or down, to clear the others
+
+
+def _around(x: float, y: float, radius: float) -> Rect:
+    return (x - radius, x + radius, y - radius, y + radius)
+
+
+def _text_box(x: float, y: float, text: str, note: str, size: float) -> Rect:
+    """About where a label's text is on the page, centred on (x, y): the text
+    at ``0.62`` of its size a character (a bold sans-serif), its footnote smaller."""
+    width = 0.62 * size * (len(text) + 0.7 * len(note))
+    return (x - width / 2, x + width / 2, y - 0.8 * size, y + 0.2 * size)
+
+
+def _clear_shift(box: Rect, taken: list[Rect], step: float) -> float:
+    """How far to move a label up or down (px) to clear what is ``taken``: the
+    least move, nearest first, that overlaps nothing; no move if none does."""
+    for n in range(MOVES + 1):
+        for sign in (1,) if n == 0 else (1, -1):
+            shift = sign * n * step
+            moved = (box[0], box[1], box[2] + shift, box[3] + shift)
+            if not any(_meet(moved, other) for other in taken):
+                return shift
+    return 0.0
+
+
+def _meet(a: Rect, b: Rect) -> bool:
+    """Whether two boxes overlap (touching is not overlapping)."""
+    return a[0] < b[1] and b[0] < a[1] and a[2] < b[3] and b[2] < a[3]
+
+
 def render(scene: Scene, width: int = 900) -> str:
     """The scene as an SVG, the captions under the drawing."""
     view = scene.view
@@ -1258,23 +1309,34 @@ def render(scene: Scene, width: int = 900) -> str:
             f'stroke="{run.colour}" stroke-width="{run.width}" '
             'stroke-linejoin="round" stroke-linecap="round"/>'
         )
+    taken: list[Rect] = []  # where the dots and labels already are, on the page
     for dot in scene.dots:
         x, y = at(dot.point).split(",")
+        taken.append(_around(float(x), float(y), DOT_RADIUS))
         layers.setdefault(dot.layer, []).append(
             f'<circle cx="{x}" cy="{y}" r="4.5" fill="{dot.colour}" '
             f'stroke="#ffffff" stroke-width="1.5">'
             f"<title>{escape(dot.label, quote=False)}</title></circle>"
         )
+    size = 11 * scene.text_scale
     for label in scene.labels:
         if not label.text:
             continue
-        x, y = at(label.point).split(",")
+        x, y = (float(v) for v in at(label.point).split(","))
+        box = _text_box(x, y, label.text, label.note, size)
+        shift = _clear_shift(box, taken, size * LABEL_STEP)
+        taken.append((box[0], box[1], box[2] + shift, box[3] + shift))
+        note = (
+            f'<tspan baseline-shift="super" font-size="70%">{label.note}</tspan>'
+            if label.note
+            else ""
+        )
         layers.setdefault(label.layer, []).append(
-            f'<text x="{x}" y="{y}" fill="#222222" '
-            f'font-size="{11 * scene.text_scale:g}" font-weight="600" '
+            f'<text x="{x:.1f}" y="{y + shift:.1f}" fill="#222222" '
+            f'font-size="{size:g}" font-weight="600" '
             'text-anchor="middle" stroke="#ffffff" '
             f'stroke-width="{3 * scene.text_scale:g}" '
-            f'paint-order="stroke">{escape(label.text, quote=False)}</text>'
+            f'paint-order="stroke">{escape(label.text, quote=False)}{note}</text>'
         )
     out = [
         f'<g data-layer="{name}">{"".join(items)}</g>'
@@ -1323,7 +1385,10 @@ def render(scene: Scene, width: int = 900) -> str:
     # one text per note, its wrapped lines as tspans; each note also keeps its whole
     # text in data-note, so the page can show the captions as its own text
     notes = list(scene.notes)
-    if any(label.text.endswith("*") for label in scene.labels):
+    footnotes = {label.note for label in scene.labels}
+    if "a" in footnotes:
+        notes.append(SIZE_NOTE)
+    if "b" in footnotes:
         notes.append(DEFAULT_NOTE)
     wrapped = [textwrap.wrap(note, CAPTION_CHARS) or [""] for note in notes]
     total = draw_h + LINE * sum(len(parts) for parts in wrapped) + 10
