@@ -16,6 +16,7 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import floor_registry as fr
 
 from .constants import DOMAIN, OUTLINE, ROOM
 from .devices import elements_of
@@ -24,7 +25,8 @@ from .orientation import outline_svg
 
 
 def _saved_house(hass: HomeAssistant):
-    """The house entry's parts and settings, or None when there is no house yet."""
+    """The house entry's parts, its settings and each area's floor level, or None
+    when there is no house yet."""
     entries = hass.config_entries.async_entries(DOMAIN)
     if not entries:
         return None
@@ -32,12 +34,18 @@ def _saved_house(hass: HomeAssistant):
     elements = elements_of(entry)
     # a room's own title is "Room" by default: name it for its area, in the warnings
     areas = ar.async_get(hass)
+    floor_registry = fr.async_get(hass)
     for key, e in elements.items():
         if e.kind == ROOM and e.area_id:
             area = areas.async_get_area(e.area_id)
             if area is not None:
                 elements[key] = replace(e, title=area.name)
-    return elements, dict(entry.data)
+    floors = {}
+    for area in areas.async_list_areas():
+        floor = floor_registry.async_get_floor(area.floor_id) if area.floor_id else None
+        if floor is not None and floor.level is not None:
+            floors[area.id] = floor.level
+    return elements, dict(entry.data), floors
 
 
 def _view(request: web.Request) -> int:
@@ -64,7 +72,7 @@ class RoomDrawingView(HomeAssistantView):
         area = request.query.get("area")
         if saved is None or not area:
             return web.Response(status=404)
-        text = room_svg(*saved, area, view=_view(request))
+        text = room_svg(saved[0], saved[1], area, view=_view(request))
         if text is None:
             return web.Response(status=404)
         return web.Response(
@@ -91,7 +99,13 @@ class HousePlanView(HomeAssistantView):
             return web.Response(status=404)
         exploded = request.query.get("exploded", "") in ("1", "true", "yes")
         return web.Response(
-            text=house_svg(*saved, exploded=exploded, view=_view(request)),
+            text=house_svg(
+                saved[0],
+                saved[1],
+                exploded=exploded,
+                view=_view(request),
+                floors=saved[2],
+            ),
             content_type="image/svg+xml",
             headers={"Cache-Control": "no-store"},
         )

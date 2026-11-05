@@ -46,6 +46,9 @@ SILL = 0.9  # m above the floor, for a window's sill
 DEFAULT_OUTLET = 0.1  # m above the floor, where a register has no height
 CORNER_EPS = 0.02  # m: a register this close to a room's vertical corner sits on it
 CORNER_OFFSET = 0.15  # m: how far along the wall it is set off from that corner
+# m: how far an untyped register is moved from the middle (east, then north). The
+# two differ so the moved spot is on no corner line in any of the four views.
+DEFAULT_NUDGE = (0.15, 0.3)
 GAP = 1.0  # m between rooms drawn in a row (no position typed)
 EXPLODE_GAP = 2.5  # m added between floors when they are drawn apart
 # Rooms whose floors are less than this above a floor's lowest room share that
@@ -343,8 +346,14 @@ def _inside_door(box: Box, door: Element, face: str, start: float, end: float) -
 
 def _outlet(box: Box, reg: Element) -> Point:
     """Where a register's outlet is on the plan: centred and at the floor if untyped."""
+    # untyped: near the middle, nudged in both x and y, so it clears the vertical
+    # edges of the corners in every view (the same plan spot in every rotation)
     x = box.width / 2 if reg.at_x_m is None else reg.at_x_m
     y = box.depth / 2 if reg.at_y_m is None else reg.at_y_m
+    if reg.at_x_m is None and box.width / 2 + DEFAULT_NUDGE[0] < box.width:
+        x += DEFAULT_NUDGE[0]
+    if reg.at_y_m is None and box.depth / 2 + DEFAULT_NUDGE[1] < box.depth:
+        y += DEFAULT_NUDGE[1]
     z = DEFAULT_OUTLET if reg.at_z_m is None else reg.at_z_m
     # a register at a room's corner is set off along the wall, clear of the corner's edge
     on_x_edge = x < CORNER_EPS or box.width - x < CORNER_EPS
@@ -468,9 +477,21 @@ def _inside_doors(
     return placed, notes
 
 
-def _floor_lines(rooms: list[Element]) -> list[list[Element]]:
-    """Rooms grouped by floor, lowest first: a room within ``LEVEL_STEP`` of a
-    floor's lowest one shares that floor (as in ``floor_lifts``)."""
+def _floor_lines(
+    rooms: list[Element], floors: dict[str, int] | None = None
+) -> list[list[Element]]:
+    """Rooms grouped by floor, lowest first. With ``floors`` (each area's floor
+    level), a room's floor is its area's; rooms with none come last. Otherwise a
+    room within ``LEVEL_STEP`` of a floor's lowest one shares that floor (as in
+    ``floor_lifts``)."""
+    if floors is not None:
+        by_floor: dict[int | None, list[Element]] = {}
+        for room in rooms:
+            by_floor.setdefault(floors.get(room.area_id or ""), []).append(room)
+        known = sorted(k for k in by_floor if k is not None)
+        return [by_floor[k] for k in known] + (
+            [by_floor[None]] if None in by_floor else []
+        )
     lines: list[list[Element]] = []
     for room in sorted(rooms, key=lambda r: r.level_m or 0.0):
         z = room.level_m or 0.0
@@ -481,7 +502,11 @@ def _floor_lines(rooms: list[Element]) -> list[list[Element]]:
     return lines
 
 
-def _place(elements: dict[str, Element], unit: str) -> tuple[list[Box], list[str]]:
+def _place(
+    elements: dict[str, Element],
+    unit: str,
+    floors: dict[str, int] | None = None,
+) -> tuple[list[Box], list[str]]:
     """Each room's box at its position; rooms without one go in a row after them."""
     boxes: list[Box] = []
     notes: list[str] = []
@@ -498,7 +523,7 @@ def _place(elements: dict[str, Element], unit: str) -> tuple[list[Box], list[str
     edge = max((b.x + b.width for b in boxes), default=-GAP) + GAP
     # without connections, each floor's rooms go in their own line, one behind another
     row_y = 0.0
-    for line in _floor_lines(loose):
+    for line in _floor_lines(loose, floors):
         x, row_depth = edge, 0.0
         for room in line:
             box = _box(room, x, row_y, room.level_m or 0.0, unit)
@@ -920,17 +945,19 @@ def house_svg(
     house: dict,
     exploded: bool = False,
     view: int = 0,
+    floors: dict[str, int] | None = None,
 ) -> str:
     """The house from its rooms at their positions, with the heating runs on it.
 
     ``exploded`` draws the floors apart, each lifted ``EXPLODE_GAP`` more than
     the one below, so an upper floor doesn't hide the one under it. The runs
     are drawn to the lifted floors but measured on the real ones. ``view``
-    turns the view by quarter turns (see ``VIEWS``).
+    turns the view by quarter turns (see ``VIEWS``). ``floors`` gives each
+    area's floor level, which sorts the rooms without a position into lines.
     """
     rotation = float(house.get("rotation") or 0.0)
     unit = house.get("unit", "m")
-    boxes, notes = _place(elements, unit)
+    boxes, notes = _place(elements, unit, floors)
     lifts = floor_lifts(boxes) if exploded else []
     drawn = [replace(b, z=b.z + _lift_of(b.z, lifts)) for b in boxes]
     colours = _colours(elements)

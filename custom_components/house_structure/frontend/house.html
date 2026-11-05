@@ -449,10 +449,10 @@ function drawEquipment() {
       row("Sensible", a.sensible_w ? `${fmt(a.sensible_w / W_PER_BTUH)} BTU/h` : "not given")));
   }
   if (!parts.length) {
-    // the tab is inside an iframe of the Thermal Lab page, so the link opens the whole page
+    // the tab sits in a frame that may not navigate the page, so the link opens a new tab
     parts.push(el("p", { class: "hint" },
       "No furnace or air conditioner yet: add them on the ",
-      el("a", { href: "/config/integrations/integration/house_structure", target: "_top" }, "House Structure"),
+      el("a", { href: "/config/integrations/integration/house_structure", target: "_blank", rel: "noopener" }, "House Structure"),
       " integration page."));
   }
   document.getElementById("equipment").replaceChildren(...parts);
