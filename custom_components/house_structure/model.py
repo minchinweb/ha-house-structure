@@ -402,6 +402,7 @@ def _add_door(elements: dict[str, Element], problems: list[str], raw: Raw) -> No
         host=host.id,
         other_area_id=host.other_area_id,
         sensor=d.get("sensor") or None,
+        r_value_si=_optional(d.get("r_value_si")),
         width_m=_optional(d.get("width_m")),
         height_m=_optional(d.get("height_m")),
     )

@@ -407,12 +407,14 @@
             "host": "Wall it is in",
             "sensor": "Contact sensor",
             "width": "Width",
-            "height": "Height"
+            "height": "Height",
+            "r_imperial": "R-value (ft²·°F·h/BTU)"
           },
           "data_description": {
             "name": "Leave empty for a name from the wall.",
             "host": "An outside wall, or an internal wall for a door between two rooms.",
-            "sensor": "A door or opening sensor, on when the door is open. Leave empty if the door has none."
+            "sensor": "A door or opening sensor, on when the door is open. Leave empty if the door has none.",
+            "r_imperial": "The door's insulation as built, such as 5 for a foam-core steel door. Blank uses the default in the thermal lab. Only doors in outside walls are labelled."
           }
         },
         "reconfigure": {
@@ -423,12 +425,14 @@
             "host": "Wall it is in",
             "sensor": "Contact sensor",
             "width": "Width",
-            "height": "Height"
+            "height": "Height",
+            "r_imperial": "R-value (ft²·°F·h/BTU)"
           },
           "data_description": {
             "name": "Leave empty for a name from the wall.",
             "host": "An outside wall, or an internal wall for a door between two rooms.",
-            "sensor": "A door or opening sensor, on when the door is open. Leave empty if the door has none."
+            "sensor": "A door or opening sensor, on when the door is open. Leave empty if the door has none.",
+            "r_imperial": "The door's insulation as built, such as 5 for a foam-core steel door. Blank uses the default in the thermal lab. Only doors in outside walls are labelled."
           }
         }
       },

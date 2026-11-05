@@ -19,9 +19,12 @@ from custom_components.house_structure.drawing import (
     FLOOR_GAP,
     _box,
     _footprint,
+    _gaps,
     _north,
     _openings,
     _place,
+    _shared_face,
+    _wall_stretches,
     face_order,
     floor_lifts,
     house_svg,
@@ -29,8 +32,8 @@ from custom_components.house_structure.drawing import (
     project,
     room_svg,
 )
-from custom_components.house_structure.geometry import FOOT
-from custom_components.house_structure.model import Raw, build
+from custom_components.house_structure.geometry import FEET_INCHES, FOOT
+from custom_components.house_structure.model import Element, Raw, build
 
 HOUSE = {"rotation": 0.0, "unit": "m", "shade_below": 0.0}
 FLOOR = 'fill="#f3efe6"'
@@ -297,13 +300,42 @@ def test_an_inside_door_is_drawn_on_the_shared_face():
     assert house.count(DOOR_FILL) == 1  # drawn once, from the wall's own room
 
 
-def test_an_inside_door_without_positions_is_listed_instead():
+def test_an_inside_door_without_positions_is_placed_by_its_shared_wall():
+    # neither room has a position: the hall is set against the kitchen's wall
     elements = _elements(*_two_rooms())
     svg = room_svg(elements, HOUSE, "kitchen")
-    assert DOOR_FILL not in svg
-    assert "Door to hall: not drawn; type both rooms" in svg
+    assert svg.count(DOOR_FILL) == 1
+    assert "not drawn" not in svg
     elements = _elements(*_two_rooms(x_m=9.0, y_m=0.0))
     assert "do not touch" in room_svg(elements, HOUSE, "kitchen")
+
+
+def test_rooms_with_no_position_are_chained_off_the_room_they_share_a_wall_with():
+    # the kitchen is typed; the landing shares a wall with it, the bath with the landing
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0, height_m=2.4, x_m=0.0, y_m=0.0),
+        _room("landing", width_m=2.0, depth_m=2.0),
+        _room("bath", width_m=2.0, depth_m=2.0),
+        Raw(
+            "int",
+            INTERNAL_WALL,
+            "Wall to landing",
+            {"area_id": "kitchen", "other_area_id": "landing"},
+        ),
+        Raw(
+            "int2",
+            INTERNAL_WALL,
+            "Wall to bath",
+            {"area_id": "landing", "other_area_id": "bath"},
+        ),
+    )
+    boxes, notes = _place(elements, "m")
+    where = {b.area: b for b in boxes}
+    kitchen, landing, bath = where["kitchen"], where["landing"], where["bath"]
+    assert (landing.x, landing.y) == pytest.approx((4.0, 0.0))  # kitchen's east face
+    assert _shared_face(kitchen, landing) is not None
+    assert _shared_face(landing, bath) is not None
+    assert any("shared wall" in note for note in notes)
 
 
 def test_floors_drawn_apart_lift_each_floor_above_the_one_below():
@@ -479,3 +511,87 @@ def test_the_far_gable_end_is_drawn_behind_the_roof(view):
     wall = WALL_FILL.split('"')[1]
     # one gable end before both slopes (the far one), one after (the near one)
     assert fills == [wall, roof, roof, wall]
+
+
+def test_a_short_outside_wall_is_drawn_its_length_and_the_rest_is_dashed():
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0, height_m=2.4),
+        _wall("e", "kitchen", "E", length_m=1.5),
+    )
+    svg = room_svg(elements, HOUSE, "kitchen")
+    assert svg.count(WALL_FILL) == 1
+    # N, S and W have no wall; the east face's last 1.5 m has none either
+    assert svg.count(DASHED) == 4
+
+
+def test_walls_on_one_face_follow_each_other_and_the_gap_is_dashed():
+    first = Element("a", WALL, "A", "kitchen", length_m=1.0)
+    second = Element("b", WALL, "B", "kitchen", length_m=1.5)
+    stretches = _wall_stretches([first, second], 3.0)
+    assert [(w.id, s, e) for w, s, e in stretches] == [("a", 0.0, 1.0), ("b", 1.0, 2.5)]
+    assert _gaps([(s, e) for _, s, e in stretches], 3.0) == [(2.5, 3.0)]
+
+
+def test_sizes_and_r_values_are_labelled_on_their_own_layers():
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0, height_m=2.4),
+        _wall("s", "kitchen", "S", r_value_si=3.5),
+        _wall("e", "kitchen", "E"),  # no R-value typed
+    )
+    svg = room_svg(elements, HOUSE, "kitchen")
+    assert 'data-layer="dims"' in svg and 'data-layer="rvalues"' in svg
+    assert ">4 m wide<" in svg and ">3 m deep<" in svg and ">2.4 m high<" in svg
+    assert ">4 m x 2.4 m<" in svg  # the south wall's length and height
+    assert ">RSI 3.50<" in svg
+    assert ">R not typed<" in svg
+
+
+def test_the_room_view_labels_its_doors_and_windows():
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0, height_m=2.4),
+        _wall("s", "kitchen", "S"),
+        _window("win", "s", width_m=1.0, height_m=1.2, glazing="double"),
+        Raw("door", DOOR, "Front door", {"host": "s"}),  # size not typed
+    )
+    svg = room_svg(elements, HOUSE, "kitchen")
+    assert ">window 1 m x 1.2 m, double glazed<" in svg
+    assert ">door 0.9 m x 2.03 m (size assumed)<" in svg
+    # the house view does not label them
+    assert ">window 1 m" not in house_svg(elements, HOUSE)
+
+
+def test_an_outside_door_shows_its_r_value():
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0, height_m=2.4),
+        _wall("s", "kitchen", "S"),
+        Raw("door", DOOR, "Front door", {"host": "s", "r_value_si": 0.88}),
+    )
+    assert elements["door"].r_value_si == pytest.approx(0.88)
+    assert ">RSI 0.88<" in room_svg(elements, HOUSE, "kitchen")
+
+
+def test_r_values_are_in_the_house_unit():
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0, height_m=2.4),
+        _wall("s", "kitchen", "S", r_value_si=3.5),
+    )
+    svg = room_svg(elements, {"rotation": 0.0, "unit": FEET_INCHES}, "kitchen")
+    assert ">R-20<" in svg  # 3.5 m2K/W is about R-20 ft2 F h/BTU
+
+
+def test_an_internal_wall_is_drawn_from_both_rooms_even_without_a_door():
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0, height_m=2.4, x_m=0.0, y_m=0.0),
+        _room("landing", width_m=2.0, depth_m=3.0, height_m=2.4, x_m=4.0, y_m=0.0),
+        Raw(
+            "int",
+            INTERNAL_WALL,
+            "Wall to landing",
+            {"area_id": "kitchen", "other_area_id": "landing"},
+        ),
+    )
+    for area in ("kitchen", "landing"):
+        svg = room_svg(elements, HOUSE, area)
+        assert "not drawn" not in svg
+        assert svg.count(WALL_FILL) == 1  # the shared wall
+        assert svg.count(DASHED) == 3  # its other three faces

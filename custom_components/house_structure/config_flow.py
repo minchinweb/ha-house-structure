@@ -209,7 +209,7 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
     if kind == WINDOW:
         fields[vol.Optional("glazing")] = _choice(GLAZINGS)
         fields[vol.Optional("frame")] = _choice(FRAMES)
-    if kind in (WALL, ROOF):
+    if kind in (WALL, ROOF, DOOR):
         fields[vol.Optional("r_imperial")] = _number("ft²·°F·h/BTU")
     if kind in (WALL, ROOF):
         fields[vol.Required("face", default="S")] = _faces(
@@ -296,7 +296,7 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
     ):
         if form.get(key):
             data[key] = form[key]
-    if kind in (WALL, ROOF) and form.get("r_imperial") not in (None, ""):
+    if kind in (WALL, ROOF, DOOR) and form.get("r_imperial") not in (None, ""):
         if float(form["r_imperial"]) <= 0:
             raise FieldError("r_imperial", "an R-value must be more than 0")
         data["r_value_si"] = float(form["r_imperial"]) * R_IMPERIAL_TO_SI

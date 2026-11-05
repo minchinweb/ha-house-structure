@@ -120,6 +120,8 @@ const state = {
   house: null, room: null, exploded: false, view: 0,
   runs: true,            // the heating runs layer
   roofs: false,          // the roofs layer: off, as it hides the rooms
+  dims: false,           // the room and wall sizes
+  rvalues: false,        // the R-values of the walls and roofs
   overlays: [],          // registered overlays
   on: new Set(),         // overlays switched on
   results: {},           // the last answer of each overlay that is on
@@ -182,6 +184,12 @@ function drawControls() {
     }),
     chip("Roofs", state.roofs, () => {
       state.roofs = !state.roofs; lab.remember("house.roofs", state.roofs); drawControls(); showLayers();
+    }),
+    chip("Dimensions", state.dims, () => {
+      state.dims = !state.dims; lab.remember("house.dims", state.dims); drawControls(); showLayers();
+    }),
+    chip("R-values", state.rvalues, () => {
+      state.rvalues = !state.rvalues; lab.remember("house.rvalues", state.rvalues); drawControls(); showLayers();
     })];
   if (whole) {
     for (const o of state.overlays) {
@@ -265,6 +273,12 @@ function showLayers() {
   }
   for (const g of svg.querySelectorAll('[data-layer="roofs"]')) {
     g.style.display = state.roofs ? "" : "none";
+  }
+  for (const g of svg.querySelectorAll('[data-layer="dims"]')) {
+    g.style.display = state.dims ? "" : "none";
+  }
+  for (const g of svg.querySelectorAll('[data-layer="rvalues"]')) {
+    g.style.display = state.rvalues ? "" : "none";
   }
 }
 
@@ -517,6 +531,8 @@ state.exploded = lab.recall("house.exploded", false) === true;
 state.view = [0, 1, 2, 3].includes(lab.recall("house.view", 0)) ? lab.recall("house.view", 0) : 0;
 state.runs = lab.recall("house.runs", true) !== false;
 state.roofs = lab.recall("house.roofs", false) === true;
+state.dims = lab.recall("house.dims", false) === true;
+state.rvalues = lab.recall("house.rvalues", false) === true;
 state.on = new Set(lab.recall("house.overlays", []));
 lab.applyTheme();
 load().then(() => lab.subscribe((event) => overlaysChanged(event.overlays), { type: "house_structure/overlays" })

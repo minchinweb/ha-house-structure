@@ -11,11 +11,13 @@ down from the south-west, so east runs right and away, and north left and away;
 Compass north is drawn as an arrow, from the house rotation.
 
 A room is a box of its footprint and ceiling height. Its outside walls are
-drawn on their faces (a face with no wall part is dashed), its windows and
-doors are centred on their walls in a row (window sills at ``SILL``, doors from
-the floor), and its registers are dots. A door in an internal wall is drawn on
-the face its room shares with the room on the other side, found from the two
-rooms' positions; without them it is listed under the drawing instead.
+drawn on their faces, each as long as its length (walls on a face follow each
+other), and any stretch of face no wall covers is dashed. Its windows and doors
+are centred on their walls in a row (window sills at ``SILL``, doors from the
+floor), and its registers are dots. An internal wall is drawn on the face its
+room shares with the room on the other side, from either room, found from the
+two rooms' positions, and a door in one is drawn on it; without the positions
+the wall is listed under the drawing instead.
 The house view places each room at its position and floor level, and draws each
 register's run from the plenum: straight across at the plenum's height, then up
 or down to the outlet. The runs are schematic (they do not follow the joists or
@@ -33,7 +35,8 @@ import textwrap
 from typing import NamedTuple
 
 from .constants import DOOR, INTERNAL_WALL, REGISTER, ROOF, ROOM, WALL, WINDOW
-from .geometry import FACES, FOOT, format_size
+from .ducts import R_IMPERIAL_TO_SI
+from .geometry import FACES, FEET_INCHES, FOOT, format_size
 from .model import Element
 
 COS30 = math.sqrt(3) / 2
@@ -120,6 +123,14 @@ class Dot(NamedTuple):
     layer: str = "runs"
 
 
+class Label(NamedTuple):
+    """A short text drawn centred on a point, in its layer (``dims``, ``rvalues``)."""
+
+    point: Point
+    text: str
+    layer: str = "dims"
+
+
 @dataclass(frozen=True)
 class Box:
     """A room's footprint and height, at its position in the house grid."""
@@ -158,6 +169,7 @@ class Scene:
     polygons: list[Poly] = field(default_factory=list)
     lines: list[Run] = field(default_factory=list)
     dots: list[Dot] = field(default_factory=list)
+    labels: list[Label] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     north: tuple[float, float] | None = None  # the direction of true north, on the page
     anchors: list[Anchor] = field(default_factory=list)
@@ -285,10 +297,16 @@ def _door_size(door: Element) -> tuple[float, float]:
 
 
 def _openings(
-    box: Box, face: str, windows: list[Element], doors: list[Element]
+    box: Box,
+    face: str,
+    windows: list[Element],
+    doors: list[Element],
+    start: float = 0.0,
+    end: float | None = None,
 ) -> list[Poly]:
-    """The doors and windows of one wall, centred on it in a row: doors first,
-    from the floor, then windows, sills at ``SILL``."""
+    """The doors and windows of one wall, centred on its stretch of the face
+    (``start`` to ``end`` metres along it; the whole face by default) in a row:
+    doors first, from the floor, then windows, sills at ``SILL``."""
     sizes = [(*_door_size(d), True) for d in doors]
     sizes += [
         (
@@ -298,10 +316,10 @@ def _openings(
         )
         for w in windows
     ]
-    span = _span(box, face)
+    span = (_span(box, face) if end is None else end) - start
     total = sum(width for width, _, _ in sizes)
     scale = min(1.0, 0.9 * span / total) if total else 1.0
-    along = (span - total * scale) / 2
+    along = start + (span - total * scale) / 2
     out = []
     for width, height, is_door in sizes:
         width *= scale
@@ -374,14 +392,21 @@ class Parts(NamedTuple):
     walls: dict[str, list[Element]]  # by room
     windows: dict[str, list[Element]]  # by wall
     doors: dict[str, list[Element]]  # by outside wall
-    inside_doors: dict[str, list[Element]]  # by room (its internal wall's room)
+    inside_doors: dict[str, list[Element]]  # by room, on either side of the door
     outlets: dict[str, list[Element]]  # by room
+    internal: dict[str, list[Element]]  # by room, on either side of the wall
+
+
+def _sides(e: Element) -> set[str]:
+    """The rooms on either side of an internal wall (or a door in one)."""
+    return {area for area in (e.area_id, e.other_area_id) if area}
 
 
 def _parts(elements: dict[str, Element]) -> Parts:
     """The walls of each room, the windows and doors of each outside wall, the
-    doors in each room's internal walls, and the outlets of each room."""
-    parts = Parts({}, {}, {}, {}, {})
+    internal walls and the doors in them (for both rooms either side), and the
+    outlets of each room."""
+    parts = Parts({}, {}, {}, {}, {}, {})
     for e in elements.values():
         if e.kind == WALL:
             parts.walls.setdefault(e.area_id or "", []).append(e)
@@ -390,9 +415,13 @@ def _parts(elements: dict[str, Element]) -> Parts:
                 parts.windows.setdefault(e.host, []).append(e)
         elif e.kind == DOOR and e.host in elements:
             if elements[e.host].kind == INTERNAL_WALL:
-                parts.inside_doors.setdefault(e.area_id or "", []).append(e)
+                for area in _sides(e):
+                    parts.inside_doors.setdefault(area, []).append(e)
             else:
                 parts.doors.setdefault(e.host, []).append(e)
+        elif e.kind == INTERNAL_WALL:
+            for area in _sides(e):
+                parts.internal.setdefault(area, []).append(e)
         elif e.kind == REGISTER:
             parts.outlets.setdefault(e.area_id or "", []).append(e)
     return parts
@@ -408,6 +437,133 @@ def _colours(elements: dict[str, Element]) -> dict[str, str]:
     }
 
 
+def _wall_stretches(
+    walls: list[Element], span: float
+) -> list[tuple[Element, float, float]]:
+    """Each outside wall's stretch of its face, from the face's west or south end.
+
+    Walls on one face follow each other in the order given, each as long as its
+    length (up to the face's span). A wall with no length runs the whole face.
+    """
+    out: list[tuple[Element, float, float]] = []
+    at = 0.0
+    for wall in walls:
+        if wall.length_m:
+            end = min(at + wall.length_m, span)
+            out.append((wall, at, end))
+            at = end
+        else:
+            out.append((wall, 0.0, span))
+    return out
+
+
+def _gaps(covered: list[tuple[float, float]], span: float) -> list[tuple[float, float]]:
+    """The stretches of a face (0 to ``span``) that no wall covers."""
+    gaps: list[tuple[float, float]] = []
+    at = 0.0
+    for start, end in sorted(covered):
+        if start - at > 1e-6:
+            gaps.append((at, start))
+        at = max(at, end)
+    if span - at > 1e-6:
+        gaps.append((at, span))
+    return gaps
+
+
+def _r_text(r_si: float | None, unit: str) -> str:
+    """An R-value as the house's unit has it: ``R-20`` in feet and inches, ``RSI 3.52``
+    in metres. Said as not typed when the wall or roof has none."""
+    if r_si is None:
+        return "R not typed"
+    if unit == FEET_INCHES:
+        r = r_si / R_IMPERIAL_TO_SI
+        return f"R-{r:.0f}" if r >= 10 else f"R-{r:.1f}"
+    return f"RSI {r_si:.2f}"
+
+
+def _room_dims(box: Box, unit: str) -> list[Label]:
+    """A room's width, depth and height, on its near edges."""
+    return [
+        Label(
+            _on_face(box, "S", box.width / 2, 0.0),
+            f"{format_size(box.width, unit)} wide",
+            "dims",
+        ),
+        Label(
+            _on_face(box, "E", box.depth / 2, 0.0),
+            f"{format_size(box.depth, unit)} deep",
+            "dims",
+        ),
+        Label(
+            (box.x + box.width, box.y, box.z + box.height / 2),
+            f"{format_size(box.height, unit)} high",
+            "dims",
+        ),
+    ]
+
+
+def _wall_labels(
+    box: Box, face: str, wall: Element, start: float, end: float, unit: str
+) -> list[Label]:
+    """A wall's drawn length and height (upper part), and its R-value (lower part)."""
+    height = wall.height_m or box.height
+    middle = (start + end) / 2
+    return [
+        Label(
+            _on_face(box, face, middle, height * 0.75),
+            f"{format_size(end - start, unit)} x {format_size(height, unit)}",
+            "dims",
+        ),
+        Label(
+            _on_face(box, face, middle, height * 0.25),
+            _r_text(wall.r_value_si, unit),
+            "rvalues",
+        ),
+    ]
+
+
+def _opening_label(e: Element, unit: str) -> str:
+    """A door's or window's size, and a window's glazing and frame. A size not
+    typed is the drawing's assumed one, and says so."""
+    if e.kind == DOOR:
+        width, height = _door_size(e)
+        typed = e.width_m is not None and e.height_m is not None
+        text = f"door {format_size(width, unit)} x {format_size(height, unit)}"
+    else:
+        width = e.glass_width_m or DEFAULT_GLASS[0]
+        height = e.glass_height_m or DEFAULT_GLASS[1]
+        typed = e.glass_width_m is not None and e.glass_height_m is not None
+        text = f"window {format_size(width, unit)} x {format_size(height, unit)}"
+        extras = [
+            part
+            for part in (
+                e.glazing and f"{e.glazing} glazed",
+                e.frame and f"{e.frame} frame",
+            )
+            if part
+        ]
+        if extras:
+            text += ", " + ", ".join(extras)
+    return text if typed else f"{text} (size assumed)"
+
+
+def _opening_labels(
+    openings: list[Poly], elements: list[Element], unit: str
+) -> list[Label]:
+    """A label at the middle of each door or window (``openings`` in the order
+    ``_openings`` drew them, with the elements they came from)."""
+    labels = []
+    for poly, e in zip(openings, elements, strict=True):
+        middle = [sum(p[i] for p in poly.points) / len(poly.points) for i in range(3)]
+        labels.append(Label(tuple(middle), _opening_label(e, unit), "dims"))
+        if e.kind == DOOR:  # an outside door's R-value, in its lower quarter
+            heights = [p[2] for p in poly.points]
+            low = min(heights) + (max(heights) - min(heights)) / 4
+            at = (middle[0], middle[1], low)
+            labels.append(Label(at, _r_text(e.r_value_si, unit), "rvalues"))
+    return labels
+
+
 def _add_room(
     scene: Scene,
     box: Box,
@@ -415,70 +571,83 @@ def _add_room(
     parts: Parts,
     colours: dict[str, str],
     inside: list[tuple[Element, str, float, float]] | None = None,
+    unit: str = "m",
+    labelled: bool = False,
 ) -> None:
     """Draw one room's floor, walls, windows, doors and outlets (far faces first).
 
-    ``inside`` is the room's doors in internal walls, each with the face and
-    the stretch of it to draw on (see ``_shared_face``).
+    ``inside`` is the room's internal walls and the doors in them, each with the
+    face and the stretch of it to draw on (see ``_shared_face``). A stretch of a
+    face that no wall covers is dashed.
     """
     # an upper floor is see-through, so the room below shows through it
     floor_opacity = 0.7 if box.z > 0 else 1.0
     scene.polygons.append(Poly(_floor(box), FLOOR_FILL, FLOOR_LINE, floor_opacity))
+    scene.labels.extend(_room_dims(box, unit))
     by_face: dict[str, list[Element]] = {face: [] for face in FACE_ORDER}
     for wall in parts.walls.get(box.area, []):
         by_face[_face_of(wall, rotation)].append(wall)
     near = near_faces(scene.view)
     for face in face_order(scene.view):
         opacity = 0.6 if face in near else 0.9
-        if not by_face[face]:
-            outline = _quad(box, face, 0.0, _span(box, face), 0.0, box.height)
+        span = _span(box, face)
+        stretches = _wall_stretches(by_face[face], span)
+        shared = [(item, s, e) for item, on, s, e in inside or () if on == face]
+        covered = [(s, e) for _, s, e in stretches] + [(s, e) for _, s, e in shared]
+        for start, end in _gaps(covered, span):
+            outline = _quad(box, face, start, end, 0.0, box.height)
             scene.polygons.append(Poly(outline, "none", MISSING_LINE, 1.0, True))
-        for wall in by_face[face]:
-            outline = _quad(box, face, 0.0, _span(box, face), 0.0, box.height)
+        for wall, start, end in stretches:
+            outline = _quad(box, face, start, end, 0.0, box.height)
             scene.polygons.append(Poly(outline, WALL_FILL, WALL_LINE, opacity))
-            scene.polygons.extend(
-                _openings(
-                    box,
-                    face,
-                    parts.windows.get(wall.id, []),
-                    parts.doors.get(wall.id, []),
-                )
-            )
-        for door, on, start, end in inside or ():
-            if on == face:
-                scene.polygons.append(_inside_door(box, door, face, start, end))
+            wins = parts.windows.get(wall.id, [])
+            drs = parts.doors.get(wall.id, [])
+            openings = _openings(box, face, wins, drs, start, end)
+            scene.polygons.extend(openings)
+            if labelled:
+                scene.labels.extend(_opening_labels(openings, [*drs, *wins], unit))
+            scene.labels.extend(_wall_labels(box, face, wall, start, end, unit))
+        for item, start, end in shared:  # the walls first, so the doors sit on them
+            if item.kind == INTERNAL_WALL:
+                outline = _quad(box, face, start, end, 0.0, box.height)
+                scene.polygons.append(Poly(outline, WALL_FILL, WALL_LINE, opacity))
+        for item, start, end in shared:
+            if item.kind == DOOR:
+                scene.polygons.append(_inside_door(box, item, face, start, end))
     for reg in parts.outlets.get(box.area, []):
         scene.dots.append(Dot(_outlet(box, reg), colours[reg.id], reg.title, "runs"))
 
 
-def _placed_box(room: Element, unit: str) -> Box | None:
-    """A room's box at its typed position, or None without one."""
-    if room.x_m is None or room.y_m is None:
-        return None
-    return _box(room, room.x_m, room.y_m, room.level_m or 0.0, unit)
-
-
-def _inside_doors(
-    elements: dict[str, Element], parts: Parts, area_id: str, unit: str
+def _inside_parts(
+    elements: dict[str, Element],
+    parts: Parts,
+    area_id: str,
+    boxes: dict[str, Box],
 ) -> tuple[list[tuple[Element, str, float, float]], list[str]]:
-    """A room's doors in internal walls, each on the face it shares with the
-    room on the other side, and a note for each that cannot be placed."""
-    rooms = {e.area_id: e for e in elements.values() if e.kind == ROOM}
-    here = _placed_box(rooms[area_id], unit) if area_id in rooms else None
+    """A room's internal walls, and the doors in them, each on the face it shares
+    with the room on the other side (``boxes``: where each room is placed), and a
+    note for each that cannot be placed."""
+    here = boxes.get(area_id)
     placed, notes = [], []
-    for door in parts.inside_doors.get(area_id, []):
-        other = rooms.get(door.other_area_id)
-        there = _placed_box(other, unit) if other is not None else None
+    # a wall is drawn from both rooms; a door only from its own room (its area)
+    items = [
+        *parts.internal.get(area_id, []),
+        *(d for d in parts.inside_doors.get(area_id, []) if d.area_id == area_id),
+    ]
+    for item in items:
+        # the room on the other side: the wall's, or the door's (its wall's)
+        other_id = item.other_area_id if item.area_id == area_id else item.area_id
+        there = boxes.get(other_id or "")
         found = _shared_face(here, there) if here and there else None
         if found is None:
             why = (
-                "the two rooms do not touch at their typed positions"
+                "the two rooms do not touch"
                 if here and there
-                else "type both rooms' positions to place it"
+                else "one of its rooms has no size yet"
             )
-            notes.append(f"{door.title}: not drawn; {why}")
+            notes.append(f"{item.title}: not drawn; {why}")
             continue
-        placed.append((door, *found))
+        placed.append((item, *found))
     return placed, notes
 
 
@@ -561,7 +730,6 @@ def _grid_line(
         here = faces.get(room.area_id or "", set())
         key = (_band(here, "S", "N"), _band(here, "W", "E"))
         cells.setdefault(key, []).append(box)
-        notes.append(f"{room.title}: no position typed, so it is placed from its walls")
 
     def cell_width(key: tuple[str, str]) -> float:
         members = cells.get(key, [])
@@ -591,6 +759,99 @@ def _start_of(band: str, space: float, used: float) -> float:
     return {"low": 0.0, "mid": (space - used) / 2, "high": space - used}[band]
 
 
+# the way out of a room through each of its faces, along the house grid
+OUTWARD = {"N": (0.0, 1.0), "S": (0.0, -1.0), "E": (1.0, 0.0), "W": (-1.0, 0.0)}
+
+
+def _touching(p: Box, face: str, n: Box) -> Box:
+    """``n`` set against ``p``'s ``face``, its low edge level with p's."""
+    x, y = {
+        "E": (p.x + p.width, p.y),
+        "W": (p.x - n.width, p.y),
+        "N": (p.x, p.y + p.depth),
+        "S": (p.x, p.y - n.depth),
+    }[face]
+    return replace(n, x=x, y=y)
+
+
+def _overlaps(a: Box, b: Box) -> bool:
+    """Whether two boxes take up the same space (touching is not overlapping)."""
+    return (
+        min(a.x + a.width, b.x + b.width) - max(a.x, b.x) > TOUCH
+        and min(a.y + a.depth, b.y + b.depth) - max(a.y, b.y) > TOUCH
+        and a.z < b.z + b.height
+        and b.z < a.z + a.height
+    )
+
+
+def _against(p: Box, n: Box, others: list[Box], walled: set[str]) -> Box | None:
+    """``n`` set against one of ``p``'s faces: the one that points most towards
+    where ``n`` was placed, faces with an outside wall last. None when every
+    such spot would overlap another room."""
+    dx = (n.x + n.width / 2) - (p.x + p.width / 2)
+    dy = (n.y + n.depth / 2) - (p.y + p.depth / 2)
+    order = sorted(OUTWARD, key=lambda f: -(OUTWARD[f][0] * dx + OUTWARD[f][1] * dy))
+    order.sort(key=lambda f: f in walled)  # stable: the walled faces go last
+    for face in order:
+        spot = _touching(p, face, n)
+        if not any(_overlaps(spot, o) for o in others):
+            return spot
+    return None
+
+
+def _snap_to_walls(
+    boxes: dict[str, Box],
+    typed: set[str],
+    walls: list[tuple[str, str]],
+    faces: dict[str, set[str]],
+) -> dict[str, str]:
+    """Move each room with no typed position against the room it shares an
+    internal wall with, on the same floor, and so on from there.
+
+    ``boxes`` holds every room's box (changed in place); ``typed`` are the rooms
+    whose positions are given, and ``walls`` each internal wall's two rooms. A
+    group of linked rooms with no typed room keeps the one it was grid-placed at
+    as its start. Returns each moved room's ``room it was put against``.
+    """
+    links: dict[str, set[str]] = {}
+    for a, b in walls:
+        if a != b and a in boxes and b in boxes:
+            links.setdefault(a, set()).add(b)
+            links.setdefault(b, set()).add(a)
+    fixed = set(typed)
+    seen: set[str] = set()
+    for start in sorted(boxes):
+        if start in seen:
+            continue
+        group: set[str] = set()
+        todo = [start]
+        while todo:
+            area = todo.pop()
+            if area not in group:
+                group.add(area)
+                todo.extend(links.get(area, ()))
+        seen |= group
+        if not group & fixed:
+            fixed.add(min(group))
+    snapped: dict[str, str] = {}
+    queue = sorted(fixed)
+    while queue:
+        p_area = queue.pop(0)
+        p = boxes[p_area]
+        for n_area in sorted(links.get(p_area, ())):
+            if n_area in fixed or abs(boxes[n_area].z - p.z) >= LEVEL_STEP:
+                continue
+            others = [b for k, b in boxes.items() if k != n_area]
+            spot = _against(p, boxes[n_area], others, faces.get(p_area, set()))
+            if spot is None:
+                continue
+            boxes[n_area] = spot
+            snapped[n_area] = p_area
+            fixed.add(n_area)
+            queue.append(n_area)
+    return snapped
+
+
 def _place(
     elements: dict[str, Element],
     unit: str,
@@ -616,6 +877,8 @@ def _place(
             boxes.append(box)
     edge = max((b.x + b.width for b in boxes), default=-GAP) + GAP
     faces = _outside_faces(elements, rotation)
+    typed = {b.area for b in boxes}
+    grid_placed: set[str] = set()
     # the way along the house's y axis that goes up the page in this view
     _, screen_dy = project((0.0, 1.0, 0.0), view)
     up = 1.0 if screen_dy < 0 else -1.0
@@ -628,7 +891,29 @@ def _place(
             line_boxes = [replace(b, y=b.y + start) for b in line_boxes]
             stacked += depth + FLOOR_GAP
         boxes.extend(line_boxes)
+        grid_placed |= {b.area for b in line_boxes}
         notes.extend(line_notes)
+    by_area = {b.area: b for b in boxes}
+    walls = [
+        (e.area_id or "", e.other_area_id or "")
+        for e in elements.values()
+        if e.kind == INTERNAL_WALL
+    ]
+    snapped = _snap_to_walls(by_area, typed, walls, faces)
+    titles = {e.area_id: e.title for e in elements.values() if e.kind == ROOM}
+    for area in sorted(grid_placed):
+        if area in snapped:
+            other = titles.get(snapped[area], snapped[area])
+            notes.append(
+                f"{titles.get(area, area)}: no position typed, so it is placed "
+                f"against {other} by their shared wall"
+            )
+        else:
+            notes.append(
+                f"{titles.get(area, area)}: no position typed, so it is placed "
+                "from its walls"
+            )
+    boxes = [by_area[b.area] for b in boxes]
     for box in boxes:
         notes.extend(box.notes)
     return boxes, notes
@@ -683,8 +968,10 @@ def _add_roofs(
     boxes: list[Box],
     elements: dict[str, Element],
     rotation: float,
+    unit: str = "m",
 ) -> None:
-    """Each roof as a slope on top of its rooms: the ``roofs`` layer.
+    """Each roof as a slope on top of its rooms: the ``roofs`` layer, its R-value
+    on the slope in the ``rvalues`` layer.
 
     A roof rises from its eave, on its face's side of the room, at its pitch.
     It spans the room, or half of it when the room also has a roof on the
@@ -722,6 +1009,12 @@ def _add_roofs(
                 (x + ix * run, y + iy * run, z + rise) for x, y, z in reversed(eave)
             ]
             slope = Poly([*eave, *ridge], ROOF_FILL, ROOF_LINE, 0.92, layer="roofs")
+            middle = [
+                sum(p[i] for p in slope.points) / len(slope.points) for i in range(3)
+            ]
+            scene.labels.append(
+                Label(tuple(middle), _r_text(roof.r_value_si, unit), "rvalues")
+            )
             key = _depth_key(box, scene.view)
             shapes.append((key, order[face], slope))
             # each gable end once: from the south or west roof of the pair
@@ -927,6 +1220,13 @@ def render(scene: Scene, width: int = 900) -> str:
             f'stroke="#ffffff" stroke-width="1.5">'
             f"<title>{escape(dot.label, quote=False)}</title></circle>"
         )
+    for label in scene.labels:
+        x, y = at(label.point).split(",")
+        layers.setdefault(label.layer, []).append(
+            f'<text x="{x}" y="{y}" fill="#222222" font-size="11" font-weight="600" '
+            'text-anchor="middle" stroke="#ffffff" stroke-width="3" '
+            f'paint-order="stroke">{escape(label.text, quote=False)}</text>'
+        )
     out = [
         f'<g data-layer="{name}">{"".join(items)}</g>'
         for name, items in layers.items()
@@ -1023,9 +1323,13 @@ def room_svg(
         return render(scene)
     parts = _parts(elements)
     faces = {_face_of(w, rotation) for w in parts.walls.get(area_id, [])}
-    inside, door_notes = _inside_doors(elements, parts, area_id, unit)
-    _add_room(scene, box, rotation, parts, _colours(elements), inside)
-    _add_roofs(scene, [box], elements, rotation)
+    placed, _ = _place(elements, unit, None, rotation, view)
+    where = {b.area: b for b in placed}
+    inside, door_notes = _inside_parts(elements, parts, area_id, where)
+    _add_room(
+        scene, box, rotation, parts, _colours(elements), inside, unit, labelled=True
+    )
+    _add_roofs(scene, [box], elements, rotation, unit)
     scene.notes.extend(box.notes)
     scene.notes.extend(door_notes)
     missing = [face for face in FACE_ORDER if face not in faces]
@@ -1062,13 +1366,14 @@ def house_svg(
     drawn = [replace(b, z=b.z + _lift_of(b.z, lifts)) for b in boxes]
     colours = _colours(elements)
     parts = _parts(elements)
+    where = {b.area: b for b in boxes}
     scene = Scene(north=_north(rotation, view), view=view % 4)
     for box in sorted(drawn, key=lambda b: _depth_key(b, view)):
-        inside, door_notes = _inside_doors(elements, parts, box.area, unit)
-        _add_room(scene, box, rotation, parts, colours, inside)
+        inside, door_notes = _inside_parts(elements, parts, box.area, where)
+        _add_room(scene, box, rotation, parts, colours, inside, unit)
         notes.extend(door_notes)
     _add_runs(scene, boxes, elements, house, colours, lifts)
-    _add_roofs(scene, drawn, elements, rotation)
+    _add_roofs(scene, drawn, elements, rotation, unit)
     _add_anchors(scene, boxes, drawn, parts, rotation)
     if not boxes:
         notes.append("No rooms are drawn yet.")
