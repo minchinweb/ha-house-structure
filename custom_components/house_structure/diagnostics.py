@@ -16,11 +16,11 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import floor_registry as fr
 
-from .constants import DOMAIN, OUTLINE
+from .constants import OUTLINE
+from .devices import part_device
 from .model import Raw, build, neighbours
 from .orientation import outline_walls, wall_rotation
 
@@ -36,7 +36,6 @@ async def async_get_config_entry_diagnostics(
     elements, skipped = build(dict(entry.data), raws)
     areas = ar.async_get(hass)
     floors = fr.async_get(hass)
-    devices = dr.async_get(hass)
     entities = er.async_get(hass)
 
     def floor_of(area_id: str | None) -> str | None:
@@ -63,7 +62,7 @@ async def async_get_config_entry_diagnostics(
         if element:
             part["area"] = area_name(element.area_id)
             part["floor"] = floor_of(element.area_id)
-        device = devices.async_get_device(identifiers={(DOMAIN, raw.id)})
+        device = part_device(hass, entry.entry_id, raw.id)
         if device:
             part["device_area"] = area_name(device.area_id)
             part["entities"] = [

@@ -28,10 +28,10 @@ from __future__ import annotations
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 
 from .constants import DOMAIN, NEEDS, ROOF, ROOM, WALL
+from .devices import part_device
 
 # What another integration can ask for: (kind of part, its attribute).
 NEEDS_KEYS = {
@@ -89,9 +89,11 @@ def missing(elements: dict, needs: dict[str, list[str]]) -> dict[str, tuple[str,
     return out
 
 
-def _placeholders(hass: HomeAssistant, element, who: str) -> dict[str, str]:
+def _placeholders(
+    hass: HomeAssistant, entry_id: str, element, who: str
+) -> dict[str, str]:
     """The part as a link to its device, its room(s) as links, and who needs it."""
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, element.id)})
+    device = part_device(hass, entry_id, element.id)
     part = element.title
     if device is not None:
         part = _link(element.title, f"/config/devices/device/{device.id}")
@@ -114,7 +116,7 @@ def check(hass: HomeAssistant, entry_id: str, elements: dict) -> None:
     for part_id, (need, who) in missing(elements, needs).items():
         wanted[_issue_id(entry_id, part_id)] = (
             _KEYS[need],
-            _placeholders(hass, elements[part_id], who),
+            _placeholders(hass, entry_id, elements[part_id], who),
         )
 
     registry = ir.async_get(hass)

@@ -20,6 +20,7 @@ from custom_components.house_structure.constants import (
     OUTLINE,
     UPDATED_EVENT,
 )
+from custom_components.house_structure.devices import part_device
 from custom_components.house_structure.diagnostics import (
     async_get_config_entry_diagnostics,
 )
@@ -141,6 +142,29 @@ async def test_devices_are_in_the_room(hass: HomeAssistant, house) -> None:
         "Window",
     ]
     assert {d.area_id for d in devices} == {house["master"].id}
+
+
+async def test_a_part_finds_its_device(hass: HomeAssistant, house, monkeypatch) -> None:
+    wall_id = house["wall"].subentry_id
+    device = part_device(hass, house["entry_id"], wall_id)
+    assert device is not None
+    assert device.model == "Outside wall"
+
+    # Home Assistant 2026.11 on: looked up within the entry, not across them
+    asked = []
+
+    def by_identifier(identifier, config_entry_id):
+        asked.append((identifier, config_entry_id))
+        return device
+
+    monkeypatch.setattr(
+        dr.async_get(hass),
+        "async_get_device_by_identifier",
+        by_identifier,
+        raising=False,
+    )
+    assert part_device(hass, house["entry_id"], wall_id) is device
+    assert asked == [((DOMAIN, wall_id), house["entry_id"])]
 
 
 async def test_sensors(hass: HomeAssistant, house) -> None:

@@ -18,18 +18,26 @@ to the same page.
 
 ## Installation
 
-[![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=minchinweb&repository=ha-house-structure&category=integration)
+[![Open your Home Assistant instance and open this repository in the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=minchinweb&repository=ha-house-structure&category=integration)
 
-1. Click the button above. It opens this repository in HACS (the Marketplace
-   in Home Assistant 2026.11 and later) on your own Home Assistant. If asked,
-   confirm adding it as a custom repository.
-2. Click **Download**, then restart Home Assistant.
+1. Click the button above. It opens this repository in the Marketplace
+   (**Settings > Marketplace**, Home Assistant 2026.11 and later) on your own
+   Home Assistant. It's a custom repository, so the Marketplace first asks
+   you to connect GitHub, if you haven't (it reads public repositories
+   only), and to confirm adding it. By hand: choose **Add from link** in the
+   Marketplace and enter `https://github.com/minchinweb/ha-house-structure`.
+2. Click **Install**. Restart Home Assistant if the Marketplace says to.
 3. Add the integration:
 
    [![Open your Home Assistant instance and start setting up this integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=house_structure)
 
-Without HACS, copy `custom_components/house_structure/` into Home Assistant's
-`custom_components/` folder and restart.
+Before Home Assistant 2026.11, install it with
+[HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=minchinweb&repository=ha-house-structure&category=integration)
+instead (download it, then restart Home Assistant). Without either, copy
+`custom_components/house_structure/` into Home Assistant's `custom_components/`
+folder and restart. Until that restart Home Assistant doesn't know House Structure is
+there, and the **Add integration** link says it "does not support
+configuration via the UI".
 
 It needs Home Assistant 2025.3 or later. By default it fetches the sun and sky
 light every 15 minutes from [Open-Meteo](https://open-meteo.com/) for the home

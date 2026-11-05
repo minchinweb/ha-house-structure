@@ -3,6 +3,8 @@ Changelog
 
 .. release:: unreleased
 
+  - :bug:`-` Home Assistant 2026.11 warned that House Structure looks its parts' devices up with the deprecated ``device_registry.async_get_device`` (to stop working in 2027.8). It now uses ``async_get_device_by_identifier`` within its own entry where there is one, for the missing-size repairs and the diagnostics.
+  - :support:`-` The install button and steps use Home Assistant 2026.11's **Marketplace**, which replaced HACS; HACS (before 2026.11) and copying by hand are still described.
   - :feature:`-` The house drawing **turns by quarter turns** (``?view=0`` to ``3``, and **View** buttons on the House tab) to look from the south-west, north-west, north-east or south-east; the room drawings too. The north arrow now stays inside the drawing whichever way it points.
   - :feature:`-` A **roofs layer**: each roof as a slope rising from its eave at its pitch, meeting its opposite roof half way across as a gable (with gable ends, except between rooms under the same roof). Off to start with on the House tab, as it hides the rooms.
   - :feature:`-` The drawings are in **layers** (``data-layer``: rooms, runs, roofs, notes) that the House tab switches without fetching them again, and carry **anchors** (each room's centre, the walls and floors rooms share, outside faces, register outlets) for overlays.

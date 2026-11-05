@@ -71,6 +71,19 @@ class HouseData:
     house: dict
 
 
+def part_device(
+    hass: HomeAssistant, entry_id: str, part_id: str
+) -> dr.DeviceEntry | None:
+    """The device of one part of the house (a subentry of ``entry_id``)."""
+    devices = dr.async_get(hass)
+    # Home Assistant 2026.11 deprecated async_get_device: identifiers are only
+    # unique within a config entry now
+    find = getattr(devices, "async_get_device_by_identifier", None)
+    if find is not None:
+        return find((DOMAIN, part_id), entry_id)
+    return devices.async_get_device(identifiers={(DOMAIN, part_id)})
+
+
 def raws_of(entry) -> list[Raw]:
     """The entry's sub-entries, as plain data."""
     return [
