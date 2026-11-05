@@ -37,7 +37,7 @@ from typing import NamedTuple
 from .constants import DOOR, INTERNAL_WALL, REGISTER, ROOF, ROOM, WALL, WINDOW
 from .ducts import R_IMPERIAL_TO_SI
 from .geometry import FACES, FEET_INCHES, FOOT, format_size
-from .model import Element
+from .model import ABOVE, BELOW, Element, neighbours
 
 COS30 = math.sqrt(3) / 2
 SIN30 = 0.5
@@ -52,6 +52,14 @@ CORNER_OFFSET = 0.15  # m: how far along the wall it is set off from that corner
 # m: how far an untyped register is moved from the middle (east, then north). The
 # two differ so the moved spot is on no corner line in any of the four views.
 DEFAULT_NUDGE = (0.15, 0.3)
+OPENING_GAP = 0.1  # m between one door or window in a wall and the next
+# A link's arrow (see ``_add_links``): how far it reaches past its room's wall, or up
+# or down to a room above or below, the size of its head, and its colour
+LINK_REACH = 0.8  # m
+LINK_RISE = 1.0  # m
+LINK_HEAD = 0.18  # m
+LINK_COLOUR = "#37474f"
+LARGE_TEXT = 1.6  # the text scale of a single room drawn with large text
 GAP = 1.0  # m between rooms placed without a position
 FLOOR_GAP = 3.0  # m between floors' groups of rooms placed without a position
 EXPLODE_GAP = 2.5  # m added between floors when they are drawn apart
@@ -108,11 +116,12 @@ class Poly(NamedTuple):
 
 
 class Run(NamedTuple):
-    """A polyline (a duct run)."""
+    """A polyline (a duct run, or a link's arrow in its own ``layer``)."""
 
     points: list[Point]
     colour: str
     width: float = 2.6
+    layer: str = "runs"
 
 
 class Dot(NamedTuple):
@@ -175,6 +184,7 @@ class Scene:
     north: tuple[float, float] | None = None  # the direction of true north, on the page
     anchors: list[Anchor] = field(default_factory=list)
     view: int = 0  # quarter turns of the view (see ``VIEWS``)
+    text_scale: float = 1.0  # the size of the labels' text, 1 for normal
 
 
 def _turn(x: float, y: float, view: int) -> tuple[float, float]:
@@ -319,8 +329,9 @@ def _openings(
     ]
     span = (_span(box, face) if end is None else end) - start
     total = sum(width for width, _, _ in sizes)
-    scale = min(1.0, 0.9 * span / total) if total else 1.0
-    along = start + (span - total * scale) / 2
+    gaps = OPENING_GAP * max(len(sizes) - 1, 0)
+    scale = min(1.0, max(0.9 * span - gaps, 0.0) / total) if total else 1.0
+    along = start + (span - (total * scale + gaps)) / 2
     out = []
     for width, height, is_door in sizes:
         width *= scale
@@ -333,7 +344,7 @@ def _openings(
             fill, line = WINDOW_FILL, WINDOW_LINE
         quad = _quad(box, face, along, along + width, z0, z1)
         out.append(Poly(quad, fill, line, 0.9))
-        along += width
+        along += width + OPENING_GAP
     return out
 
 
@@ -443,18 +454,22 @@ def _wall_stretches(
 ) -> list[tuple[Element, float, float]]:
     """Each outside wall's stretch of its face, from the face's west or south end.
 
-    Walls on one face follow each other in the order given, each as long as its
-    length (up to the face's span). A wall with no length runs the whole face.
+    Walls on one face follow each other in the order given. A wall with a length
+    takes that much of the face (all the lengths are scaled down together if they
+    overrun it); the walls with no length share what is left, equally. So a lone
+    wall with no length runs the whole face, and two such walls split it.
     """
+    typed = sum(wall.length_m for wall in walls if wall.length_m)
+    scale = min(1.0, span / typed) if typed else 1.0
+    untyped = [wall for wall in walls if not wall.length_m]
+    share = (span - typed * scale) / len(untyped) if untyped else 0.0
     out: list[tuple[Element, float, float]] = []
     at = 0.0
     for wall in walls:
-        if wall.length_m:
-            end = min(at + wall.length_m, span)
-            out.append((wall, at, end))
-            at = end
-        else:
-            out.append((wall, 0.0, span))
+        length = wall.length_m * scale if wall.length_m else share
+        end = min(at + length, span)
+        out.append((wall, at, end))
+        at = end
     return out
 
 
@@ -1238,7 +1253,7 @@ def render(scene: Scene, width: int = 900) -> str:
             f'stroke="{poly.stroke}" stroke-width="1.2"{dash}/>'
         )
     for run in scene.lines:
-        layers["runs"].append(
+        layers.setdefault(run.layer, []).append(
             f'<polyline points="{" ".join(at(p) for p in run.points)}" fill="none" '
             f'stroke="{run.colour}" stroke-width="{run.width}" '
             'stroke-linejoin="round" stroke-linecap="round"/>'
@@ -1255,8 +1270,10 @@ def render(scene: Scene, width: int = 900) -> str:
             continue
         x, y = at(label.point).split(",")
         layers.setdefault(label.layer, []).append(
-            f'<text x="{x}" y="{y}" fill="#222222" font-size="11" font-weight="600" '
-            'text-anchor="middle" stroke="#ffffff" stroke-width="3" '
+            f'<text x="{x}" y="{y}" fill="#222222" '
+            f'font-size="{11 * scene.text_scale:g}" font-weight="600" '
+            'text-anchor="middle" stroke="#ffffff" '
+            f'stroke-width="{3 * scene.text_scale:g}" '
             f'paint-order="stroke">{escape(label.text, quote=False)}</text>'
         )
     out = [
@@ -1334,16 +1351,93 @@ def render(scene: Scene, width: int = 900) -> str:
     )
 
 
+def _head(start: Point, end: Point) -> list[Point]:
+    """The two short lines of an arrowhead at ``end``, pointing back along the arrow."""
+    d = [e - s for s, e in zip(start, end, strict=True)]
+    n = math.hypot(*d) or 1.0
+    d = [v / n for v in d]
+    # across the arrow: horizontal, or east for one pointing straight up or down
+    side = (-d[1], d[0], 0.0) if math.hypot(d[0], d[1]) > 1e-9 else (1.0, 0.0, 0.0)
+    back = [end[i] - d[i] * LINK_HEAD for i in range(3)]
+    wing = [side[i] * LINK_HEAD / 2 for i in range(3)]
+    return [
+        tuple(back[i] + wing[i] for i in range(3)),
+        end,
+        tuple(back[i] - wing[i] for i in range(3)),
+    ]
+
+
+def _add_links(
+    scene: Scene,
+    box: Box,
+    elements: dict[str, Element],
+    where: dict[str, Box],
+    links: list[dict],
+) -> None:
+    """Arrows from a room towards each room it links to, each labelled with its name.
+
+    A room beside it (or open to it) gets an arrow out from the room's middle,
+    in the direction of that room, through the wall between; a room above or below
+    gets an arrow straight up or down. A neighbour with no size is not drawn, and
+    a note says so. ``box`` is the room where it is drawn, ``where`` the rooms as
+    they are placed in the house.
+    """
+    titles = {e.area_id: e.title for e in elements.values() if e.kind == ROOM}
+    me = where.get(box.area)
+    if me is None:
+        return
+    cx, cy = box.x + box.width / 2, box.y + box.depth / 2
+    mid = box.z + box.height / 2
+    for link in links:
+        other = link["area_id"]
+        name = titles.get(other, other)
+        if link["position"] == ABOVE:
+            top = box.z + box.height
+            start, end = (cx, cy, top), (cx, cy, top + LINK_RISE)
+            label = f"above: {name}"
+        elif link["position"] == BELOW:
+            start, end = (cx, cy, box.z), (cx, cy, box.z - LINK_RISE)
+            label = f"below: {name}"
+        else:
+            there = where.get(other)
+            if there is None:
+                scene.notes.append(f"Link to {name}: not drawn, it has no size yet.")
+                continue
+            dx = there.x + there.width / 2 - (me.x + me.width / 2)
+            dy = there.y + there.depth / 2 - (me.y + me.depth / 2)
+            n = math.hypot(dx, dy)
+            if n < 1e-6:  # on top of each other: no direction to point in
+                continue
+            ux, uy = dx / n, dy / n
+            # from the middle out past the wall that faces it
+            reach = (
+                min(
+                    (box.width / 2) / abs(ux) if abs(ux) > 1e-9 else math.inf,
+                    (box.depth / 2) / abs(uy) if abs(uy) > 1e-9 else math.inf,
+                )
+                + LINK_REACH
+            )
+            start = (cx, cy, mid)
+            end = (cx + ux * reach, cy + uy * reach, mid)
+            label = f"{name} (open)" if link["open"] else name
+        scene.lines.append(Run([start, end], LINK_COLOUR, 2.0, "links"))
+        scene.lines.append(Run(_head(start, end), LINK_COLOUR, 2.0, "links"))
+        scene.labels.append(Label((end[0], end[1], end[2] + 0.2), label, "links"))
+
+
 def room_svg(
     elements: dict[str, Element],
     house: dict,
     area_id: str,
     view: int = 0,
     defaults: dict[str, float] | None = None,
+    large_text: bool = False,
 ) -> str | None:
     """One room's isometric drawing, or None when the area has no room part.
 
-    ``view`` turns the view by quarter turns (see ``VIEWS``).
+    ``view`` turns the view by quarter turns (see ``VIEWS``). ``large_text``
+    draws the labels (sizes, R-values) at ``LARGE_TEXT`` times their size.
+    Arrows show the rooms it links to (see ``_add_links``).
     """
     room = next(
         (e for e in elements.values() if e.kind == ROOM and e.area_id == area_id),
@@ -1353,7 +1447,11 @@ def room_svg(
         return None
     rotation = float(house.get("rotation") or 0.0)
     unit = house.get("unit", "m")
-    scene = Scene(north=_north(rotation, view), view=view % 4)
+    scene = Scene(
+        north=_north(rotation, view),
+        view=view % 4,
+        text_scale=LARGE_TEXT if large_text else 1.0,
+    )
     box = _box(room, 0.0, 0.0, 0.0, unit)
     if box is None:
         scene.notes.append(
@@ -1379,6 +1477,7 @@ def room_svg(
     _add_roofs(scene, [box], elements, rotation, unit, defaults)
     scene.notes.extend(box.notes)
     scene.notes.extend(door_notes)
+    _add_links(scene, box, elements, where, neighbours(elements).get(area_id, []))
     missing = [face for face in FACE_ORDER if face not in faces]
     if missing:
         scene.notes.append(
@@ -1391,6 +1490,17 @@ def room_svg(
     return render(scene)
 
 
+def _notes_for(
+    notes: list[str], elements: dict[str, Element], only: set[str]
+) -> list[str]:
+    """The placing notes that are about drawn rooms, or about no room (a note
+    names its room first, as ``"Kitchen: ..."``)."""
+    away = {
+        e.title for e in elements.values() if e.kind == ROOM and e.area_id not in only
+    }
+    return [n for n in notes if n.partition(": ")[0] not in away]
+
+
 def house_svg(
     elements: dict[str, Element],
     house: dict,
@@ -1398,6 +1508,7 @@ def house_svg(
     view: int = 0,
     floors: dict[str, int] | None = None,
     defaults: dict[str, float] | None = None,
+    only: set[str] | None = None,
 ) -> str:
     """The house from its rooms at their positions, with the heating runs on it.
 
@@ -1406,10 +1517,19 @@ def house_svg(
     are drawn to the lifted floors but measured on the real ones. ``view``
     turns the view by quarter turns (see ``VIEWS``). ``floors`` gives each
     area's floor level, which sorts the rooms without a position into lines.
+
+    ``only`` draws just those areas' rooms (a floor or a detached building),
+    still at their places in the whole house; their registers and runs go too.
     """
     rotation = float(house.get("rotation") or 0.0)
     unit = house.get("unit", "m")
     boxes, notes = _place(elements, unit, floors, rotation, view)
+    if only is not None:
+        notes = _notes_for(notes, elements, only)
+        boxes = [b for b in boxes if b.area in only]
+        elements = {
+            k: e for k, e in elements.items() if e.kind != REGISTER or e.area_id in only
+        }
     lifts = floor_lifts(boxes) if exploded else []
     drawn = [replace(b, z=b.z + _lift_of(b.z, lifts)) for b in boxes]
     colours = _colours(elements)

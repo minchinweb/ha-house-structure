@@ -76,6 +76,7 @@
   <section class="card">
     <h2>Drawing</h2>
     <div class="bar" id="rooms" role="group" aria-label="Show"></div>
+    <div class="bar" id="parts" role="group" aria-label="Floors and buildings"></div>
     <div class="bar" id="turn" role="group" aria-label="View">
       <span class="label">View</span>
       <button class="chip" type="button" data-turn="-1" title="Turn the view a quarter anticlockwise" aria-label="Turn anticlockwise">⟲</button>
@@ -117,7 +118,7 @@ const COLOURS = { between: "#ef6c00", gain: "#d32f2f", loss: "#1e6fd9", heat: "#
 // the corner the drawing looks from, by quarter turns (drawing.py VIEWS)
 const VIEWS = ["south-west", "north-west", "north-east", "south-east"];
 const state = {
-  house: null, room: null, exploded: false, view: 0,
+  house: null, room: null, part: null, exploded: false, view: 0,  // part: a floor or building key
   runs: true,            // the heating runs layer
   roofs: false,          // the roofs layer: off, as it hides the rooms
   dims: false,           // the room and wall sizes
@@ -162,16 +163,57 @@ function chip(label, pressed, onclick, title) {
   return el("button", { class: "chip", type: "button", "aria-pressed": String(pressed), title: title || label, onclick }, label);
 }
 
+// one thing at a time: a room, a floor or a detached building, or the whole house (both null)
+function choose(room, part) {
+  state.room = room;
+  state.part = part;
+  lab.remember("house.room", room);
+  lab.remember("house.part", part);
+  drawRooms();
+  drawParts();
+  drawControls();
+  loadDrawing();
+}
+
 function drawRooms() {
   const choices = [{ area_id: null, name: "Whole house" }, ...state.house.rooms];
+  const whole = !state.room && !state.part;
   document.getElementById("rooms").replaceChildren(...choices.map((r) => chip(
-    r.name, r.area_id === state.room,
-    () => { state.room = r.area_id; lab.remember("house.room", r.area_id); drawRooms(); drawControls(); loadDrawing(); },
+    r.name, r.area_id === null ? whole : r.area_id === state.room,
+    () => choose(r.area_id, null),
     r.floor ? `${r.name} (${r.floor})` : r.name)));
 }
 
+// each named floor, then each detached building, with the rooms it draws
+function houseParts() {
+  const byFloor = new Map();
+  for (const r of state.house.rooms) {
+    const name = r.floor || "";
+    if (!byFloor.has(name)) byFloor.set(name, []);
+    byFloor.get(name).push(r.area_id);
+  }
+  const parts = [];
+  for (const [name, areas] of byFloor) {
+    if (name) parts.push({ key: `floor:${name}`, label: name, areas, title: "A floor" });
+  }
+  for (const b of state.house.buildings || []) {
+    parts.push({ key: `building:${b.id}`, label: b.title, areas: b.area_ids || [], title: "A detached building" });
+  }
+  return parts;
+}
+
+function drawParts() {
+  const bar = document.getElementById("parts");
+  const parts = houseParts();
+  bar.classList.toggle("hidden", !parts.length);
+  bar.replaceChildren(el("span", { class: "label" }, "Just"), ...parts.map((p) => {
+    const on = p.key === state.part;
+    return chip(p.label, on, () => choose(null, on ? null : p.key), p.title);
+  }));
+}
+
 function drawControls() {
-  const whole = !state.room;
+  const whole = !state.room && !state.part;
   document.getElementById("view-name").textContent = `from the ${VIEWS[state.view]}`;
   // floors and overlays only mean something for the whole house
   document.getElementById("floors").classList.toggle("hidden", !whole);
@@ -190,7 +232,11 @@ function drawControls() {
     }),
     chip("R-values", state.rvalues, () => {
       state.rvalues = !state.rvalues; lab.remember("house.rvalues", state.rvalues); drawControls(); showLayers();
-    })];
+    }),
+    // a single room's text is small, so it can be drawn larger (drawing.py LARGE_TEXT)
+    ...(state.room ? [chip("Large text", state.bigText, () => {
+      state.bigText = !state.bigText; lab.remember("house.bigText", state.bigText); drawControls(); loadDrawing();
+    }, "Draw the room's sizes and R-values larger")] : [])];
   if (whole) {
     for (const o of state.overlays) {
       chips.push(chip(o.title, state.on.has(o.key), () => toggleOverlay(o.key)));
@@ -207,12 +253,20 @@ async function loadDrawing() {
   const hint = document.getElementById("drawing-hint");
   const stamp = Date.now();  // the drawing follows the saved parts, so never cached
   let url;
+  const part = state.room ? null : houseParts().find((p) => p.key === state.part) || null;
   if (state.room) {
     const room = state.house.rooms.find((r) => r.area_id === state.room);
-    url = `/api/house_structure/room.svg?area=${encodeURIComponent(state.room)}&view=${state.view}&v=${stamp}`;
+    const text = state.bigText ? "large" : "normal";
+    url = `/api/house_structure/room.svg?area=${encodeURIComponent(state.room)}&view=${state.view}&text=${text}&v=${stamp}`;
     box.setAttribute("aria-label", `${room ? room.name : "The room"}, from the ${VIEWS[state.view]}`);
     hint.textContent = `The room from its size and its parts, looking from the ${VIEWS[state.view]}. `
-      + "Dashed faces have no wall part yet; the dots are the registers' outlets.";
+      + "Dashed faces have no wall part yet; the dots are the registers' outlets. "
+      + "Arrows point to the rooms it links to: beside, open, above or below.";
+  } else if (part) {
+    url = `/api/house_structure/plan.svg?areas=${encodeURIComponent(part.areas.join(","))}&view=${state.view}&v=${stamp}`;
+    box.setAttribute("aria-label", `${part.label}, from the ${VIEWS[state.view]}`);
+    hint.textContent = `${part.label} alone, its rooms at their places in the house, looking from the ${VIEWS[state.view]}. `
+      + "The heating runs go from the plenum to each register in it; they are schematic.";
   } else {
     url = `/api/house_structure/plan.svg?exploded=${state.exploded ? 1 : 0}&view=${state.view}&v=${stamp}`;
     box.setAttribute("aria-label", (state.exploded
@@ -388,7 +442,7 @@ function drawOverlays() {
   if (!svg) { list.replaceChildren(); return; }
   for (const g of svg.querySelectorAll('[data-layer^="overlay-"]')) g.remove();
   const notes = [...captionNotes];
-  if (!state.room) {
+  if (!state.room && !state.part) {
     for (const o of state.overlays) {
       if (!state.on.has(o.key)) continue;
       if (state.errors[o.key]) { notes.push(`${o.title}: ${state.errors[o.key]}`); continue; }
@@ -505,7 +559,10 @@ async function load() {
   }
   const saved = lab.recall("house.room", null);
   state.room = state.house.rooms.some((r) => r.area_id === saved) ? saved : null;
+  const savedPart = lab.recall("house.part", null);
+  state.part = !state.room && houseParts().some((p) => p.key === savedPart) ? savedPart : null;
   drawRooms();
+  drawParts();
   drawControls();
   drawEquipment();
   await loadDrawing();
@@ -533,6 +590,7 @@ state.runs = lab.recall("house.runs", true) !== false;
 state.roofs = lab.recall("house.roofs", false) === true;
 state.dims = lab.recall("house.dims", false) === true;
 state.rvalues = lab.recall("house.rvalues", false) === true;
+state.bigText = lab.recall("house.bigText", true) !== false;
 state.on = new Set(lab.recall("house.overlays", []));
 lab.applyTheme();
 load().then(() => lab.subscribe((event) => overlaysChanged(event.overlays), { type: "house_structure/overlays" })

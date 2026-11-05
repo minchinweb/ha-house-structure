@@ -48,6 +48,15 @@ def _saved_house(hass: HomeAssistant):
     return elements, dict(entry.data), floors
 
 
+def _only(request: web.Request) -> set[str] | None:
+    """The areas to draw, from ``?areas=a,b`` (a floor's or a building's rooms);
+    None, for the whole house, when it is not given."""
+    areas = request.query.get("areas")
+    if areas is None:
+        return None
+    return {a for a in areas.split(",") if a}
+
+
 def _view(request: web.Request) -> int:
     """The quarter turns of the view, from ``?view=`` (0 to 3; 0 if not given)."""
     try:
@@ -89,6 +98,7 @@ class RoomDrawingView(HomeAssistantView):
             area,
             view=_view(request),
             defaults=_manual_j_defaults(self._hass),
+            large_text=request.query.get("text") == "large",
         )
         if text is None:
             return web.Response(status=404)
@@ -123,6 +133,7 @@ class HousePlanView(HomeAssistantView):
                 view=_view(request),
                 floors=saved[2],
                 defaults=_manual_j_defaults(self._hass),
+                only=_only(request),
             ),
             content_type="image/svg+xml",
             headers={"Cache-Control": "no-store"},

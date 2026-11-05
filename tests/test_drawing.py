@@ -17,6 +17,8 @@ from custom_components.house_structure.constants import (
 )
 from custom_components.house_structure.drawing import (
     FLOOR_GAP,
+    LARGE_TEXT,
+    OPENING_GAP,
     _box,
     _footprint,
     _gaps,
@@ -228,6 +230,90 @@ def test_no_plenum_means_no_runs_and_says_so():
     assert "run " not in svg
 
 
+def test_only_draws_the_chosen_rooms_and_their_registers():
+    """A floor or a building drawn alone: its rooms and registers, nothing else."""
+    house = {**HOUSE, "plenum_x_m": 0.0, "plenum_y_m": 0.0, "plenum_z_m": 0.0}
+    elements = _elements(
+        _room("den", width_m=4.0, depth_m=2.0, x_m=0.0, y_m=0.0),
+        _room("kitchen", width_m=4.0, depth_m=3.0, x_m=10.0, y_m=0.0),
+        _register("reg", "den", at_x_m=2.0, at_y_m=1.0, at_z_m=0.1),
+        house=house,
+    )
+    assert "Den" in house_svg(elements, house)
+    svg = house_svg(elements, house, only={"kitchen"})
+    assert "Den" not in svg
+    assert "Kitchen" in svg
+    # the den's register is not drawn, so it is not reported as missing either
+    assert "its room is not drawn" not in svg
+    assert "run " not in svg
+
+
+def test_walls_on_one_face_follow_each_other_along_it():
+    """Walls with no length split the face between them, and walls with lengths
+    take theirs in turn; none is stacked in the corner."""
+    room = _room("hall", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0)
+
+    def stretches(*walls):
+        elements = _elements(room, *walls)
+        found = [e for e in elements.values() if e.kind == WALL]
+        return [(s, e) for _, s, e in _wall_stretches(found, 4.0)]
+
+    # no length typed: the helper's default is off, as a wall built by the form has none
+    untyped = {"length_m": None}
+    assert stretches(
+        _wall("a", "hall", "S", **untyped), _wall("b", "hall", "S", **untyped)
+    ) == [(0.0, 2.0), (2.0, 4.0)]
+    assert stretches(
+        _wall("a", "hall", "S", length_m=1.5), _wall("b", "hall", "S", **untyped)
+    ) == [(0.0, 1.5), (1.5, 4.0)]
+    # lengths that overrun the face are scaled down to fit it, in turn
+    assert stretches(
+        _wall("a", "hall", "S", length_m=3.0), _wall("b", "hall", "S", length_m=3.0)
+    ) == [(0.0, 2.0), (2.0, 4.0)]
+
+
+def test_windows_in_one_wall_have_a_gap_between_them():
+    elements = _elements(
+        _room("hall", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0),
+        _wall("s", "hall", "S"),
+        _window("w1", "s", width_m=0.8, height_m=1.1),
+        _window("w2", "s", width_m=0.8, height_m=1.1),
+    )
+    box = _box(next(e for e in elements.values() if e.kind == ROOM), 0.0, 0.0, 0.0, "m")
+    first, second = _openings(box, "S", [elements["w1"], elements["w2"]], [])
+    assert second.points[0][0] - first.points[1][0] == pytest.approx(OPENING_GAP)
+
+
+def test_links_are_drawn_as_arrows_to_the_rooms_beside_above_and_below():
+    elements = _elements(
+        _room(
+            "hall",
+            width_m=4.0,
+            depth_m=3.0,
+            x_m=0.0,
+            y_m=0.0,
+            beside=["den"],
+            above=["bed"],
+        ),
+        _room("den", width_m=4.0, depth_m=3.0, x_m=4.0, y_m=0.0),
+        _room("bed", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=2.7),
+    )
+    svg = room_svg(elements, HOUSE, "hall")
+    assert 'data-layer="links"' in svg
+    assert "Den" in svg
+    assert "above: Bed" in svg
+    # and from the room above, the one below is shown
+    assert "below: Hall" in room_svg(elements, HOUSE, "bed")
+
+
+def test_large_text_draws_the_labels_bigger():
+    elements = _elements(_room("hall", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0))
+    normal = room_svg(elements, HOUSE, "hall")
+    large = room_svg(elements, HOUSE, "hall", large_text=True)
+    assert 'font-size="11"' in normal
+    assert f'font-size="{11 * LARGE_TEXT:g}"' in large
+
+
 def test_true_north_points_away_from_the_viewer_at_zero_rotation():
     straight_on = _north(0.0)
     assert straight_on[1] < 0  # up the page, away from the south-west viewer
@@ -270,10 +356,15 @@ def test_a_door_stands_on_the_floor_beside_the_windows():
     )
     box = _box(elements["room-kitchen"], 0.0, 0.0, 0.0, "m")
     door, glass = _openings(box, "S", [elements["win"]], [elements["door"]])
-    # a row of 2 m centred on the 4 m wall: the door from 1 to 2, the window 2 to 3
-    assert [x for x, _, _ in door.points] == pytest.approx([1.0, 2.0, 2.0, 1.0])
+    # a row of 2 m and a gap, centred on the 4 m wall: the door first, then the window
+    start = (4.0 - 2.0 - OPENING_GAP) / 2
+    assert [x for x, _, _ in door.points] == pytest.approx(
+        [start, start + 1.0, start + 1.0, start]
+    )
     assert [z for _, _, z in door.points] == pytest.approx([0.0, 0.0, 2.0, 2.0])
-    assert min(x for x, _, _ in glass.points) == pytest.approx(2.0)
+    assert min(x for x, _, _ in glass.points) == pytest.approx(
+        start + 1.0 + OPENING_GAP
+    )
     assert room_svg(elements, HOUSE, "kitchen").count(DOOR_FILL) == 1
 
 
