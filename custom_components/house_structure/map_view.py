@@ -56,6 +56,17 @@ def _view(request: web.Request) -> int:
         return 0
 
 
+# what Manual J publishes: its R-values for a part with none typed (m² K/W)
+DEFAULTS = "house_structure_defaults"
+
+
+def _manual_j_defaults(hass: HomeAssistant) -> dict[str, float]:
+    """Manual J's default R-values, if it is set up; none otherwise."""
+    entry = hass.data.get(DEFAULTS, {}).get("manual_j") or {}
+    values = entry.get("r_values") or {}
+    return {key: float(v) for key, v in values.items() if isinstance(v, int | float)}
+
+
 class RoomDrawingView(HomeAssistantView):
     """``/api/house_structure/room.svg?area=kitchen``: one room, isometric."""
 
@@ -72,7 +83,13 @@ class RoomDrawingView(HomeAssistantView):
         area = request.query.get("area")
         if saved is None or not area:
             return web.Response(status=404)
-        text = room_svg(saved[0], saved[1], area, view=_view(request))
+        text = room_svg(
+            saved[0],
+            saved[1],
+            area,
+            view=_view(request),
+            defaults=_manual_j_defaults(self._hass),
+        )
         if text is None:
             return web.Response(status=404)
         return web.Response(
@@ -105,6 +122,7 @@ class HousePlanView(HomeAssistantView):
                 exploded=exploded,
                 view=_view(request),
                 floors=saved[2],
+                defaults=_manual_j_defaults(self._hass),
             ),
             content_type="image/svg+xml",
             headers={"Cache-Control": "no-store"},

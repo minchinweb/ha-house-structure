@@ -196,7 +196,7 @@
             "facing": "Only for a part not square to the house: its compass bearing, 0 north, 90 east.",
             "shade_below": "Leave empty to use the house's setting.",
             "length": "Along the floor, inside or out; be consistent.",
-            "r_imperial": "The insulation as built, such as 20 for 2x6 framing with batts. Blank uses the default in the thermal lab."
+            "r_imperial": "The insulation as built, such as 20 for 2x6 framing with batts. Blank uses Manual J's default, when Manual J is set up."
           }
         },
         "reconfigure": {
@@ -218,7 +218,7 @@
             "facing": "Only for a part not square to the house: its compass bearing, 0 north, 90 east.",
             "shade_below": "Leave empty to use the house's setting.",
             "length": "Along the floor, inside or out; be consistent.",
-            "r_imperial": "The insulation as built, such as 20 for 2x6 framing with batts. Blank uses the default in the thermal lab."
+            "r_imperial": "The insulation as built, such as 20 for 2x6 framing with batts. Blank uses Manual J's default, when Manual J is set up."
           }
         }
       },
@@ -269,7 +269,7 @@
             "shade_below": "Leave empty to use the house's setting.",
             "pitch": "Degrees (45) or rise:run (12:12).",
             "floor": "Measure the floor under the roof, out to the walls. Easier than the slope; the slope length is worked out from the pitch. Leave blank to use the floor areas of its rooms, once they have one.",
-            "r_imperial": "The roof's insulation as built, such as 35. Blank uses the default in the thermal lab."
+            "r_imperial": "The roof's insulation as built, such as 35. Blank uses Manual J's default, when Manual J is set up."
           }
         },
         "reconfigure": {
@@ -295,7 +295,7 @@
             "shade_below": "Leave empty to use the house's setting.",
             "pitch": "Degrees (45) or rise:run (12:12).",
             "floor": "Measure the floor under the roof, out to the walls. Easier than the slope; the slope length is worked out from the pitch. Leave blank to use the floor areas of its rooms, once they have one.",
-            "r_imperial": "The roof's insulation as built, such as 35. Blank uses the default in the thermal lab."
+            "r_imperial": "The roof's insulation as built, such as 35. Blank uses Manual J's default, when Manual J is set up."
           }
         }
       },
@@ -414,7 +414,7 @@
             "name": "Leave empty for a name from the wall.",
             "host": "An outside wall, or an internal wall for a door between two rooms.",
             "sensor": "A door or opening sensor, on when the door is open. Leave empty if the door has none.",
-            "r_imperial": "The door's insulation as built, such as 5 for a foam-core steel door. Blank uses the default in the thermal lab. Only doors in outside walls are labelled."
+            "r_imperial": "The door's insulation as built, such as 5 for a foam-core steel door. Blank uses Manual J's default, when Manual J is set up. Only doors in outside walls are labelled."
           }
         },
         "reconfigure": {
@@ -432,7 +432,7 @@
             "name": "Leave empty for a name from the wall.",
             "host": "An outside wall, or an internal wall for a door between two rooms.",
             "sensor": "A door or opening sensor, on when the door is open. Leave empty if the door has none.",
-            "r_imperial": "The door's insulation as built, such as 5 for a foam-core steel door. Blank uses the default in the thermal lab. Only doors in outside walls are labelled."
+            "r_imperial": "The door's insulation as built, such as 5 for a foam-core steel door. Blank uses Manual J's default, when Manual J is set up. Only doors in outside walls are labelled."
           }
         }
       },

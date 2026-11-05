@@ -85,6 +85,7 @@ OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E"}
 # the way into a room from each face, along the house grid
 INWARD = {"S": (0.0, 1.0), "N": (0.0, -1.0), "W": (1.0, 0.0), "E": (-1.0, 0.0)}
 MISSING_LINE = "#b0a58c"
+DEFAULT_NOTE = "* Manual J default R-value: none typed."
 FACE_ORDER = ("N", "E", "S", "W")  # far faces first, so the near ones overlay them
 NEAR_FACES = ("S", "W")
 # The corner the drawing looks from, by quarter turns of the view (``view``):
@@ -470,15 +471,19 @@ def _gaps(covered: list[tuple[float, float]], span: float) -> list[tuple[float, 
     return gaps
 
 
-def _r_text(r_si: float | None, unit: str) -> str:
+def _r_text(r_si: float | None, unit: str, default_si: float | None = None) -> str:
     """An R-value as the house's unit has it: ``R-20`` in feet and inches, ``RSI 3.52``
-    in metres. Said as not typed when the wall or roof has none."""
-    if r_si is None:
-        return "R not typed"
+    in metres. A part with none typed shows the default, starred (see ``DEFAULT_NOTE``),
+    or nothing when there is no default either."""
+    value, star = r_si, ""
+    if value is None:
+        if default_si is None:
+            return ""
+        value, star = default_si, "*"
     if unit == FEET_INCHES:
-        r = r_si / R_IMPERIAL_TO_SI
-        return f"R-{r:.0f}" if r >= 10 else f"R-{r:.1f}"
-    return f"RSI {r_si:.2f}"
+        r = value / R_IMPERIAL_TO_SI
+        return (f"R-{r:.0f}" if r >= 10 else f"R-{r:.1f}") + star
+    return f"RSI {value:.2f}{star}"
 
 
 def _room_dims(box: Box, unit: str) -> list[Label]:
@@ -503,7 +508,13 @@ def _room_dims(box: Box, unit: str) -> list[Label]:
 
 
 def _wall_labels(
-    box: Box, face: str, wall: Element, start: float, end: float, unit: str
+    box: Box,
+    face: str,
+    wall: Element,
+    start: float,
+    end: float,
+    unit: str,
+    defaults: dict[str, float],
 ) -> list[Label]:
     """A wall's drawn length and height (upper part), and its R-value (lower part)."""
     height = wall.height_m or box.height
@@ -516,7 +527,7 @@ def _wall_labels(
         ),
         Label(
             _on_face(box, face, middle, height * 0.25),
-            _r_text(wall.r_value_si, unit),
+            _r_text(wall.r_value_si, unit, defaults.get("wall_r")),
             "rvalues",
         ),
     ]
@@ -548,7 +559,10 @@ def _opening_label(e: Element, unit: str) -> str:
 
 
 def _opening_labels(
-    openings: list[Poly], elements: list[Element], unit: str
+    openings: list[Poly],
+    elements: list[Element],
+    unit: str,
+    defaults: dict[str, float],
 ) -> list[Label]:
     """A label at the middle of each door or window (``openings`` in the order
     ``_openings`` drew them, with the elements they came from)."""
@@ -560,7 +574,11 @@ def _opening_labels(
             heights = [p[2] for p in poly.points]
             low = min(heights) + (max(heights) - min(heights)) / 4
             at = (middle[0], middle[1], low)
-            labels.append(Label(at, _r_text(e.r_value_si, unit), "rvalues"))
+            labels.append(
+                Label(
+                    at, _r_text(e.r_value_si, unit, defaults.get("door_r")), "rvalues"
+                )
+            )
     return labels
 
 
@@ -573,6 +591,7 @@ def _add_room(
     inside: list[tuple[Element, str, float, float]] | None = None,
     unit: str = "m",
     labelled: bool = False,
+    defaults: dict[str, float] | None = None,
 ) -> None:
     """Draw one room's floor, walls, windows, doors and outlets (far faces first).
 
@@ -580,6 +599,7 @@ def _add_room(
     face and the stretch of it to draw on (see ``_shared_face``). A stretch of a
     face that no wall covers is dashed.
     """
+    defaults = defaults or {}
     # an upper floor is see-through, so the room below shows through it
     floor_opacity = 0.7 if box.z > 0 else 1.0
     scene.polygons.append(Poly(_floor(box), FLOOR_FILL, FLOOR_LINE, floor_opacity))
@@ -605,8 +625,12 @@ def _add_room(
             openings = _openings(box, face, wins, drs, start, end)
             scene.polygons.extend(openings)
             if labelled:
-                scene.labels.extend(_opening_labels(openings, [*drs, *wins], unit))
-            scene.labels.extend(_wall_labels(box, face, wall, start, end, unit))
+                scene.labels.extend(
+                    _opening_labels(openings, [*drs, *wins], unit, defaults)
+                )
+            scene.labels.extend(
+                _wall_labels(box, face, wall, start, end, unit, defaults)
+            )
         for item, start, end in shared:  # the walls first, so the doors sit on them
             if item.kind == INTERNAL_WALL:
                 outline = _quad(box, face, start, end, 0.0, box.height)
@@ -969,6 +993,7 @@ def _add_roofs(
     elements: dict[str, Element],
     rotation: float,
     unit: str = "m",
+    defaults: dict[str, float] | None = None,
 ) -> None:
     """Each roof as a slope on top of its rooms: the ``roofs`` layer, its R-value
     on the slope in the ``rvalues`` layer.
@@ -980,6 +1005,7 @@ def _add_roofs(
     Roofs on adjacent faces (a hip) are each drawn as if the
     other weren't there. The ceiling is taken as flat under it.
     """
+    defaults = defaults or {}
     faces_by_area = _roof_faces(elements, rotation)
     order = {face: i for i, face in enumerate(face_order(scene.view))}
     near = near_faces(scene.view)
@@ -1013,7 +1039,11 @@ def _add_roofs(
                 sum(p[i] for p in slope.points) / len(slope.points) for i in range(3)
             ]
             scene.labels.append(
-                Label(tuple(middle), _r_text(roof.r_value_si, unit), "rvalues")
+                Label(
+                    tuple(middle),
+                    _r_text(roof.r_value_si, unit, defaults.get("roof_r")),
+                    "rvalues",
+                )
             )
             key = _depth_key(box, scene.view)
             shapes.append((key, order[face], slope))
@@ -1221,6 +1251,8 @@ def render(scene: Scene, width: int = 900) -> str:
             f"<title>{escape(dot.label, quote=False)}</title></circle>"
         )
     for label in scene.labels:
+        if not label.text:
+            continue
         x, y = at(label.point).split(",")
         layers.setdefault(label.layer, []).append(
             f'<text x="{x}" y="{y}" fill="#222222" font-size="11" font-weight="600" '
@@ -1273,11 +1305,14 @@ def render(scene: Scene, width: int = 900) -> str:
         )
     # one text per note, its wrapped lines as tspans; each note also keeps its whole
     # text in data-note, so the page can show the captions as its own text
-    wrapped = [textwrap.wrap(note, CAPTION_CHARS) or [""] for note in scene.notes]
+    notes = list(scene.notes)
+    if any(label.text.endswith("*") for label in scene.labels):
+        notes.append(DEFAULT_NOTE)
+    wrapped = [textwrap.wrap(note, CAPTION_CHARS) or [""] for note in notes]
     total = draw_h + LINE * sum(len(parts) for parts in wrapped) + 10
     captions = []
     y = draw_h + 14
-    for note, parts in zip(scene.notes, wrapped, strict=True):
+    for note, parts in zip(notes, wrapped, strict=True):
         spans = "".join(
             f'<tspan x="{MARGIN}" dy="{LINE if i else 0}">'
             f"{escape(part, quote=False)}</tspan>"
@@ -1300,7 +1335,11 @@ def render(scene: Scene, width: int = 900) -> str:
 
 
 def room_svg(
-    elements: dict[str, Element], house: dict, area_id: str, view: int = 0
+    elements: dict[str, Element],
+    house: dict,
+    area_id: str,
+    view: int = 0,
+    defaults: dict[str, float] | None = None,
 ) -> str | None:
     """One room's isometric drawing, or None when the area has no room part.
 
@@ -1327,9 +1366,17 @@ def room_svg(
     where = {b.area: b for b in placed}
     inside, door_notes = _inside_parts(elements, parts, area_id, where)
     _add_room(
-        scene, box, rotation, parts, _colours(elements), inside, unit, labelled=True
+        scene,
+        box,
+        rotation,
+        parts,
+        _colours(elements),
+        inside,
+        unit,
+        labelled=True,
+        defaults=defaults,
     )
-    _add_roofs(scene, [box], elements, rotation, unit)
+    _add_roofs(scene, [box], elements, rotation, unit, defaults)
     scene.notes.extend(box.notes)
     scene.notes.extend(door_notes)
     missing = [face for face in FACE_ORDER if face not in faces]
@@ -1350,6 +1397,7 @@ def house_svg(
     exploded: bool = False,
     view: int = 0,
     floors: dict[str, int] | None = None,
+    defaults: dict[str, float] | None = None,
 ) -> str:
     """The house from its rooms at their positions, with the heating runs on it.
 
@@ -1370,10 +1418,10 @@ def house_svg(
     scene = Scene(north=_north(rotation, view), view=view % 4)
     for box in sorted(drawn, key=lambda b: _depth_key(b, view)):
         inside, door_notes = _inside_parts(elements, parts, box.area, where)
-        _add_room(scene, box, rotation, parts, colours, inside, unit)
+        _add_room(scene, box, rotation, parts, colours, inside, unit, defaults=defaults)
         notes.extend(door_notes)
     _add_runs(scene, boxes, elements, house, colours, lifts)
-    _add_roofs(scene, drawn, elements, rotation, unit)
+    _add_roofs(scene, drawn, elements, rotation, unit, defaults)
     _add_anchors(scene, boxes, drawn, parts, rotation)
     if not boxes:
         notes.append("No rooms are drawn yet.")

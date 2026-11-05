@@ -543,7 +543,8 @@ def test_sizes_and_r_values_are_labelled_on_their_own_layers():
     assert ">4 m wide<" in svg and ">3 m deep<" in svg and ">2.4 m high<" in svg
     assert ">4 m x 2.4 m<" in svg  # the south wall's length and height
     assert ">RSI 3.50<" in svg
-    assert ">R not typed<" in svg
+    assert "R not typed" not in svg
+    assert "Manual J" not in svg  # no default: blank, no footnote
 
 
 def test_the_room_view_labels_its_doors_and_windows():
@@ -568,6 +569,21 @@ def test_an_outside_door_shows_its_r_value():
     )
     assert elements["door"].r_value_si == pytest.approx(0.88)
     assert ">RSI 0.88<" in room_svg(elements, HOUSE, "kitchen")
+
+
+def test_an_untyped_part_shows_manual_js_default_starred_with_a_footnote():
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0, height_m=2.4),
+        _wall("s", "kitchen", "S"),
+    )
+    svg = room_svg(
+        elements,
+        {"rotation": 0.0, "unit": FEET_INCHES},
+        "kitchen",
+        defaults={"wall_r": 3.52},
+    )
+    assert ">R-20*<" in svg
+    assert "Manual J default R-value" in svg
 
 
 def test_r_values_are_in_the_house_unit():
