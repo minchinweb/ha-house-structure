@@ -164,7 +164,7 @@ function drawRooms() {
   const choices = [{ area_id: null, name: "Whole house" }, ...state.house.rooms];
   document.getElementById("rooms").replaceChildren(...choices.map((r) => chip(
     r.name, r.area_id === state.room,
-    () => { state.room = r.area_id; lab.remember("house.room", r.area_id); drawControls(); loadDrawing(); },
+    () => { state.room = r.area_id; lab.remember("house.room", r.area_id); drawRooms(); drawControls(); loadDrawing(); },
     r.floor ? `${r.name} (${r.floor})` : r.name)));
 }
 
@@ -449,8 +449,11 @@ function drawEquipment() {
       row("Sensible", a.sensible_w ? `${fmt(a.sensible_w / W_PER_BTUH)} BTU/h` : "not given")));
   }
   if (!parts.length) {
+    // the tab is inside an iframe of the Thermal Lab page, so the link opens the whole page
     parts.push(el("p", { class: "hint" },
-      "No furnace or air conditioner yet: add them on House Structure's integration page."));
+      "No furnace or air conditioner yet: add them on the ",
+      el("a", { href: "/config/integrations/integration/house_structure", target: "_top" }, "House Structure"),
+      " integration page."));
   }
   document.getElementById("equipment").replaceChildren(...parts);
 

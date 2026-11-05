@@ -10,11 +10,14 @@ authenticated either, as an image in a form cannot send the login token.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry as ar
 
-from .constants import DOMAIN, OUTLINE
+from .constants import DOMAIN, OUTLINE, ROOM
 from .devices import elements_of
 from .drawing import house_svg, room_svg
 from .orientation import outline_svg
@@ -26,7 +29,15 @@ def _saved_house(hass: HomeAssistant):
     if not entries:
         return None
     entry = entries[0]
-    return elements_of(entry), dict(entry.data)
+    elements = elements_of(entry)
+    # a room's own title is "Room" by default: name it for its area, in the warnings
+    areas = ar.async_get(hass)
+    for key, e in elements.items():
+        if e.kind == ROOM and e.area_id:
+            area = areas.async_get_area(e.area_id)
+            if area is not None:
+                elements[key] = replace(e, title=area.name)
+    return elements, dict(entry.data)
 
 
 def _view(request: web.Request) -> int:

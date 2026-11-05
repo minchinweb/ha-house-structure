@@ -44,6 +44,8 @@ DEFAULT_DOOR = (0.9, 2.03)  # m wide and high (a 36 by 80 inch door), where unty
 TOUCH = 0.3  # m: two rooms closer than this across a face share a wall
 SILL = 0.9  # m above the floor, for a window's sill
 DEFAULT_OUTLET = 0.1  # m above the floor, where a register has no height
+CORNER_EPS = 0.02  # m: a register this close to a room's vertical corner sits on it
+CORNER_OFFSET = 0.15  # m: how far along the wall it is set off from that corner
 GAP = 1.0  # m between rooms drawn in a row (no position typed)
 EXPLODE_GAP = 2.5  # m added between floors when they are drawn apart
 # Rooms whose floors are less than this above a floor's lowest room share that
@@ -344,6 +346,11 @@ def _outlet(box: Box, reg: Element) -> Point:
     x = box.width / 2 if reg.at_x_m is None else reg.at_x_m
     y = box.depth / 2 if reg.at_y_m is None else reg.at_y_m
     z = DEFAULT_OUTLET if reg.at_z_m is None else reg.at_z_m
+    # a register at a room's corner is set off along the wall, clear of the corner's edge
+    on_x_edge = x < CORNER_EPS or box.width - x < CORNER_EPS
+    on_y_edge = y < CORNER_EPS or box.depth - y < CORNER_EPS
+    if on_x_edge and on_y_edge:
+        x += CORNER_OFFSET if x < box.width / 2 else -CORNER_OFFSET
     return box.x + x, box.y + y, box.z + z
 
 
@@ -461,6 +468,19 @@ def _inside_doors(
     return placed, notes
 
 
+def _floor_lines(rooms: list[Element]) -> list[list[Element]]:
+    """Rooms grouped by floor, lowest first: a room within ``LEVEL_STEP`` of a
+    floor's lowest one shares that floor (as in ``floor_lifts``)."""
+    lines: list[list[Element]] = []
+    for room in sorted(rooms, key=lambda r: r.level_m or 0.0):
+        z = room.level_m or 0.0
+        if lines and z - (lines[-1][0].level_m or 0.0) < LEVEL_STEP:
+            lines[-1].append(room)
+        else:
+            lines.append([room])
+    return lines
+
+
 def _place(elements: dict[str, Element], unit: str) -> tuple[list[Box], list[str]]:
     """Each room's box at its position; rooms without one go in a row after them."""
     boxes: list[Box] = []
@@ -476,14 +496,21 @@ def _place(elements: dict[str, Element], unit: str) -> tuple[list[Box], list[str
         else:
             boxes.append(box)
     edge = max((b.x + b.width for b in boxes), default=-GAP) + GAP
-    for room in loose:
-        box = _box(room, edge, 0.0, 0.0, unit)
-        if box is None:
-            notes.append(f"{room.title}: no size yet, so it is not drawn")
-            continue
-        boxes.append(box)
-        notes.append(f"{room.title}: no position typed, so it is drawn in a row")
-        edge += box.width + GAP
+    # without connections, each floor's rooms go in their own line, one behind another
+    row_y = 0.0
+    for line in _floor_lines(loose):
+        x, row_depth = edge, 0.0
+        for room in line:
+            box = _box(room, x, row_y, room.level_m or 0.0, unit)
+            if box is None:
+                notes.append(f"{room.title}: no size yet, so it is not drawn")
+                continue
+            boxes.append(box)
+            notes.append(f"{room.title}: no position typed, so it is drawn in a row")
+            x += box.width + GAP
+            row_depth = max(row_depth, box.depth)
+        if row_depth:
+            row_y += row_depth + GAP
     for box in boxes:
         notes.extend(box.notes)
     return boxes, notes
@@ -803,10 +830,25 @@ def render(scene: Scene, width: int = 360) -> str:
         cx, cy = width - MARGIN - 20, MARGIN + 20
         base_x, base_y = cx - 11 * dx, cy - 11 * dy
         tip_x, tip_y = cx + 11 * dx, cy + 11 * dy
+        # the head: a triangle back from the tip; the crossbar: across the shaft's middle
+        px, py = -dy, dx
+        back_x, back_y = tip_x - 7 * dx, tip_y - 7 * dy
+        head = " ".join(
+            f"{x:.1f},{y:.1f}"
+            for x, y in (
+                (tip_x, tip_y),
+                (back_x + 4 * px, back_y + 4 * py),
+                (back_x - 4 * px, back_y - 4 * py),
+            )
+        )
         out.append(
             '<g data-layer="north">'
             f'<line x1="{base_x:.1f}" y1="{base_y:.1f}" x2="{tip_x:.1f}" '
             f'y2="{tip_y:.1f}" stroke="#333333" stroke-width="2"/>'
+            f'<polygon points="{head}" fill="#333333"/>'
+            f'<line x1="{cx - 5 * px:.1f}" y1="{cy - 5 * py:.1f}" '
+            f'x2="{cx + 5 * px:.1f}" y2="{cy + 5 * py:.1f}" '
+            'stroke="#333333" stroke-width="2"/>'
             f'<text x="{cx + 19 * dx:.1f}" y="{cy + 19 * dy + 4:.1f}" '
             'fill="#333333" font-weight="bold" text-anchor="middle">N</text></g>'
         )
