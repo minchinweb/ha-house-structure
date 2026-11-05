@@ -49,8 +49,12 @@ CORNER_OFFSET = 0.15  # m: how far along the wall it is set off from that corner
 # m: how far an untyped register is moved from the middle (east, then north). The
 # two differ so the moved spot is on no corner line in any of the four views.
 DEFAULT_NUDGE = (0.15, 0.3)
-GAP = 1.0  # m between rooms drawn in a row (no position typed)
+GAP = 1.0  # m between rooms placed without a position
+FLOOR_GAP = 3.0  # m between floors' groups of rooms placed without a position
 EXPLODE_GAP = 2.5  # m added between floors when they are drawn apart
+# The three bands along each axis, from the low edge (south or west) to the high
+# one (north or east): a room is put against the edge its outside walls are on.
+BANDS = ("low", "mid", "high")
 # Rooms whose floors are less than this above a floor's lowest room share that
 # floor: a split level's half flight (3 1/2 ft, a little under half a wall)
 # stays with its floor, while a full storey above starts a new one.
@@ -502,12 +506,99 @@ def _floor_lines(
     return lines
 
 
+def _outside_faces(
+    elements: dict[str, Element], rotation: float
+) -> dict[str, set[str]]:
+    """The house faces each area has outside walls on."""
+    faces: dict[str, set[str]] = {}
+    for e in elements.values():
+        if e.kind == WALL and e.area_id:
+            faces.setdefault(e.area_id, set()).add(_face_of(e, rotation))
+    return faces
+
+
+def _band(faces: set[str], low: str, high: str) -> str:
+    """Where a room sits along one axis: against the low edge if its outside walls
+    are on that edge only, against the high edge likewise, else in the middle."""
+    if high in faces and low not in faces:
+        return "high"
+    if low in faces and high not in faces:
+        return "low"
+    return "mid"
+
+
+def _starts(sizes: dict[str, float], start: float) -> dict[str, float]:
+    """Where each non-empty band starts, one ``GAP`` after the band before it."""
+    starts: dict[str, float] = {}
+    at = start
+    for band in BANDS:
+        if sizes.get(band):
+            starts[band] = at
+            at += sizes[band] + GAP
+    return starts
+
+
+def _grid_line(
+    line: list[Element],
+    faces: dict[str, set[str]],
+    x0: float,
+    y0: float,
+    unit: str,
+) -> tuple[list[Box], list[str], float]:
+    """One floor's rooms with no position typed, on a 3 by 3 grid of the house's
+    edges. A room goes in the column its outside walls put it against (west, east,
+    or the middle) and the row likewise (south, north, or the middle). Each row and
+    column is as wide or deep as its biggest cell, and a room sits against the edge
+    it is on. Returns the boxes, the notes and the depth the grid takes."""
+    notes: list[str] = []
+    cells: dict[tuple[str, str], list[Box]] = {}
+    for room in line:
+        box = _box(room, 0.0, 0.0, room.level_m or 0.0, unit)
+        if box is None:
+            notes.append(f"{room.title}: no size yet, so it is not drawn")
+            continue
+        here = faces.get(room.area_id or "", set())
+        key = (_band(here, "S", "N"), _band(here, "W", "E"))
+        cells.setdefault(key, []).append(box)
+        notes.append(f"{room.title}: no position typed, so it is placed from its walls")
+
+    def cell_width(key: tuple[str, str]) -> float:
+        members = cells.get(key, [])
+        return sum(b.width for b in members) + GAP * max(len(members) - 1, 0)
+
+    def cell_depth(key: tuple[str, str]) -> float:
+        return max((b.depth for b in cells.get(key, [])), default=0.0)
+
+    col_w = {c: max(cell_width((r, c)) for r in BANDS) for c in BANDS}
+    row_d = {r: max(cell_depth((r, c)) for c in BANDS) for r in BANDS}
+    col_x = _starts({c: w for c, w in col_w.items() if w}, x0)
+    row_y = _starts({r: d for r, d in row_d.items() if d}, y0)
+    boxes: list[Box] = []
+    for (r, c), members in cells.items():
+        x = col_x[c] + _start_of(c, col_w[c], cell_width((r, c)))
+        for box in members:
+            y = row_y[r] + _start_of(r, row_d[r], box.depth)
+            boxes.append(replace(box, x=x, y=y))
+            x += box.width + GAP
+    depth = max(row_y[r] + row_d[r] for r in row_y) - y0 if row_y else 0.0
+    return boxes, notes, depth
+
+
+def _start_of(band: str, space: float, used: float) -> float:
+    """Where something ``used`` metres long sits in a band ``space`` long: against
+    the low edge, centred, or against the high edge."""
+    return {"low": 0.0, "mid": (space - used) / 2, "high": space - used}[band]
+
+
 def _place(
     elements: dict[str, Element],
     unit: str,
     floors: dict[str, int] | None = None,
+    rotation: float = 0.0,
 ) -> tuple[list[Box], list[str]]:
-    """Each room's box at its position; rooms without one go in a row after them."""
+    """Each room's box at its position. Rooms without one go after them, each
+    floor's rooms in a grid placed by their outside walls, one floor group above
+    the one before, ``FLOOR_GAP`` apart."""
     boxes: list[Box] = []
     notes: list[str] = []
     loose: list[Element] = []
@@ -521,21 +612,14 @@ def _place(
         else:
             boxes.append(box)
     edge = max((b.x + b.width for b in boxes), default=-GAP) + GAP
-    # without connections, each floor's rooms go in their own line, one behind another
+    faces = _outside_faces(elements, rotation)
     row_y = 0.0
     for line in _floor_lines(loose, floors):
-        x, row_depth = edge, 0.0
-        for room in line:
-            box = _box(room, x, row_y, room.level_m or 0.0, unit)
-            if box is None:
-                notes.append(f"{room.title}: no size yet, so it is not drawn")
-                continue
-            boxes.append(box)
-            notes.append(f"{room.title}: no position typed, so it is drawn in a row")
-            x += box.width + GAP
-            row_depth = max(row_depth, box.depth)
-        if row_depth:
-            row_y += row_depth + GAP
+        line_boxes, line_notes, depth = _grid_line(line, faces, edge, row_y, unit)
+        boxes.extend(line_boxes)
+        notes.extend(line_notes)
+        if depth:
+            row_y += depth + FLOOR_GAP
     for box in boxes:
         notes.extend(box.notes)
     return boxes, notes
@@ -957,7 +1041,7 @@ def house_svg(
     """
     rotation = float(house.get("rotation") or 0.0)
     unit = house.get("unit", "m")
-    boxes, notes = _place(elements, unit, floors)
+    boxes, notes = _place(elements, unit, floors, rotation)
     lifts = floor_lifts(boxes) if exploded else []
     drawn = [replace(b, z=b.z + _lift_of(b.z, lifts)) for b in boxes]
     colours = _colours(elements)

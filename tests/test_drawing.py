@@ -16,6 +16,7 @@ from custom_components.house_structure.constants import (
     WINDOW,
 )
 from custom_components.house_structure.drawing import (
+    FLOOR_GAP,
     _box,
     _footprint,
     _north,
@@ -134,7 +135,7 @@ def test_a_room_with_no_size_is_noted_not_drawn():
     assert room_svg(elements, HOUSE, "missing") is None
 
 
-def test_rooms_without_a_position_go_in_a_row_after_the_placed_ones():
+def test_rooms_without_a_position_go_after_the_placed_ones():
     elements = _elements(
         _room("placed", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0),
         _room("loose", width_m=2.0, depth_m=3.0),
@@ -143,7 +144,39 @@ def test_rooms_without_a_position_go_in_a_row_after_the_placed_ones():
     loose = next(b for b in boxes if b.area == "loose")
     assert loose.x == pytest.approx(5.0)  # the placed room ends at 4 m, then a metre
     assert loose.y == pytest.approx(0.0)
-    assert any("drawn in a row" in note for note in notes)
+    assert any("placed from its walls" in note for note in notes)
+
+
+def test_loose_rooms_sit_against_the_edges_their_outside_walls_are_on():
+    elements = _elements(
+        _room("ne", width_m=3.0, depth_m=3.0),
+        _wall("ne_n", "ne", "N"),
+        _wall("ne_e", "ne", "E"),
+        _room("e", width_m=3.0, depth_m=3.0),
+        _wall("e_e", "e", "E"),
+        _room("se", width_m=3.0, depth_m=3.0),
+        _wall("se_s", "se", "S"),
+        _wall("se_e", "se", "E"),
+        _room("w", width_m=3.0, depth_m=3.0),
+        _wall("w_w", "w", "W"),
+    )
+    boxes, _ = _place(elements, "m")
+    at = {b.area: (b.x, b.y) for b in boxes}
+    # the east edge, with the north-east corner at the top and the room with only
+    # an east wall between it and the south-east corner
+    assert at["ne"][0] == at["e"][0] == at["se"][0] > at["w"][0]
+    assert at["se"][1] < at["e"][1] < at["ne"][1]
+
+
+def test_floor_groups_of_loose_rooms_are_spaced_apart():
+    elements = _elements(
+        _room("ground", width_m=3.0, depth_m=3.0),
+        _room("upstairs", width_m=3.0, depth_m=3.0),
+    )
+    boxes, _ = _place(elements, "m", {"ground": 0, "upstairs": 1})
+    at = {b.area: b for b in boxes}
+    gap = at["upstairs"].y - (at["ground"].y + at["ground"].depth)
+    assert gap == pytest.approx(FLOOR_GAP)
 
 
 def test_a_floor_above_the_ground_sits_at_its_level():
