@@ -506,7 +506,9 @@ def _door_summary(door: Element, host: Element, other: str | None) -> dict:
     }
 
 
-def _empty_room(area_id: str, temperature: str | None) -> dict:
+def _empty_room(
+    area_id: str, temperature: str | None, choices: list[str] | None = None
+) -> dict:
     return {
         "area_id": area_id,
         "title": None,
@@ -519,6 +521,7 @@ def _empty_room(area_id: str, temperature: str | None) -> dict:
         "depth_m": None,
         "below_ground": False,
         "temperature_entity": temperature,
+        "temperature_choices": list(choices or []),
         "windows": [],
         "doors": [],
         "walls": [],
@@ -530,7 +533,9 @@ def _empty_room(area_id: str, temperature: str | None) -> dict:
 
 
 def rooms_summary(
-    elements: dict[str, Element], temperature: dict[str, str | None] | None = None
+    elements: dict[str, Element],
+    temperature: dict[str, str | None] | None = None,
+    choices: dict[str, list[str]] | None = None,
 ) -> dict[str, dict]:
     """Each room's parts as plain data, by area id, for other integrations.
 
@@ -546,20 +551,26 @@ def rooms_summary(
     A door is listed in its room, and a door in an internal wall in the rooms
     on both sides, each with the other room as ``other_area_id`` (``None`` for
     a door to outside); outside and internal walls give their doors' area as
-    ``door_m2``.
+    ``door_m2``. ``temperature_choices`` lists the area's temperature sensors
+    when it has several and none is chosen in its settings (so
+    ``temperature_entity`` is ``None``), and is empty otherwise.
 
     Args:
         elements: The parts, from ``build``.
         temperature: The temperature sensor of each area, where known.
+        choices: Each area's temperature sensors when none could be picked.
     """
     temperature = temperature or {}
+    choices = choices or {}
     rooms: dict[str, dict] = {}
 
     def room(area_id: str | None) -> dict | None:
         if not area_id:
             return None
         if area_id not in rooms:
-            rooms[area_id] = _empty_room(area_id, temperature.get(area_id))
+            rooms[area_id] = _empty_room(
+                area_id, temperature.get(area_id), choices.get(area_id)
+            )
         return rooms[area_id]
 
     for e in elements.values():

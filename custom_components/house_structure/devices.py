@@ -133,22 +133,13 @@ def register_devices(hass, entry, elements: dict[str, Element]) -> None:
                 devices.async_update_device(device.id, area_id=area_id)
 
 
-def area_temperature(hass: HomeAssistant, area_id: str | None) -> str | None:
-    """A room's temperature sensor.
+def area_temperature_sensors(hass: HomeAssistant, area_id: str) -> list[str]:
+    """Every temperature sensor in an area, sorted.
 
-    The one chosen in the area's settings, else the area's only temperature
-    sensor (on its own or on one of the area's devices).
+    On its own or on one of the area's devices (unless it was moved to another
+    area), enabled, and not one of House Structure's own.
     """
-    if not area_id:
-        return None
-    area = ar.async_get(hass).async_get_area(area_id)
-    if area is None:
-        return None
-    chosen = getattr(area, "temperature_entity_id", None)
-    if chosen:
-        return chosen
     entities = er.async_get(hass)
-    found = set()
     candidates = list(er.async_entries_for_area(entities, area_id))
     for device in dr.async_entries_for_area(dr.async_get(hass), area_id):
         candidates += [
@@ -156,6 +147,7 @@ def area_temperature(hass: HomeAssistant, area_id: str | None) -> str | None:
             for e in er.async_entries_for_device(entities, device.id)
             if e.area_id is None
         ]
+    found = set()
     for entry in candidates:
         device_class = entry.device_class or entry.original_device_class
         if (
@@ -165,7 +157,40 @@ def area_temperature(hass: HomeAssistant, area_id: str | None) -> str | None:
             and entry.platform != DOMAIN
         ):
             found.add(entry.entity_id)
-    return found.pop() if len(found) == 1 else None
+    return sorted(found)
+
+
+def area_temperature(hass: HomeAssistant, area_id: str | None) -> str | None:
+    """A room's temperature sensor.
+
+    The one chosen in the area's settings, else the area's only temperature
+    sensor (see ``area_temperature_choices`` when it has several).
+    """
+    if not area_id:
+        return None
+    area = ar.async_get(hass).async_get_area(area_id)
+    if area is None:
+        return None
+    chosen = getattr(area, "temperature_entity_id", None)
+    if chosen:
+        return chosen
+    found = area_temperature_sensors(hass, area_id)
+    return found[0] if len(found) == 1 else None
+
+
+def area_temperature_choices(hass: HomeAssistant, area_id: str | None) -> list[str]:
+    """The area's temperature sensors when none can be picked for the room.
+
+    Empty unless the area has several and none is chosen in its settings, so
+    the room has no temperature sensor until one is.
+    """
+    if not area_id:
+        return []
+    area = ar.async_get(hass).async_get_area(area_id)
+    if area is None or getattr(area, "temperature_entity_id", None):
+        return []
+    found = area_temperature_sensors(hass, area_id)
+    return found if len(found) > 1 else []
 
 
 def sections_of(entry) -> dict[str, dict]:
@@ -194,7 +219,8 @@ def publish_rooms(
         areas = {a for e in elements.values() for a in e.area_ids}
         areas |= {e.other_area_id for e in elements.values()}
         temperature = {a: area_temperature(hass, a) for a in areas if a}
-        rooms = rooms_summary(elements, temperature)
+        choices = {a: area_temperature_choices(hass, a) for a in areas if a}
+        rooms = rooms_summary(elements, temperature, choices)
     ducts = sections or {}
     equipment, buildings = equipment_summary(raws or [])
     old = hass.data.get(DOMAIN, {})

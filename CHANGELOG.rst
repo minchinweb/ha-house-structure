@@ -3,6 +3,7 @@ Changelog
 
 .. release:: unreleased
 
+  - :feature:`-` Each room in the summary lists the area's temperature sensors (``temperature_choices``) when it has several and none is chosen in the area's settings, so other integrations can warn that the room has no sensor until one is.
   - :bug:`-` Home Assistant 2026.11 warned that House Structure looks its parts' devices up with the deprecated ``device_registry.async_get_device`` (to stop working in 2027.8). It now uses ``async_get_device_by_identifier`` within its own entry where there is one, for the missing-size repairs and the diagnostics.
   - :support:`-` The install button and steps use Home Assistant 2026.11's **Marketplace**, which replaced HACS; HACS (before 2026.11) and copying by hand are still described.
   - :feature:`-` The house drawing **turns by quarter turns** (``?view=0`` to ``3``, and **View** buttons on the House tab) to look from the south-west, north-west, north-east or south-east; the room drawings too. The north arrow now stays inside the drawing whichever way it points.

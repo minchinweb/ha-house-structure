@@ -119,7 +119,9 @@ A part not square to the house can give its own compass bearing (**Facing**). A
 blind is read from its cover's position (0 shut to 100 open); **Share let in
 with the blind closed** is how much sun still gets through it shut. The internal
 wall uses the temperature sensor chosen in each area's settings, or the area's
-only temperature sensor.
+only temperature sensor. An area with several and none chosen has no room
+sensor; the summary lists them (`temperature_choices`) so other integrations
+can say so.
 
 Each sensor's attributes give the part's geometry: compass azimuth, tilt, areas
 in m², the window's wall or roof and the rooms on each side. A roof's device
@@ -187,6 +189,9 @@ House Structure publishes each room's parts as plain data in
             "volume_m3": 28.3,
             "below_ground": False,
             "temperature_entity": "sensor.master_temperature",
+            # the area's temperature sensors when it has several and none is
+            # chosen in its settings (temperature_entity is then None)
+            "temperature_choices": [],
             "windows": [
                 {
                     "title": "South window",

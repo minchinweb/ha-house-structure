@@ -20,7 +20,11 @@ from custom_components.house_structure.constants import (
     OUTLINE,
     UPDATED_EVENT,
 )
-from custom_components.house_structure.devices import part_device
+from custom_components.house_structure.devices import (
+    area_temperature,
+    area_temperature_choices,
+    part_device,
+)
 from custom_components.house_structure.diagnostics import (
     async_get_config_entry_diagnostics,
 )
@@ -204,10 +208,34 @@ async def test_closing_the_blind_cuts_the_gain(hass: HomeAssistant, house) -> No
     )
 
 
+async def test_two_temperature_sensors_in_a_room(hass: HomeAssistant, house) -> None:
+    master = house["master"].id
+    entities = er.async_get(hass)
+    entry = entities.async_get_or_create(
+        "sensor",
+        "demo",
+        "master_t2",
+        suggested_object_id="master_t2",
+        original_device_class="temperature",
+    )
+    entities.async_update_entity(entry.entity_id, area_id=master)
+    hass.states.async_set("sensor.master_t2", "21.0", {"device_class": "temperature"})
+    # neither can be picked, so the room has none until one is chosen
+    assert area_temperature(hass, master) is None
+    assert area_temperature_choices(hass, master) == [
+        "sensor.master_t",
+        "sensor.master_t2",
+    ]
+    ar.async_get(hass).async_update(master, temperature_entity_id="sensor.master_t2")
+    assert area_temperature(hass, master) == "sensor.master_t2"
+    assert area_temperature_choices(hass, master) == []
+
+
 async def test_rooms_are_published(hass: HomeAssistant, house) -> None:
     rooms = hass.data[DOMAIN]["rooms"]
     master = rooms[house["master"].id]
     assert master["temperature_entity"] == "sensor.master_t"
+    assert master["temperature_choices"] == []
     assert master["registers"][0]["climate"] == "climate.z3"
     assert master["windows"][0]["blind"] == "cover.master_blinds"
     assert rooms[house["bath"].id]["internal_walls"][0]["other_area_id"] == (
