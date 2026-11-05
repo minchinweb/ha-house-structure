@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "House Structure",
-        "description": "Set the house once.\n\n{map}\n\n{plan}\n\nThen add its parts from the integration's page: each room's size, its outside walls and roofs, the windows in them, the walls between rooms, and the heating registers. Each part is a device in its room's area.",
+        "description": "Set the house once.\n\n{map}\n\n{plan}\n\nThen add its parts from the integration's page: each room's size, its outside walls and roofs, the windows in them, the walls between rooms, and the heating registers. Each part is a device in its room's area.\n\n[Setup guide](https://github.com/minchinweb/ha-house-structure/blob/master/docs/setup.md)",
         "data": {
           "rotation": "House rotation (degrees)",
           "preview": "Redraw the map (does not save)",
@@ -33,7 +33,7 @@
       },
       "reconfigure": {
         "title": "House Structure",
-        "description": "Change the house's rotation, shading, unit or sky source. Every part picks up the change.\n\n{map}\n\n{plan}",
+        "description": "Change the house's rotation, shading, unit or sky source. Every part picks up the change.\n\n{map}\n\n{plan}\n\n## Parts as a sheet\n\nEach row is one part, with its `id`. Copy the sheet into a spreadsheet, change it, and paste the whole sheet into **Parts from a sheet** before submitting. The changes are listed for you to save or reject before anything is saved. A row with an `id` changes that part; a row without one adds a part. A room is a `room`, `hallway` or `stairs`. Its `beside`, `above` and `open` lists name its neighbours, separated by semicolons. For a new room, leave all three blank to take the neighbours from its footprint. Every link gets an internal wall part, and an open one is marked open. Doors are added by hand. A cell left blank keeps its value. A `-` before a room in a list takes that link out. A line with only its kind and name removes that part, unless another part uses it.\n\n{problems}\n\n```csv\n{sheet}\n```\n\n[Setup guide](https://github.com/minchinweb/ha-house-structure/blob/master/docs/setup.md)",
         "data": {
           "rotation": "House rotation (degrees)",
           "preview": "Redraw the map (does not save)",
@@ -45,7 +45,8 @@
           "duct_sections": "Shared duct sections (plenum and trunks)",
           "plenum_x": "Plenum east of the house's south-west corner",
           "plenum_y": "Plenum north of the house's south-west corner",
-          "plenum_z": "Plenum height above the ground"
+          "plenum_z": "Plenum height above the ground",
+          "sheet": "Parts from a sheet"
         },
         "data_description": {
           "rotation": "Degrees the house is turned clockwise from true north. Check it against the map.",
@@ -58,7 +59,18 @@
           "duct_sections": "One per line: 'Name: segments' for a section off the plenum, or 'Name from Upstream: segments' for one that hangs off another. Segments are written as a register's duct is (no cfm needed: a section carries what the registers behind it need). A register names its upstream section, and its own duct is then only the branch from that section.",
           "plenum_x": "Where the furnace's plenum is on the plan, east of the house's south-west corner (a minus sign for west). The heating runs start here. Blank both east and north to draw no runs.",
           "plenum_y": "Where the plenum is on the plan, north of the house's south-west corner (a minus sign for south).",
-          "plenum_z": "How high the plenum is above the ground, for one in a basement or on a floor. Blank: the ground."
+          "plenum_z": "How high the plenum is above the ground, for one in a basement or on a floor. Blank: the ground.",
+          "sheet": "Paste the sheet here, with its header row, separated by tabs or commas. Submitting it lists the changes; nothing is saved until you accept them."
+        }
+      },
+      "sheet": {
+        "title": "Check the sheet",
+        "description": "Nothing is saved yet. This sheet would add {added}, change {changed} and remove {removed} parts:{changes}{notes}\n\nSave these changes, or reject them and paste a corrected sheet.",
+        "data": {
+          "action": "What next"
+        },
+        "data_description": {
+          "action": "Save the changes, or go back to the house form with the sheet still pasted in it."
         }
       }
     },
@@ -67,11 +79,13 @@
       "invalid_duct_sections": "Check each duct section: a name, a colon, and segments, with upstream sections that exist and no loops.",
       "invalid_plenum_x": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south.",
       "invalid_plenum_y": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south.",
-      "invalid_plenum_z": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south."
+      "invalid_plenum_z": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south.",
+      "invalid_sheet": "Nothing was saved. Fix the rows listed in the sheet section, then submit again."
     },
     "abort": {
       "single_instance_allowed": "House Structure is already set up.",
-      "reconfigure_successful": "Saved."
+      "reconfigure_successful": "Saved.",
+      "sheet_imported": "Saved {added} new, {changed} changed and {removed} removed parts.{notes}"
     }
   },
   "config_subentries": {
@@ -99,7 +113,9 @@
             "depth": "Depth (south to north)",
             "x": "East of the house's south-west corner",
             "y": "North of the house's south-west corner",
-            "level": "Floor height above the ground"
+            "level": "Floor height above the ground",
+            "room_type": "Room type",
+            "open": "Open to (no wall between)"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
@@ -112,7 +128,9 @@
             "depth": "The room's length south to north, along its east and west walls.",
             "x": "Where the room's south-west corner sits on the plan, east of the house's south-west corner (a minus sign for west). Blank: the room is drawn in a row after the others.",
             "y": "Where the room's south-west corner sits on the plan, north of the house's south-west corner (a minus sign for south).",
-            "level": "The floor's height above the ground: 0 for the ground floor, about 2.7 m for the one above it, and a minus sign for a basement. Blank: the ground."
+            "level": "The floor's height above the ground: 0 for the ground floor, about 2.7 m for the one above it, and a minus sign for a basement. Blank: the ground.",
+            "room_type": "A hallway or stairs opens onto the rooms beside it: a link to one is an opening with no wall, unless the lists say otherwise.",
+            "open": "Rooms beside this one with no wall between, such as an open-plan kitchen. Enter each link once, from either room."
           }
         },
         "reconfigure": {
@@ -132,7 +150,9 @@
             "depth": "Depth (south to north)",
             "x": "East of the house's south-west corner",
             "y": "North of the house's south-west corner",
-            "level": "Floor height above the ground"
+            "level": "Floor height above the ground",
+            "room_type": "Room type",
+            "open": "Open to (no wall between)"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
@@ -145,7 +165,9 @@
             "depth": "The room's length south to north, along its east and west walls.",
             "x": "Where the room's south-west corner sits on the plan, east of the house's south-west corner (a minus sign for west). Blank: the room is drawn in a row after the others.",
             "y": "Where the room's south-west corner sits on the plan, north of the house's south-west corner (a minus sign for south).",
-            "level": "The floor's height above the ground: 0 for the ground floor, about 2.7 m for the one above it, and a minus sign for a basement. Blank: the ground."
+            "level": "The floor's height above the ground: 0 for the ground floor, about 2.7 m for the one above it, and a minus sign for a basement. Blank: the ground.",
+            "room_type": "A hallway or stairs opens onto the rooms beside it: a link to one is an opening with no wall, unless the lists say otherwise.",
+            "open": "Rooms beside this one with no wall between, such as an open-plan kitchen. Enter each link once, from either room."
           }
         }
       },
@@ -460,10 +482,12 @@
             "area_id": "Room (area)",
             "other_area_id": "Room on the other side",
             "length": "Length",
-            "height": "Height"
+            "height": "Height",
+            "open": "Open (an opening, not a wall)"
           },
           "data_description": {
-            "name": "Leave empty for a name from the room."
+            "name": "Leave empty for a name from the room.",
+            "open": "Tick when the two rooms have an opening with no wall between them, such as an arch. The temperature difference is still measured across it."
           }
         },
         "reconfigure": {
@@ -474,10 +498,12 @@
             "area_id": "Room (area)",
             "other_area_id": "Room on the other side",
             "length": "Length",
-            "height": "Height"
+            "height": "Height",
+            "open": "Open (an opening, not a wall)"
           },
           "data_description": {
-            "name": "Leave empty for a name from the room."
+            "name": "Leave empty for a name from the room.",
+            "open": "Tick when the two rooms have an opening with no wall between them, such as an arch. The temperature difference is still measured across it."
           }
         }
       },
@@ -745,6 +771,12 @@
       "options": {
         "open_meteo": "Open-Meteo (internet)",
         "sensor": "Solar radiation sensor"
+      }
+    },
+    "sheet_action": {
+      "options": {
+        "accept": "Save these changes",
+        "try_again": "Reject and try again"
       }
     }
   },

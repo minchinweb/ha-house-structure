@@ -14,6 +14,13 @@ DOOR = "door"
 INTERNAL_WALL = "internal_wall"
 ROOM = "room"
 REGISTER = "register"
+# What a room is, for the openings it has by default (``config_flow.py``).
+ROOM_TYPE = "room"
+HALLWAY = "hallway"
+STAIRS = "stairs"
+ROOM_TYPES = (ROOM_TYPE, HALLWAY, STAIRS)
+# Rooms that open onto the rooms beside them unless a sheet says otherwise.
+OPEN_ROOM_TYPES = (HALLWAY, STAIRS)
 # Equipment and detached buildings (``equipment.py``): not surfaces or rooms.
 FURNACE = "furnace"
 AIR_CONDITIONER = "air_conditioner"
@@ -28,6 +35,8 @@ SKY_SOURCES = [OPEN_METEO, SENSOR]
 # Where the house form keeps the building outline it fetched from OpenStreetMap
 # (``hass.data[DOMAIN]`` holds the published rooms).
 OUTLINE = f"{DOMAIN}_outline"
+# The file the building outline is kept in, so it works offline.
+OUTLINE_STORE = f"{DOMAIN}.outline"
 
 # Fired when the rooms' parts change, for integrations that use them.
 UPDATED_EVENT = "house_structure_updated"

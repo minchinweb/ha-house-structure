@@ -370,8 +370,8 @@ def test_neighbours_count_from_both_sides():
     assert elements["a"].beside == ("hall",)
     links = neighbours(elements)
     assert links["kitchen"] == [
-        {"area_id": "garage", "position": "beside", "area_m2": 10.0},
-        {"area_id": "hall", "position": "beside", "area_m2": None},
+        {"area_id": "garage", "position": "beside", "area_m2": 10.0, "open": False},
+        {"area_id": "hall", "position": "beside", "area_m2": None, "open": False},
     ]
     assert {(n["area_id"], n["position"]) for n in links["hall"]} == {
         ("kitchen", "beside"),

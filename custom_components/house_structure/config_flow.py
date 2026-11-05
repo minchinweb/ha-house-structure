@@ -40,6 +40,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import selector
+from homeassistant.helpers.storage import Store
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 import voluptuous as vol
 
@@ -52,9 +53,11 @@ from .constants import (
     INTERNAL_WALL,
     OPEN_METEO,
     OUTLINE,
+    OUTLINE_STORE,
     REGISTER,
     ROOF,
     ROOM,
+    ROOM_TYPES,
     SENSOR,
     SKY_SOURCES,
     WALL,
@@ -194,6 +197,7 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
         fields[vol.Required("area_id")] = _AREA
     if kind == INTERNAL_WALL:
         fields[vol.Required("other_area_id")] = _AREA
+        fields[vol.Optional("open", default=False)] = selector.BooleanSelector()
     fields[vol.Optional("name")] = _TEXT
     if kind == ROOM:
         fields[vol.Optional("floor")] = _TEXT
@@ -228,9 +232,11 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
         fields[vol.Optional("blind")] = _COVER
         fields[vol.Optional("blind_closed", default=BLIND_CLOSED)] = _SHARE
     if kind == ROOM:
+        fields[vol.Optional("room_type", default="room")] = _choice(ROOM_TYPES)
         fields[vol.Optional("volume")] = _TEXT
         fields[vol.Optional("below_ground", default=False)] = selector.BooleanSelector()
         fields[vol.Optional("beside")] = _AREAS
+        fields[vol.Optional("open")] = _AREAS
         fields[vol.Optional("above")] = _AREAS
     if kind in (WALL, ROOF):
         fields[vol.Optional("facing")] = _number("°")
@@ -316,11 +322,18 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
             data["upstream"] = name
     if kind == ROOM:
         data["below_ground"] = bool(form.get("below_ground", False))
+        room_type = form.get("room_type") or "room"
+        if room_type not in ROOM_TYPES:
+            raise FieldError("room_type", f"not a room type: {room_type!r}")
+        data["room_type"] = room_type
         own = form.get("area_id")
-        for key in ("beside", "above"):
+        for key in ("beside", "above", "open"):
             data[key] = [a for a in dict.fromkeys(form.get(key) or []) if a != own]
-        if set(data["beside"]) & set(data["above"]):
-            raise FieldError("above", "a room is both beside and above")
+        for key, other in (("above", "beside"), ("open", "beside"), ("open", "above")):
+            if set(data[key]) & set(data[other]):
+                raise FieldError(key, f"a room is both {key} and {other}")
+    if kind == INTERNAL_WALL:
+        data["open"] = bool(form.get("open", False))
     for key in ("facing", "shade_below", "transmittance", "blind_closed"):
         if form.get(key) is not None:
             data[key] = float(form[key])
@@ -426,6 +439,26 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
         self, step_id: str, user_input: dict[str, Any] | None, current: dict
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
+        problems: list[str] = []
+        if (
+            step_id == "reconfigure"
+            and user_input is not None
+            and (user_input.get("sheet") or "").strip()
+        ):
+            # a pasted sheet is checked, and its changes are shown to confirm
+            # before anything is saved
+            from .sheet_flow import plan_sheet
+
+            plan = plan_sheet(
+                self.hass, self._get_reconfigure_entry(), user_input["sheet"]
+            )
+            if not plan.problems:
+                self._sheet_form = dict(user_input)
+                return self._confirm_sheet(plan)
+            problems = plan.problems
+            errors["sheet"] = "invalid_sheet"
+            current = user_input
+            user_input = None
         if user_input is not None and user_input.get("preview"):
             # redraw the map for the values typed so far; nothing is saved
             current = {k: v for k, v in user_input.items() if k != "preview"}
@@ -457,16 +490,83 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Optional("below_grade"): _TEXT,
                 vol.Optional("duct_sections"): _TEXT_LINES,
                 **{vol.Optional(key): _TEXT for key in PLENUM},
+                **(
+                    {vol.Optional("sheet"): _TEXT_LINES}
+                    if step_id == "reconfigure"
+                    else {}
+                ),
             }
         )
+        sheet_text = ""
+        if step_id == "reconfigure":
+            from .sheet_flow import export_sheet
+
+            sheet_text = export_sheet(self.hass, self._get_reconfigure_entry())
         return self.async_show_form(
             step_id=step_id,
             data_schema=self.add_suggested_values_to_schema(schema, current),
             description_placeholders={
                 "map": await self._map_text(current.get("rotation")),
                 "plan": self._plan_text(step_id),
+                "sheet": sheet_text,
+                "problems": "".join(f"\n- {problem}" for problem in problems),
             },
             errors=errors,
+        )
+
+    def _confirm_sheet(self, plan) -> ConfigFlowResult:
+        """Show what a checked sheet would change, to save or reject."""
+        self._sheet_text = self._sheet_form["sheet"]
+        notes = "".join(f"\n- {note}" for note in plan.notes)
+        return self.async_show_form(
+            step_id="sheet",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("action", default="accept"): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=["accept", "try_again"],
+                            mode=selector.SelectSelectorMode.LIST,
+                            translation_key="sheet_action",
+                        )
+                    )
+                }
+            ),
+            description_placeholders={
+                "added": str(plan.added),
+                "changed": str(plan.changed),
+                "removed": str(plan.removed),
+                "changes": "".join(f"\n- {line}" for line in plan.changes)
+                or "\n- Nothing would change.",
+                "notes": notes,
+            },
+        )
+
+    async def async_step_sheet(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Save the checked sheet, or go back to the house form with it pasted."""
+        if user_input is None or user_input.get("action") != "accept":
+            current = {**self._sheet_form, "sheet": self._sheet_text}
+            return await self._house_step("reconfigure", None, current)
+        from .sheet_flow import apply_plan, plan_sheet
+
+        entry = self._get_reconfigure_entry()
+        plan = plan_sheet(self.hass, entry, self._sheet_text)
+        if plan.problems:  # the house changed since the sheet was checked
+            return await self._house_step(
+                "reconfigure",
+                {**self._sheet_form, "sheet": self._sheet_text},
+                self._sheet_form,
+            )
+        apply_plan(self.hass, entry, plan)
+        return self.async_abort(
+            reason="sheet_imported",
+            description_placeholders={
+                "added": str(plan.added),
+                "changed": str(plan.changed),
+                "removed": str(plan.removed),
+                "notes": "".join(f" {note}." for note in plan.notes),
+            },
         )
 
     def _plan_text(self, step_id: str) -> str:
@@ -490,17 +590,33 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
         if OUTLINE in self.hass.data:
             return self.hass.data[OUTLINE]
         lat, lon = self.hass.config.latitude, self.hass.config.longitude
-        try:
-            outlines = await self.hass.async_add_executor_job(fetch_outlines, lat, lon)
-        except OSError, ValueError, KeyError:
-            _LOGGER.warning("Could not fetch the building outline from OpenStreetMap")
-            return {"failed": True}  # not kept, so a later form tries again
-        points = choose_outline(outlines, (lat, lon))
-        info: dict = {}
-        if points:
-            info = {"points": points, "rotation": round(wall_rotation(points)[0], 1)}
-            if self.hass.http is not None:  # kept, so the view is registered once
-                self.hass.http.register_view(OutlineMapView(self.hass))
+        # Kept on disk once fetched, so the outline works offline and is not
+        # fetched again while the home position stays the same.
+        store = Store(self.hass, 1, OUTLINE_STORE)
+        saved = await store.async_load() or {}
+        if saved.get("lat") == lat and saved.get("lon") == lon:
+            info = saved["info"]
+        else:
+            try:
+                outlines = await self.hass.async_add_executor_job(
+                    fetch_outlines, lat, lon
+                )
+            except OSError, ValueError, KeyError:
+                _LOGGER.warning(
+                    "Could not fetch the building outline from OpenStreetMap"
+                )
+                return {"failed": True}  # not kept, so a later form tries again
+            points = choose_outline(outlines, (lat, lon))
+            info = {}
+            if points:
+                info = {
+                    "points": points,
+                    "rotation": round(wall_rotation(points)[0], 1),
+                }
+                await store.async_save({"lat": lat, "lon": lon, "info": info})
+        if info.get("points") and self.hass.http is not None:
+            # kept, so the view is registered once
+            self.hass.http.register_view(OutlineMapView(self.hass))
         self.hass.data[OUTLINE] = info
         return info
 
@@ -564,6 +680,45 @@ def _house(form: dict) -> dict:
         None if value in (None, "") else _size("below_grade", value, data["unit"])
     )
     return data
+
+
+def default_title(hass, entry, kind: str, data: dict) -> str:
+    """A name for a part's device, without its room.
+
+    Home Assistant shows a device with its area (and puts the area in its
+    entity ids), so the room's name is not repeated. A window or door takes
+    its wall's facing from its host, which must already be in ``entry``.
+    """
+    areas = ar.async_get(hass)
+
+    def facing(part: dict) -> str:
+        if part.get("facing") is not None:
+            return f"{part['facing']:.0f}°"
+        return FACE_NAMES.get(part.get("face", ""), "")
+
+    if kind == WINDOW:
+        host = entry.subentries.get(data.get("host", ""))
+        if host is None:
+            return "Window"
+        what = "skylight" if host.subentry_type == ROOF else "window"
+        return f"{facing(host.data)} {what}".strip().capitalize()
+    if kind == DOOR:
+        host = entry.subentries.get(data.get("host", ""))
+        if host is None:
+            return "Door"
+        if host.subentry_type == INTERNAL_WALL:
+            other = areas.async_get_area(host.data.get("other_area_id") or "")
+            return f"Door to {other.name if other else 'another room'}"
+        return f"{facing(host.data)} door".strip().capitalize()
+    if kind == INTERNAL_WALL:
+        other = areas.async_get_area(data.get("other_area_id") or "")
+        what = "Opening to" if data.get("open") else "Wall to"
+        return f"{what} {other.name if other else 'another room'}"
+    if kind == ROOM:  # Room, Hallway or Stairs
+        return data.get("room_type", "room").capitalize()
+    if kind == REGISTER:
+        return "Register"
+    return f"{facing(data)} {kind}".strip().capitalize()
 
 
 class _PartFlow(ConfigSubentryFlow):
@@ -638,7 +793,8 @@ class _PartFlow(ConfigSubentryFlow):
         for sub in self._get_entry().subentries.values():
             d = sub.data
             if sub.subentry_type == ROOM and d.get("area_id") != area_id:
-                if area_id in (d.get("beside") or []) + (d.get("above") or []):
+                linked = (d.get("beside") or []) + (d.get("above") or [])
+                if area_id in linked + (d.get("open") or []):
                     out.append(d.get("area_id"))
             elif sub.subentry_type == INTERNAL_WALL:
                 if d.get("area_id") == area_id:
@@ -712,40 +868,8 @@ class _PartFlow(ConfigSubentryFlow):
         )
 
     def _default_name(self, data: dict) -> str:
-        """A name for the part's device, without its room.
-
-        Home Assistant shows a device with its area (and puts the area in its
-        entity ids), so the room's name is not repeated.
-        """
-        areas = ar.async_get(self.hass)
-
-        def facing(part: dict) -> str:
-            if part.get("facing") is not None:
-                return f"{part['facing']:.0f}°"
-            return FACE_NAMES.get(part.get("face", ""), "")
-
-        if self.kind == WINDOW:
-            host = self._get_entry().subentries.get(data.get("host", ""))
-            if host is None:
-                return "Window"
-            what = "skylight" if host.subentry_type == ROOF else "window"
-            return f"{facing(host.data)} {what}".strip().capitalize()
-        if self.kind == DOOR:
-            host = self._get_entry().subentries.get(data.get("host", ""))
-            if host is None:
-                return "Door"
-            if host.subentry_type == INTERNAL_WALL:
-                other = areas.async_get_area(host.data.get("other_area_id") or "")
-                return f"Door to {other.name if other else 'another room'}"
-            return f"{facing(host.data)} door".strip().capitalize()
-        if self.kind == INTERNAL_WALL:
-            other = areas.async_get_area(data.get("other_area_id") or "")
-            return f"Wall to {other.name if other else 'another room'}"
-        if self.kind == ROOM:
-            return "Room"
-        if self.kind == REGISTER:
-            return "Register"
-        return f"{facing(data)} {self.kind}".strip().capitalize()
+        """A name for the part's device, without its room (see ``default_title``)."""
+        return default_title(self.hass, self._get_entry(), self.kind, data)
 
     def _linked_names(self, step_id: str) -> str:
         """The rooms already linked to this one, for the room form."""
@@ -778,7 +902,7 @@ class _PartFlow(ConfigSubentryFlow):
                     errors["area_id"] = "room_exists"
                 if self.kind == ROOM and step_id == "user":
                     # left empty when added, so its first edit can suggest them
-                    for key in ("beside", "above"):
+                    for key in ("beside", "above", "open"):
                         if not data[key]:
                             del data[key]
                 if self.kind == WINDOW and not self._in_host(data):

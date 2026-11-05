@@ -112,8 +112,44 @@ with another above it is below that one), so enter each pair once, from either
 room; the form says which rooms already link to it. The first time a room is
 edited, the other rooms on its floor are ticked as beside it: untick the ones
 that do not touch. Any area can be chosen, such as an unheated attic or the
-garage. An **internal wall** part does the same for one pair and adds its size
-and a temperature-difference sensor; you need it only for those.
+garage. An **open to** list is for rooms beside it with **no wall between**,
+such as an open-plan kitchen: a link is open if either room lists it so.
+
+An **internal wall** part gives a beside link its size and a temperature
+difference sensor, and is where a door between two rooms goes. Its **Open**
+tick marks a link with no wall (an arch, say), which keeps the sensor. The
+sheet below creates these for you.
+
+A room's **type** is a room, a **hallway** or **stairs**. A link to a hallway or
+stairs is open unless the sheet says otherwise.
+
+## Parts as a sheet
+
+The Reconfigure form shows every part as a sheet (CSV, with a header row).
+Copy it into a spreadsheet, change it, and paste the whole sheet back into
+**Parts from a sheet** and submit. Each row is a part: a row with its `id`
+changes that part, and a row without one adds it. The changes are then listed
+for you to save, or to reject and paste a corrected sheet. Nothing is saved if
+any row has a problem; the problems are listed on the form. Rooms can be given by
+their name or area id, and walls by their name (give a wall a name to refer to
+it from a window or door).
+
+Give a room its footprint (`x`, `y`, `width`, `depth` and its floor's `level`,
+in the house's unit) and leave its `beside`, `above` and `open` lists blank:
+rooms that share an edge are then linked from the footprints, and each link gets
+an internal wall part with its length. The sheet also says which outside faces
+of each room have no wall part yet. Doors are added by hand.
+
+To remove a link, put a `-` before the room in a row's `beside` or `open` list
+(such as `-Den`): it comes out of both rooms. A changed room's blank lists add no
+links. The internal wall part of a removed link is kept, and the sheet says so.
+The [setup guide](docs/setup.md) covers the order to add parts and the sheet in
+more detail.
+
+Sheets are read with tabs or commas, so a copy from a spreadsheet works.
+A part missing from the sheet is left alone. A line with only its `kind` and
+`name`, and no `id`, removes that part, unless another part still uses it. A row
+with an `id` and only a new `name` renames the part.
 
 A part not square to the house can give its own compass bearing (**Facing**). A
 blind is read from its cover's position (0 shut to 100 open); **Share let in

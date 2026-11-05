@@ -90,6 +90,12 @@ class Element:
     below_ground: bool = False
     beside: tuple[str, ...] = ()
     above: tuple[str, ...] = ()
+    # For a room: the rooms beside it with no wall between (an opening).
+    open_to: tuple[str, ...] = ()
+    # For a room: ``room``, ``hallway`` or ``stairs``.
+    room_type: str = "room"
+    # For an internal wall: whether it is an opening, not a wall.
+    open_link: bool = False
     climate: str | None = None
     fan: str | None = None
     r_value_si: float | None = None
@@ -161,6 +167,7 @@ class Element:
         if self.kind == INTERNAL_WALL:
             out["other_area_id"] = self.other_area_id
             out["door_m2"] = round(self.door_m2, 3)
+            out["open"] = self.open_link
         if self.kind == DOOR:
             out["host"] = self.host
             out["other_area_id"] = self.other_area_id
@@ -172,6 +179,8 @@ class Element:
             out["below_ground"] = self.below_ground
             out["beside"] = list(self.beside)
             out["above"] = list(self.above)
+            out["open"] = list(self.open_to)
+            out["room_type"] = self.room_type
         if self.kind == REGISTER:
             out["climate"] = self.climate
             if self.fan:
@@ -290,6 +299,8 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 below_grade_default=from_house,
                 beside=_others(d.get("beside"), area),
                 above=_others(d.get("above"), area),
+                open_to=_others(d.get("open"), area),
+                room_type=d.get("room_type") or "room",
                 width_m=_optional(d.get("width_m")),
                 depth_m=_optional(d.get("depth_m")),
                 x_m=_optional(d.get("x_m")),
@@ -345,6 +356,7 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 d.get("area_id"),
                 size_m2=_area(d, "length_m", "height_m"),
                 other_area_id=d.get("other_area_id"),
+                open_link=bool(d.get("open", False)),
             )
     for raw in raws:
         if raw.kind != WINDOW:
@@ -453,26 +465,42 @@ def neighbours(elements: dict[str, Element]) -> dict[str, list[dict]]:
     """
     links: dict[tuple[str, str], dict] = {}
 
-    def link(area: str | None, other: str | None, position: str, area_m2=None):
+    def link(
+        area: str | None,
+        other: str | None,
+        position: str,
+        area_m2=None,
+        open_: bool = False,
+    ):
         if not area or not other or area == other:
             return
         flipped = {ABOVE: BELOW, BELOW: ABOVE}.get(position, position)
         for here, there, where in ((area, other, position), (other, area, flipped)):
             item = links.setdefault(
                 (here, there),
-                {"area_id": there, "position": where, "area_m2": None},
+                {"area_id": there, "position": where, "area_m2": None, "open": False},
             )
             if area_m2 is not None:
                 item["area_m2"] = area_m2
+            # open if either side says so: a wall the other room lists as open
+            item["open"] = item["open"] or open_
 
     for e in elements.values():
         if e.kind == ROOM:
             for other in e.beside:
                 link(e.area_id, other, BESIDE)
+            for other in e.open_to:
+                link(e.area_id, other, BESIDE, open_=True)
             for other in e.above:
                 link(e.area_id, other, ABOVE)
         elif e.kind == INTERNAL_WALL:
-            link(e.area_id, e.other_area_id, BESIDE, e.size_m2)
+            link(
+                e.area_id,
+                e.other_area_id,
+                BESIDE,
+                e.size_m2,
+                open_=e.open_link,
+            )
     out: dict[str, list[dict]] = {}
     for (area, _), item in sorted(links.items()):
         out.setdefault(area, []).append(item)

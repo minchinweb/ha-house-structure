@@ -16,7 +16,7 @@
     "http",
     "websocket_api"
   ],
-  "documentation": "https://github.com/minchinweb/ha-house-structure",
+  "documentation": "https://github.com/minchinweb/ha-house-structure/blob/master/docs/setup.md",
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/minchinweb/ha-house-structure/issues",

@@ -824,3 +824,354 @@ async def test_a_door_follows_its_contact(hass: HomeAssistant, house) -> None:
     ]
     assert [d["sensor"] for d in bath["doors"]] == ["binary_sensor.bath_contact"]
     assert master["walls"][0]["door_m2"] == pytest.approx(36 * 80 * 0.0254**2)
+
+
+async def _paste(hass: HomeAssistant, entry_id: str, text: str):
+    """Submit a sheet on the Reconfigure form."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": entry_id}
+    )
+    # the form sends every field, so the house's unit and sky source go too
+    return await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"sheet": text, "unit": "in", "sky_source": "open_meteo"}
+    )
+
+
+async def _paste_and_accept(hass: HomeAssistant, entry_id: str, text: str):
+    """Paste a sheet, then accept the changes it lists."""
+    result = await _paste(hass, entry_id, text)
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "sheet", result
+    return await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"action": "accept"}
+    )
+
+
+def _subentries(hass: HomeAssistant, entry_id: str, kind: str) -> list:
+    entry = hass.config_entries.async_get_entry(entry_id)
+    return [s for s in entry.subentries.values() if s.subentry_type == kind]
+
+
+async def test_a_sheet_makes_the_walls_between_rooms(hass: HomeAssistant, house):
+    """Rooms that share an edge get an internal wall, with its length, and a
+    hallway's link is an opening."""
+    areas = ar.async_get(hass)
+    hall = areas.async_create("Hall")
+    kitchen = areas.async_create("Kitchen")
+    den = areas.async_create("Den")
+    entry_id = house["entry_id"]
+    text = (
+        "kind,area_id,room_type,x,y,width,depth,level\n"
+        "room,Hall,hallway,0,0,120,96,0\n"
+        "room,Kitchen,room,120,0,96,96,0\n"
+        "room,Den,room,120,96,96,48,0\n"
+    )
+    result = await _paste_and_accept(hass, entry_id, text)
+    assert result["type"] is FlowResultType.ABORT, result
+    assert result["reason"] == "sheet_imported"
+    assert result["description_placeholders"]["added"] == "5"  # 3 rooms, 2 walls
+    walls = {
+        frozenset((s.data["area_id"], s.data["other_area_id"])): s
+        for s in _subentries(hass, entry_id, "internal_wall")
+    }
+    hall_kitchen = walls[frozenset((hall.id, kitchen.id))]
+    assert hall_kitchen.data["open"] is True  # the hallway opens onto it
+    assert hall_kitchen.data["length_m"] == pytest.approx(96 * 0.0254)
+    assert (
+        hall_kitchen.title == "Opening to Kitchen"
+        or hall_kitchen.title == "Opening to Hall"
+    )
+    kitchen_den = walls[frozenset((kitchen.id, den.id))]
+    assert kitchen_den.data["open"] is False  # two rooms, no hallway or stairs
+    assert kitchen_den.data["length_m"] == pytest.approx(96 * 0.0254)
+    assert kitchen_den.title.startswith("Wall to")
+    room_types = {
+        s.data["area_id"]: s.data["room_type"]
+        for s in _subentries(hass, entry_id, "room")
+    }
+    assert room_types[hall.id] == "hallway"
+    assert room_types[kitchen.id] == "room"
+
+
+async def test_the_sheet_round_trips(hass: HomeAssistant, house):
+    """Exporting the house and pasting it back changes nothing, and adds nothing."""
+    entry_id = house["entry_id"]
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": entry_id}
+    )
+    text = result["description_placeholders"]["sheet"]
+    assert "Master bedroom" in text
+    assert "South wall" in text
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"sheet": text, "unit": "in", "sky_source": "open_meteo"},
+    )
+    assert result["step_id"] == "sheet", result
+    assert result["description_placeholders"]["added"] == "0"
+    assert result["description_placeholders"]["changed"] == "0", result[
+        "description_placeholders"
+    ]["changes"]
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"action": "accept"}
+    )
+    assert result["type"] is FlowResultType.ABORT, result
+
+
+async def test_a_bad_row_saves_nothing(hass: HomeAssistant, house):
+    entry_id = house["entry_id"]
+    before = len(hass.config_entries.async_get_entry(entry_id).subentries)
+    text = (
+        "kind,area_id,host,width,height\n"
+        "room,Nowhere,,120,96\n"
+        "window,,Hallway wall,48,55\n"
+    )
+    result = await _paste(hass, entry_id, text)
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["errors"] == {"sheet": "invalid_sheet"}
+    problems = result["description_placeholders"]["problems"]
+    assert "Row 1: no room called 'Nowhere'" in problems
+    assert "Row 2: no part called 'Hallway wall'" in problems
+    assert len(hass.config_entries.async_get_entry(entry_id).subentries) == before
+
+
+async def test_a_sheet_removes_a_link_from_both_rooms(hass: HomeAssistant, house):
+    """A ``-`` before a room in a row's lists takes that link out of both rooms,
+    even when the other room is not in the sheet, and keeps its internal wall."""
+    areas = ar.async_get(hass)
+    areas.async_create("Hall")
+    kitchen = areas.async_create("Kitchen")
+    den = areas.async_create("Den")
+    entry_id = house["entry_id"]
+    text = (
+        "kind,area_id,room_type,x,y,width,depth,level\n"
+        "room,Hall,hallway,0,0,120,96,0\n"
+        "room,Kitchen,room,120,0,96,96,0\n"
+        "room,Den,room,120,96,96,48,0\n"
+    )
+    assert (await _paste_and_accept(hass, entry_id, text))["type"] is (
+        FlowResultType.ABORT
+    )
+    kitchen_sub = next(
+        s
+        for s in _subentries(hass, entry_id, "room")
+        if s.data["area_id"] == kitchen.id
+    )
+    assert den.id in kitchen_sub.data["beside"]  # derived from the footprints
+
+    text = f"id,kind,area_id,beside\n{kitchen_sub.subentry_id},room,Kitchen,-Den\n"
+    result = await _paste(hass, entry_id, text)
+    assert (
+        "Change Den: beside: Kitchen → blank"
+        in (result["description_placeholders"]["changes"])
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"action": "accept"}
+    )
+    assert result["type"] is FlowResultType.ABORT, result
+    assert result["description_placeholders"]["changed"] == "2"  # Kitchen and Den
+    assert "no longer linked" in result["description_placeholders"]["notes"]
+
+    rooms = {s.data["area_id"]: s.data for s in _subentries(hass, entry_id, "room")}
+    assert den.id not in rooms[kitchen.id]["beside"]
+    assert kitchen.id not in rooms[den.id]["beside"]
+    walls = _subentries(hass, entry_id, "internal_wall")
+    assert any(
+        {s.data["area_id"], s.data["other_area_id"]} == {kitchen.id, den.id}
+        for s in walls
+    )  # the wall part is kept
+
+
+async def test_a_sheet_adds_windows_doors_and_registers(hass: HomeAssistant, house):
+    """Windows, doors and registers come in from a sheet, each in its wall or room."""
+    entry_id = house["entry_id"]
+    text = (
+        "kind,host,width,height,area_id,climate\n"
+        "window,South wall,36,48,,\n"
+        "door,South wall,,,,\n"
+        "register,,,,Master bedroom,climate.bedroom\n"
+    )
+    result = await _paste_and_accept(hass, entry_id, text)
+    assert result["type"] is FlowResultType.ABORT, result
+    assert result["description_placeholders"]["added"] == "3"
+    assert _subentries(hass, entry_id, "window")
+    assert _subentries(hass, entry_id, "door")
+    assert _subentries(hass, entry_id, "register")
+
+
+async def test_the_changes_wait_for_acceptance(hass: HomeAssistant, house):
+    """A pasted sheet lists its changes, and saves nothing until they are accepted."""
+    areas = ar.async_get(hass)
+    areas.async_create("Pantry")
+    entry_id = house["entry_id"]
+    before = len(hass.config_entries.async_get_entry(entry_id).subentries)
+    text = "kind,area_id,room_type,width,depth\nroom,Pantry,room,60,48\n"
+    result = await _paste(hass, entry_id, text)
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "sheet"
+    placeholders = result["description_placeholders"]
+    assert placeholders["added"] == "1"
+    assert "Add a room: Pantry" in placeholders["changes"]
+    assert len(hass.config_entries.async_get_entry(entry_id).subentries) == before
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"action": "accept"}
+    )
+    assert result["type"] is FlowResultType.ABORT, result
+    assert len(hass.config_entries.async_get_entry(entry_id).subentries) == before + 1
+
+
+async def test_reject_and_try_again_keeps_the_sheet(hass: HomeAssistant, house):
+    """Rejecting the changes saves nothing and goes back to the form with the sheet
+    still pasted in it."""
+    areas = ar.async_get(hass)
+    areas.async_create("Pantry")
+    entry_id = house["entry_id"]
+    before = len(hass.config_entries.async_get_entry(entry_id).subentries)
+    text = "kind,area_id,room_type,width,depth\nroom,Pantry,room,60,48\n"
+    result = await _paste(hass, entry_id, text)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"action": "try_again"}
+    )
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "reconfigure"
+    pasted = next(
+        key.description["suggested_value"]
+        for key in result["data_schema"].schema
+        if key.schema == "sheet"
+    )
+    assert "Pantry" in pasted
+    assert len(hass.config_entries.async_get_entry(entry_id).subentries) == before
+
+
+THREE_ROOMS = (
+    "kind,area_id,room_type,x,y,width,depth,level\n"
+    "room,Hall,hallway,0,0,120,96,0\n"
+    "room,Kitchen,room,120,0,96,96,0\n"
+    "room,Den,room,120,96,96,48,0\n"
+)
+
+
+async def test_a_partial_row_changes_only_its_cells(hass: HomeAssistant, house):
+    """A row that fills in one cell changes that cell and nothing else: the room's
+    footprint, its links and the other rooms are left as they are."""
+    areas = ar.async_get(hass)
+    areas.async_create("Hall")
+    kitchen = areas.async_create("Kitchen")
+    areas.async_create("Den")
+    entry_id = house["entry_id"]
+    assert (await _paste_and_accept(hass, entry_id, THREE_ROOMS))["type"] is (
+        FlowResultType.ABORT
+    )
+    before = {s.data["area_id"]: s.data for s in _subentries(hass, entry_id, "room")}
+    kitchen_sub = next(
+        s
+        for s in _subentries(hass, entry_id, "room")
+        if s.data["area_id"] == kitchen.id
+    )
+    result = await _paste(
+        hass, entry_id, f"id,kind,width\n{kitchen_sub.subentry_id},room,100\n"
+    )
+    assert result["step_id"] == "sheet", result
+    changes = result["description_placeholders"]["changes"]
+    assert changes.count("\n- ") == 1, changes
+    assert "Change Kitchen: width:" in changes
+    assert "depth" not in changes and "beside" not in changes
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"action": "accept"}
+    )
+    assert result["type"] is FlowResultType.ABORT, result
+    after = {s.data["area_id"]: s.data for s in _subentries(hass, entry_id, "room")}
+    assert len(after) == len(before)  # a missing row removes nothing
+    assert after[kitchen.id]["beside"] == before[kitchen.id]["beside"]
+    assert after[kitchen.id]["depth_m"] == before[kitchen.id]["depth_m"]
+    assert after[kitchen.id]["width_m"] != before[kitchen.id]["width_m"]
+
+
+async def test_a_removal_line_removes_an_unused_part(hass: HomeAssistant, house):
+    """A line with only its kind and a name removes that part, once nothing uses it."""
+    areas = ar.async_get(hass)
+    areas.async_create("Pantry")
+    entry_id = house["entry_id"]
+    before = len(hass.config_entries.async_get_entry(entry_id).subentries)
+    result = await _paste_and_accept(
+        hass, entry_id, "kind,area_id,width,depth\nroom,Pantry,60,48\n"
+    )
+    assert result["type"] is FlowResultType.ABORT, result
+    assert len(hass.config_entries.async_get_entry(entry_id).subentries) == before + 1
+
+    result = await _paste(hass, entry_id, "kind,name\nroom,Pantry\n")
+    assert result["step_id"] == "sheet", result
+    assert "Remove a room: Pantry" in result["description_placeholders"]["changes"]
+    assert result["description_placeholders"]["removed"] == "1"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"action": "accept"}
+    )
+    assert result["type"] is FlowResultType.ABORT, result
+    assert len(hass.config_entries.async_get_entry(entry_id).subentries) == before
+
+
+async def test_a_part_in_use_is_not_removed(hass: HomeAssistant, house):
+    """A removal is refused while a part that stays uses the part: a room that has
+    walls, and nothing is saved."""
+    areas = ar.async_get(hass)
+    for name in ("Hall", "Kitchen", "Den"):
+        areas.async_create(name)
+    entry_id = house["entry_id"]
+    assert (await _paste_and_accept(hass, entry_id, THREE_ROOMS))["type"] is (
+        FlowResultType.ABORT
+    )
+    before = len(hass.config_entries.async_get_entry(entry_id).subentries)
+    result = await _paste(hass, entry_id, "kind,name\nroom,Den\n")
+    assert result["errors"] == {"sheet": "invalid_sheet"}, result
+    problems = result["description_placeholders"]["problems"]
+    assert "Row 1: Den is used by" in problems
+    assert len(hass.config_entries.async_get_entry(entry_id).subentries) == before
+
+
+async def test_an_id_with_a_new_name_renames_the_part(hass: HomeAssistant, house):
+    """A row with its id and only a new name renames that part; it is not removed."""
+    areas = ar.async_get(hass)
+    areas.async_create("Hall")
+    kitchen = areas.async_create("Kitchen")
+    areas.async_create("Den")
+    entry_id = house["entry_id"]
+    assert (await _paste_and_accept(hass, entry_id, THREE_ROOMS))["type"] is (
+        FlowResultType.ABORT
+    )
+    kitchen_sub = next(
+        s
+        for s in _subentries(hass, entry_id, "room")
+        if s.data["area_id"] == kitchen.id
+    )
+    count = len(hass.config_entries.async_get_entry(entry_id).subentries)
+    result = await _paste(
+        hass, entry_id, f"id,kind,name\n{kitchen_sub.subentry_id},room,Galley\n"
+    )
+    assert result["step_id"] == "sheet", result
+    assert "Remove" not in result["description_placeholders"]["changes"]
+    assert result["description_placeholders"]["removed"] == "0"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"action": "accept"}
+    )
+    assert result["type"] is FlowResultType.ABORT, result
+    entry = hass.config_entries.async_get_entry(entry_id)
+    assert len(entry.subentries) == count
+    renamed = entry.subentries[kitchen_sub.subentry_id]
+    assert renamed.title == "Galley"
+    assert renamed.data["area_id"] == kitchen.id
+    assert renamed.data["width_m"] == kitchen_sub.data["width_m"]
+
+
+async def test_a_sheet_reads_feet_and_inch_marks(hass: HomeAssistant, house):
+    """Sizes typed with their feet and inch marks, in a sheet, are saved in metres."""
+    areas = ar.async_get(hass)
+    pantry = areas.async_create("Pantry")
+    entry_id = house["entry_id"]
+    text = "kind,area_id,width,depth\nroom,Pantry,12' 6\",10' 0\"\n"
+    result = await _paste_and_accept(hass, entry_id, text)
+    assert result["type"] is FlowResultType.ABORT, result
+    room = next(
+        s for s in _subentries(hass, entry_id, "room") if s.data["area_id"] == pantry.id
+    )
+    assert room.data["width_m"] == pytest.approx(12.5 * 0.3048, rel=1e-3)
+    assert room.data["depth_m"] == pytest.approx(10 * 0.3048, rel=1e-3)
