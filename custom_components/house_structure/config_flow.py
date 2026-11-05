@@ -510,6 +510,7 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
                 "plan": self._plan_text(step_id),
                 "sheet": sheet_text,
                 "problems": "".join(f"\n- {problem}" for problem in problems),
+                "setup_guide": "[Setup guide](https://github.com/minchinweb/ha-house-structure/blob/master/docs/setup.md)",
             },
             errors=errors,
         )

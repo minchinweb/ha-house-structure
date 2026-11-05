@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "House Structure",
-        "description": "Set the house once.\n\n{map}\n\n{plan}\n\nThen add its parts from the integration's page: each room's size, its outside walls and roofs, the windows in them, the walls between rooms, and the heating registers. Each part is a device in its room's area.\n\n[Setup guide](https://github.com/minchinweb/ha-house-structure/blob/master/docs/setup.md)",
+        "description": "Set the house once.\n\n{map}\n\n{plan}\n\nThen add its parts from the integration's page: each room's size, its outside walls and roofs, the windows in them, the walls between rooms, and the heating registers. Each part is a device in its room's area.\n\n{setup_guide}",
         "data": {
           "rotation": "House rotation (degrees)",
           "preview": "Redraw the map (does not save)",
@@ -33,7 +33,7 @@
       },
       "reconfigure": {
         "title": "House Structure",
-        "description": "Change the house's rotation, shading, unit or sky source. Every part picks up the change.\n\n{map}\n\n{plan}\n\n## Parts as a sheet\n\nEach row is one part, with its `id`. Copy the sheet into a spreadsheet, change it, and paste the whole sheet into **Parts from a sheet** before submitting. The changes are listed for you to save or reject before anything is saved. A row with an `id` changes that part; a row without one adds a part. A room is a `room`, `hallway` or `stairs`. Its `beside`, `above` and `open` lists name its neighbours, separated by semicolons. For a new room, leave all three blank to take the neighbours from its footprint. Every link gets an internal wall part, and an open one is marked open. Doors are added by hand. A cell left blank keeps its value. A `-` before a room in a list takes that link out. A line with only its kind and name removes that part, unless another part uses it.\n\n{problems}\n\n```csv\n{sheet}\n```\n\n[Setup guide](https://github.com/minchinweb/ha-house-structure/blob/master/docs/setup.md)",
+        "description": "Change the house's rotation, shading, unit or sky source. Every part picks up the change.\n\n{map}\n\n{plan}\n\n## Parts as a sheet\n\nEach row is one part, with its `id`. Copy the sheet into a spreadsheet, change it, and paste the whole sheet into **Parts from a sheet** before submitting. The changes are listed for you to save or reject before anything is saved. A row with an `id` changes that part; a row without one adds a part. A room is a `room`, `hallway` or `stairs`. Its `beside`, `above` and `open` lists name its neighbours, separated by semicolons. For a new room, leave all three blank to take the neighbours from its footprint. Every link gets an internal wall part, and an open one is marked open. Doors are added by hand. A cell left blank keeps its value. A `-` before a room in a list takes that link out. A line with only its kind and name removes that part, unless another part uses it.\n\n{problems}\n\n```csv\n{sheet}\n```\n\n{setup_guide}",
         "data": {
           "rotation": "House rotation (degrees)",
           "preview": "Redraw the map (does not save)",
