@@ -59,7 +59,7 @@ BANDS = ("low", "mid", "high")
 # floor: a split level's half flight (3 1/2 ft, a little under half a wall)
 # stays with its floor, while a full storey above starts a new one.
 LEVEL_STEP = 3.5 * FOOT
-SHEET_HEIGHT = 520  # px for the drawing, before the captions
+SHEET_HEIGHT = 900  # px for the drawing, before the captions
 MARGIN = 16  # px
 LINE = 16  # px per caption line
 CAPTION_CHARS = 56  # characters per caption line, to fit the drawing's width
@@ -595,10 +595,12 @@ def _place(
     unit: str,
     floors: dict[str, int] | None = None,
     rotation: float = 0.0,
+    view: int = 0,
 ) -> tuple[list[Box], list[str]]:
     """Each room's box at its position. Rooms without one go after them, each
     floor's rooms in a grid placed by their outside walls, one floor group above
-    the one before, ``FLOOR_GAP`` apart."""
+    the one before, ``FLOOR_GAP`` apart. Upper floors go up the page from the
+    view's side, whichever way the view turns."""
     boxes: list[Box] = []
     notes: list[str] = []
     loose: list[Element] = []
@@ -613,13 +615,19 @@ def _place(
             boxes.append(box)
     edge = max((b.x + b.width for b in boxes), default=-GAP) + GAP
     faces = _outside_faces(elements, rotation)
-    row_y = 0.0
+    # the way along the house's y axis that goes up the page in this view
+    _, screen_dy = project((0.0, 1.0, 0.0), view)
+    up = 1.0 if screen_dy < 0 else -1.0
+    stacked = 0.0  # how far the floor groups have gone so far
     for line in _floor_lines(loose, floors):
-        line_boxes, line_notes, depth = _grid_line(line, faces, edge, row_y, unit)
+        line_boxes, line_notes, depth = _grid_line(line, faces, edge, 0.0, unit)
+        if depth:
+            # the first floor sits at 0; each one after goes up the page from it
+            start = stacked if up > 0 else -(stacked + depth)
+            line_boxes = [replace(b, y=b.y + start) for b in line_boxes]
+            stacked += depth + FLOOR_GAP
         boxes.extend(line_boxes)
         notes.extend(line_notes)
-        if depth:
-            row_y += depth + FLOOR_GAP
     for box in boxes:
         notes.extend(box.notes)
     return boxes, notes
@@ -875,7 +883,7 @@ def _north(rotation: float, view: int = 0) -> tuple[float, float]:
     return dx / length, dy / length
 
 
-def render(scene: Scene, width: int = 360) -> str:
+def render(scene: Scene, width: int = 900) -> str:
     """The scene as an SVG, the captions under the drawing."""
     view = scene.view
     corners = [project(p, view) for poly in scene.polygons for p in poly.points]
@@ -961,17 +969,23 @@ def render(scene: Scene, width: int = 360) -> str:
             f'<text x="{cx + 19 * dx:.1f}" y="{cy + 19 * dy + 4:.1f}" '
             'fill="#333333" font-weight="bold" text-anchor="middle">N</text></g>'
         )
-    wrapped = [
-        line
-        for note in scene.notes
-        for line in textwrap.wrap(note, CAPTION_CHARS) or [""]
-    ]
-    total = draw_h + LINE * len(wrapped) + 10
-    lines = [
-        f'<text x="{MARGIN}" y="{draw_h + 14 + i * LINE:.0f}" fill="#444444">'
-        f"{escape(line, quote=False)}</text>"
-        for i, line in enumerate(wrapped)
-    ]
+    # one text per note, its wrapped lines as tspans; each note also keeps its whole
+    # text in data-note, so the page can show the captions as its own text
+    wrapped = [textwrap.wrap(note, CAPTION_CHARS) or [""] for note in scene.notes]
+    total = draw_h + LINE * sum(len(parts) for parts in wrapped) + 10
+    captions = []
+    y = draw_h + 14
+    for note, parts in zip(scene.notes, wrapped, strict=True):
+        spans = "".join(
+            f'<tspan x="{MARGIN}" dy="{LINE if i else 0}">'
+            f"{escape(part, quote=False)}</tspan>"
+            for i, part in enumerate(parts)
+        )
+        captions.append(
+            f'<text x="{MARGIN}" y="{y:.0f}" fill="#444444" '
+            f'data-note="{escape(note, quote=True)}">{spans}</text>'
+        )
+        y += LINE * len(parts)
     background = f'<rect width="{width}" height="{total:.0f}" fill="#ffffff"/>'
     body = background + "".join(out)
     return (
@@ -979,7 +993,7 @@ def render(scene: Scene, width: int = 360) -> str:
         f'height="{total:.0f}" viewBox="0 0 {width} {total:.0f}" '
         f'data-drawing-height="{draw_h:.0f}" '
         f'font-family="sans-serif" font-size="12">{body}'
-        f'<g data-layer="notes">{"".join(lines)}</g></svg>'
+        f'<g data-layer="notes">{"".join(captions)}</g></svg>'
     )
 
 
@@ -1041,7 +1055,7 @@ def house_svg(
     """
     rotation = float(house.get("rotation") or 0.0)
     unit = house.get("unit", "m")
-    boxes, notes = _place(elements, unit, floors, rotation)
+    boxes, notes = _place(elements, unit, floors, rotation, view)
     lifts = floor_lifts(boxes) if exploded else []
     drawn = [replace(b, z=b.z + _lift_of(b.z, lifts)) for b in boxes]
     colours = _colours(elements)
@@ -1063,4 +1077,4 @@ def house_svg(
             "more than the one below, so heights between floors are not to scale."
         )
     scene.notes = [key, *notes, *scene.notes]
-    return render(scene, width=420)
+    return render(scene)

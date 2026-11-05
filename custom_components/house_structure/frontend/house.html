@@ -56,7 +56,7 @@
   button.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
   .drawing { text-align: center; }
   /* the drawings are dark lines on white, so they keep a white sheet in dark mode */
-  .drawing svg { max-width: 100%; height: auto; background: #fff; border-radius: 8px; }
+  .drawing svg { width: 100%; max-width: 100%; height: auto; background: #fff; border-radius: 8px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 16px; }
   .part { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
   .row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
@@ -232,9 +232,25 @@ async function loadDrawing() {
   const doc = new DOMParser().parseFromString(text, "image/svg+xml");
   const svg = doc.documentElement;
   if (svg.nodeName !== "svg") { box.replaceChildren(); return; }
+  captionNotes = takeCaptions(svg);
   box.replaceChildren(document.importNode(svg, true));
   showLayers();
   drawOverlays();
+}
+
+// the drawing's notes (drawing.py) are shown as text under it, not inside the picture:
+// they are taken out of the picture, which is cut to its drawing
+let captionNotes = [];
+function takeCaptions(svg) {
+  const captions = svg.querySelector('[data-layer="notes"]');
+  if (!captions) return [];
+  const notes = [...captions.querySelectorAll("text")].map((t) => t.getAttribute("data-note") || "");
+  const height = String(Number(svg.getAttribute("data-drawing-height")));
+  svg.setAttribute("viewBox", `0 0 ${svg.getAttribute("width")} ${height}`);
+  svg.setAttribute("height", height);
+  svg.querySelector(":scope > rect").setAttribute("height", height);
+  captions.remove();
+  return notes;
 }
 
 function currentSvg() {
@@ -357,7 +373,7 @@ function drawOverlays() {
   const list = document.getElementById("overlay-notes");
   if (!svg) { list.replaceChildren(); return; }
   for (const g of svg.querySelectorAll('[data-layer^="overlay-"]')) g.remove();
-  const notes = [];
+  const notes = [...captionNotes];
   if (!state.room) {
     for (const o of state.overlays) {
       if (!state.on.has(o.key)) continue;

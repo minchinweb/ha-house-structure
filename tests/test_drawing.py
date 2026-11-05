@@ -179,6 +179,20 @@ def test_floor_groups_of_loose_rooms_are_spaced_apart():
     assert gap == pytest.approx(FLOOR_GAP)
 
 
+@pytest.mark.parametrize("view", [0, 1, 2, 3])
+def test_upper_floor_groups_go_up_the_page_whichever_way_the_view_turns(view):
+    elements = _elements(
+        _room("ground", width_m=3.0, depth_m=3.0),
+        _room("upstairs", width_m=3.0, depth_m=3.0),
+    )
+    boxes, _ = _place(elements, "m", {"ground": 0, "upstairs": 1}, view=view)
+    screen = {
+        b.area: project((b.x + b.width / 2, b.y + b.depth / 2, b.z), view)[1]
+        for b in boxes
+    }
+    assert screen["upstairs"] < screen["ground"]
+
+
 def test_a_floor_above_the_ground_sits_at_its_level():
     elements = _elements(
         _room("upstairs", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=2.7)
