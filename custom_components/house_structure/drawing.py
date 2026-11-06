@@ -1095,8 +1095,9 @@ def _close_links(
             if other in boxes and _shared_face(here, boxes[other]) is not None
         )
 
-    changed = True
-    while changed:
+    # Cap iterations: a layout that never settles used to loop forever and
+    # freeze Home Assistant's event loop when plan.svg was drawn on it.
+    for _ in range(max(8, len(boxes) * 4)):
         changed = False
         pairs = sorted(
             {
@@ -1122,11 +1123,14 @@ def _close_links(
                 move, hold = (a, b) if a > b else (b, a)
             others = [bx for k, bx in boxes.items() if k != move]
             spot = _against(boxes[hold], boxes[move], others, faces.get(hold, set()))
-            if spot is None:
+            # A no-op seat still used to set changed and spin forever.
+            if spot is None or spot == boxes[move]:
                 continue
             boxes[move] = spot
             moved[move] = hold
             changed = True
+        if not changed:
+            break
     return moved
 
 

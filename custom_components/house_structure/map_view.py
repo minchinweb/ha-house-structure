@@ -11,6 +11,7 @@ authenticated either, as an image in a form cannot send the login token.
 from __future__ import annotations
 
 from dataclasses import replace
+from functools import partial
 
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
@@ -125,8 +126,10 @@ class HousePlanView(HomeAssistantView):
         if saved is None:
             return web.Response(status=404)
         exploded = request.query.get("exploded", "") in ("1", "true", "yes")
-        return web.Response(
-            text=house_svg(
+        # Layout can be slow or non-converging; keep it off the event loop.
+        text = await self._hass.async_add_executor_job(
+            partial(
+                house_svg,
                 saved[0],
                 saved[1],
                 exploded=exploded,
@@ -134,7 +137,10 @@ class HousePlanView(HomeAssistantView):
                 floors=saved[2],
                 defaults=_manual_j_defaults(self._hass),
                 only=_only(request),
-            ),
+            )
+        )
+        return web.Response(
+            text=text,
             content_type="image/svg+xml",
             headers={"Cache-Control": "no-store"},
         )
