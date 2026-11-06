@@ -855,9 +855,7 @@ def _against(p: Box, n: Box, others: list[Box], walled: set[str]) -> Box | None:
     return None
 
 
-def _stack_floors(
-    by_area: dict[str, Box], groups: list[list[str]], up: float
-) -> None:
+def _stack_floors(by_area: dict[str, Box], groups: list[list[str]], up: float) -> None:
     """Stack the grid-placed floor groups after snapping, ``FLOOR_GAP`` apart.
 
     Snapping can move a room past its group's grid depth, so the groups are

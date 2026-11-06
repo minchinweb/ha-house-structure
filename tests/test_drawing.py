@@ -540,7 +540,8 @@ def test_labels_are_not_cut_off_at_the_edge_of_the_drawing():
     svg = room_svg(elements, HOUSE, "hall")
     # the labels are centred on their point; the captions below the drawing are not
     labels = re.findall(
-        r'<text x="([\d.]+)" y="[\d.-]+"[^>]*text-anchor="middle"[^>]*>(.*?)</text>', svg
+        r'<text x="([\d.]+)" y="[\d.-]+"[^>]*text-anchor="middle"[^>]*>(.*?)</text>',
+        svg,
     )
     assert labels
     size = 11
