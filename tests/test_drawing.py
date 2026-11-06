@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import math
+import re
 
 import pytest
 
@@ -476,6 +477,78 @@ def test_floors_drawn_apart_keep_the_real_run_lengths():
 def test_one_floor_draws_the_same_apart_or_together():
     elements = _elements(_room("kitchen", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0))
     assert house_svg(elements, HOUSE, exploded=True) == house_svg(elements, HOUSE)
+
+
+def test_floors_from_the_house_draw_apart_even_with_no_heights_typed():
+    # no level_m on the rooms: the floors come from the house's floors alone
+    elements = _elements(
+        _room("ground", width_m=3.0, depth_m=3.0),
+        _room("upstairs", width_m=3.0, depth_m=3.0),
+    )
+    floors = {"ground": 0, "upstairs": 1}
+    apart = house_svg(elements, HOUSE, exploded=True, floors=floors)
+    together = house_svg(elements, HOUSE, floors=floors)
+    assert "Floors drawn apart" in apart
+    assert apart != together
+
+
+def test_rooms_linked_beside_on_the_same_floor_are_drawn_together_without_a_wall():
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0),
+        _room("hall", width_m=2.0, depth_m=2.0, beside=["kitchen"]),
+    )
+    boxes, _ = _place(elements, "m")
+    where = {b.area: b for b in boxes}
+    assert _shared_face(where["kitchen"], where["hall"]) is not None
+
+
+def test_floor_groups_keep_their_gap_and_do_not_snap_across_floors():
+    # a room upstairs listed beside one downstairs must not pull the floors together
+    elements = _elements(
+        _room("ground", width_m=3.0, depth_m=3.0),
+        _room("ground2", width_m=3.0, depth_m=3.0, beside=["ground"]),
+        _room("upstairs", width_m=3.0, depth_m=3.0, beside=["ground"]),
+        _room("upstairs2", width_m=3.0, depth_m=3.0, beside=["upstairs"]),
+    )
+    floors = {"ground": 0, "ground2": 0, "upstairs": 1, "upstairs2": 1}
+    boxes, _ = _place(elements, "m", floors)
+    where = {b.area: b for b in boxes}
+    ground_top = max(where["ground"].y + 3.0, where["ground2"].y + 3.0)
+    upstairs_bottom = min(where["upstairs"].y, where["upstairs2"].y)
+    assert upstairs_bottom - ground_top >= FLOOR_GAP - 1e-6
+
+
+def test_the_north_arrow_is_in_its_own_column_clear_of_the_rooms():
+    elements = _elements(_room("kitchen", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0))
+    svg = house_svg(elements, HOUSE)
+    rooms = svg[: svg.index('data-layer="north"')]
+    room_x = [
+        float(point.split(",")[0])
+        for points in re.findall(r'points="([^"]+)"', rooms)
+        for point in points.split()
+    ]
+    north = svg[svg.index('data-layer="north"') :]
+    north_x = [float(v) for v in re.findall(r'x[12]="([\d.]+)"', north)]
+    assert max(room_x) < min(north_x)
+
+
+def test_labels_are_not_cut_off_at_the_edge_of_the_drawing():
+    elements = _elements(
+        _room("hall", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, beside=["den"]),
+        _room("den", width_m=4.0, depth_m=3.0, x_m=4.0, y_m=0.0, beside=["hall"]),
+    )
+    svg = room_svg(elements, HOUSE, "hall")
+    # the labels are centred on their point; the captions below the drawing are not
+    labels = re.findall(
+        r'<text x="([\d.]+)" y="[\d.-]+"[^>]*text-anchor="middle"[^>]*>(.*?)</text>', svg
+    )
+    assert labels
+    size = 11
+    for x, inner in labels:
+        text = re.sub(r"<[^>]+>", "", inner)
+        half = 0.62 * size * len(text) / 2
+        assert float(x) - half >= 0
+        assert float(x) + half <= 900
 
 
 @pytest.mark.parametrize(

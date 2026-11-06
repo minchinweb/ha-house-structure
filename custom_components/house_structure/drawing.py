@@ -37,7 +37,7 @@ from typing import NamedTuple
 from .constants import DOOR, INTERNAL_WALL, REGISTER, ROOF, ROOM, WALL, WINDOW
 from .ducts import R_IMPERIAL_TO_SI
 from .geometry import FACES, FEET_INCHES, FOOT, format_size
-from .model import ABOVE, BELOW, Element, neighbours
+from .model import ABOVE, BELOW, BESIDE, Element, neighbours
 
 COS30 = math.sqrt(3) / 2
 SIN30 = 0.5
@@ -45,6 +45,8 @@ DEFAULT_CEILING = 2.4  # m, where no ceiling height is given
 DEFAULT_GLASS = (0.9, 1.2)  # m wide and high, where a window has no size
 DEFAULT_DOOR = (0.9, 2.03)  # m wide and high (a 36 by 80 inch door), where untyped
 TOUCH = 0.3  # m: two rooms closer than this across a face share a wall
+OVERLAP_EPS = 0.01  # m: rooms overlapping by more than this in both directions collide
+NORTH_COLUMN = 60  # px kept clear on the right of the drawing for the north arrow
 SILL = 0.9  # m above the floor, for a window's sill
 DEFAULT_OUTLET = 0.1  # m above the floor, where a register has no height
 CORNER_EPS = 0.02  # m: a register this close to a room's vertical corner sits on it
@@ -831,8 +833,8 @@ def _touching(p: Box, face: str, n: Box) -> Box:
 def _overlaps(a: Box, b: Box) -> bool:
     """Whether two boxes take up the same space (touching is not overlapping)."""
     return (
-        min(a.x + a.width, b.x + b.width) - max(a.x, b.x) > TOUCH
-        and min(a.y + a.depth, b.y + b.depth) - max(a.y, b.y) > TOUCH
+        min(a.x + a.width, b.x + b.width) - max(a.x, b.x) > OVERLAP_EPS
+        and min(a.y + a.depth, b.y + b.depth) - max(a.y, b.y) > OVERLAP_EPS
         and a.z < b.z + b.height
         and b.z < a.z + a.height
     )
@@ -853,23 +855,66 @@ def _against(p: Box, n: Box, others: list[Box], walled: set[str]) -> Box | None:
     return None
 
 
+def _stack_floors(
+    by_area: dict[str, Box], groups: list[list[str]], up: float
+) -> None:
+    """Stack the grid-placed floor groups after snapping, ``FLOOR_GAP`` apart.
+
+    Snapping can move a room past its group's grid depth, so the groups are
+    measured again: the first stays where it is (down the page from 0 when
+    ``up`` is negative), and each one after goes up (or down) from the one
+    before's far edge. Changes ``by_area`` in place.
+    """
+    edge: float | None = None  # the far edge of the group before, up the page
+    for areas in groups:
+        members = [by_area[a] for a in areas]
+        low = min(b.y for b in members)
+        high = max(b.y + b.depth for b in members)
+        if edge is None:
+            shift = 0.0 if up > 0 else -high
+            edge = high + shift
+        elif up > 0:
+            shift = edge + FLOOR_GAP - low
+            edge = high + shift
+        else:
+            shift = edge - FLOOR_GAP - high
+            edge = low + shift
+        for area in areas:
+            by_area[area] = replace(by_area[area], y=by_area[area].y + shift)
+
+
+def _floor_index(
+    elements: dict[str, Element], areas: set[str], floors: dict[str, int] | None
+) -> dict[str, int]:
+    """Each room's floor as a number, the lowest floor 0 (see ``_floor_lines``)."""
+    rooms = [e for e in elements.values() if e.kind == ROOM and e.area_id in areas]
+    return {
+        room.area_id or "": number
+        for number, line in enumerate(_floor_lines(rooms, floors))
+        for room in line
+    }
+
+
 def _snap_to_walls(
     boxes: dict[str, Box],
     typed: set[str],
     walls: list[tuple[str, str]],
     faces: dict[str, set[str]],
+    floor_of: dict[str, int],
 ) -> dict[str, str]:
-    """Move each room with no typed position against the room it shares an
-    internal wall with, on the same floor, and so on from there.
+    """Move each room with no typed position against a room it is linked to on
+    the same floor (an internal wall, or a neighbour beside it), and so on from
+    there.
 
     ``boxes`` holds every room's box (changed in place); ``typed`` are the rooms
-    whose positions are given, and ``walls`` each internal wall's two rooms. A
-    group of linked rooms with no typed room keeps the one it was grid-placed at
-    as its start. Returns each moved room's ``room it was put against``.
+    whose positions are given, and ``walls`` each link's two rooms. Links between
+    floors are ignored (``floor_of`` gives each room's floor). A group of linked
+    rooms with no typed room keeps the one it was grid-placed at as its start.
+    Returns each moved room's ``room it was put against``.
     """
     links: dict[str, set[str]] = {}
     for a, b in walls:
-        if a != b and a in boxes and b in boxes:
+        if a != b and a in boxes and b in boxes and floor_of.get(a) == floor_of.get(b):
             links.setdefault(a, set()).add(b)
             links.setdefault(b, set()).add(a)
     fixed = set(typed)
@@ -936,24 +981,26 @@ def _place(
     # the way along the house's y axis that goes up the page in this view
     _, screen_dy = project((0.0, 1.0, 0.0), view)
     up = 1.0 if screen_dy < 0 else -1.0
-    stacked = 0.0  # how far the floor groups have gone so far
+    groups: list[list[str]] = []  # each floor's grid-placed rooms, lowest floor first
     for line in _floor_lines(loose, floors):
         line_boxes, line_notes, depth = _grid_line(line, faces, edge, 0.0, unit)
         if depth:
-            # the first floor sits at 0; each one after goes up the page from it
-            start = stacked if up > 0 else -(stacked + depth)
-            line_boxes = [replace(b, y=b.y + start) for b in line_boxes]
-            stacked += depth + FLOOR_GAP
+            groups.append([b.area for b in line_boxes])
         boxes.extend(line_boxes)
         grid_placed |= {b.area for b in line_boxes}
         notes.extend(line_notes)
     by_area = {b.area: b for b in boxes}
+    floor_of = _floor_index(elements, set(by_area), floors)
+    # rooms linked on the same floor: an internal wall, or a neighbour beside them
     walls = [
         (e.area_id or "", e.other_area_id or "")
         for e in elements.values()
         if e.kind == INTERNAL_WALL
     ]
-    snapped = _snap_to_walls(by_area, typed, walls, faces)
+    for area, items in neighbours(elements).items():
+        walls.extend((area, n["area_id"]) for n in items if n["position"] == BESIDE)
+    snapped = _snap_to_walls(by_area, typed, walls, faces, floor_of)
+    _stack_floors(by_area, groups, up)
     titles = {e.area_id: e.title for e in elements.values() if e.kind == ROOM}
     for area in sorted(grid_placed):
         if area in snapped:
@@ -1189,14 +1236,17 @@ def _add_runs(
     house: dict,
     colours: dict[str, str],
     lifts: list[tuple[float, float]] | None = None,
+    lift_by_area: dict[str, float] | None = None,
 ) -> None:
     """Each register's run from the plenum, and a check of its length.
 
-    ``boxes`` are where the rooms really are. With ``lifts`` (floors drawn
-    apart), each run is drawn to its outlet on the lifted floor, but its length
-    is still measured where the rooms really are.
+    ``boxes`` are where the rooms really are. With ``lift_by_area`` (floors drawn
+    apart, each room's lift), each run is drawn to its outlet on the lifted floor,
+    but its length is still measured where the rooms really are. ``lifts`` lifts
+    the plenum by its height.
     """
     lifts = lifts or []
+    lift_by_area = lift_by_area or {}
     registers = [e for e in elements.values() if e.kind == REGISTER]
     plenum = _plenum(house)
     if plenum is None:
@@ -1216,11 +1266,11 @@ def _add_runs(
         target = _outlet(box, reg)
         path = [plenum, (target[0], target[1], plenum[2]), target]
         drawn = sum(_distance(a, b) for a, b in itertools.pairwise(path)) / FOOT
-        if lifts:
+        if lift_by_area:
             path = [
                 _lifted(path[0], plenum_lift),
                 _lifted(path[1], plenum_lift),
-                _lifted(target, _lift_of(box.z, lifts)),
+                _lifted(target, lift_by_area.get(box.area, 0.0)),
             ]
         scene.lines.append(Run(path, colours[reg.id]))
         if reg.duct:
@@ -1284,15 +1334,34 @@ def render(scene: Scene, width: int = 900) -> str:
     left, top = min(xs), min(ys)
     span_x = max(max(xs) - left, 1.0)
     span_y = max(max(ys) - top, 1.0)
-    scale = min(
-        (width - 2 * MARGIN) / span_x,
-        (SHEET_HEIGHT - 2 * MARGIN) / span_y,
-    )
-    draw_h = span_y * scale + 2 * MARGIN
+    # the margins (left, top, right, bottom) start at MARGIN and grow until every
+    # label's text is inside the picture, so no label is cut off at its edge
+    pads = [MARGIN, MARGIN, MARGIN, MARGIN]
+    text_size = 11 * scene.text_scale
+    right_edge = width - NORTH_COLUMN - MARGIN
+    for _ in range(6):
+        scale = min(
+            (width - NORTH_COLUMN - pads[0] - pads[2]) / span_x,
+            (SHEET_HEIGHT - pads[1] - pads[3]) / span_y,
+        )
+        for label in scene.labels:
+            if not label.text:
+                continue
+            px, py = project(label.point, view)
+            x = pads[0] + (px - left) * scale
+            y = pads[1] + (py - top) * scale
+            box_l, box_r, box_t, box_b = _text_box(
+                x, y, label.text, label.note, text_size
+            )
+            pads[0] += max(0.0, MARGIN - box_l)
+            pads[1] += max(0.0, MARGIN - box_t)
+            pads[2] += max(0.0, box_r - right_edge)
+            pads[3] = max(pads[3], box_b - (pads[1] + span_y * scale) + MARGIN)
+    draw_h = pads[1] + span_y * scale + pads[3]
 
     def at(point: Point) -> str:
         x, y = project(point, view)
-        return f"{MARGIN + (x - left) * scale:.1f},{MARGIN + (y - top) * scale:.1f}"
+        return f"{pads[0] + (x - left) * scale:.1f},{pads[1] + (y - top) * scale:.1f}"
 
     # the order the layers are drawn in: the roofs over the rooms and runs
     layers: dict[str, list[str]] = {"rooms": [], "runs": [], "roofs": []}
@@ -1595,8 +1664,14 @@ def house_svg(
         elements = {
             k: e for k, e in elements.items() if e.kind != REGISTER or e.area_id in only
         }
-    lifts = floor_lifts(boxes) if exploded else []
-    drawn = [replace(b, z=b.z + _lift_of(b.z, lifts)) for b in boxes]
+    # each floor (by its floor, or its height) is lifted above the one below it
+    floor_of = _floor_index(elements, {b.area for b in boxes}, floors)
+    lift_by_area = (
+        {area: EXPLODE_GAP * number for area, number in floor_of.items()}
+        if exploded
+        else {}
+    )
+    drawn = [replace(b, z=b.z + lift_by_area.get(b.area, 0.0)) for b in boxes]
     colours = _colours(elements)
     parts = _parts(elements)
     where = {b.area: b for b in boxes}
@@ -1605,13 +1680,15 @@ def house_svg(
         inside, door_notes = _inside_parts(elements, parts, box.area, where)
         _add_room(scene, box, rotation, parts, colours, inside, unit, defaults=defaults)
         notes.extend(door_notes)
-    _add_runs(scene, boxes, elements, house, colours, lifts)
+    # the plenum keeps its height's lift; each run's outlet goes with its floor
+    plenum_lifts = floor_lifts(boxes) if exploded else []
+    _add_runs(scene, boxes, elements, house, colours, plenum_lifts, lift_by_area)
     _add_roofs(scene, drawn, elements, rotation, unit, defaults)
     _add_anchors(scene, boxes, drawn, parts, rotation)
     if not boxes:
         notes.append("No rooms are drawn yet.")
     key = f"Looking from the {VIEWS[view % 4]}."
-    if len(lifts) > 1:
+    if exploded and len(set(floor_of.values())) > 1:
         key += (
             f" Floors drawn apart: each is lifted {format_size(EXPLODE_GAP, unit)} "
             "more than the one below, so heights between floors are not to scale."
