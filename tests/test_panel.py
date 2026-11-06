@@ -153,6 +153,32 @@ async def test_equipment_is_published_and_shown(
     assert view["equipment"]["furnaces"][0]["afue"] == pytest.approx(0.96)
 
 
+async def test_layout_websocket_returns_parts_and_sheet(
+    hass: HomeAssistant, house, hass_ws_client
+) -> None:
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": "house_structure/layout"})
+    reply = await client.receive_json()
+    assert reply["success"]
+    layout = reply["result"]
+    assert layout["house"]["unit"] == "m"
+    assert "sky" not in layout
+    kinds = {p["kind"] for p in layout["parts"]}
+    assert kinds == {"room", "wall"}
+    assert "entities" not in next(p for p in layout["parts"] if p["kind"] == "room")
+    assert layout["sheet"].startswith("id,kind,")
+    assert "room" in layout["sheet"]
+    areas = {a["name"]: a for a in layout["areas"]}
+    assert any(p.startswith("room:") for p in areas["Basement"]["parts"])
+
+    await client.send_json_auto_id(
+        {"type": "house_structure/layout", "include_sheet": False}
+    )
+    reply = await client.receive_json()
+    assert reply["success"]
+    assert "sheet" not in reply["result"]
+
+
 async def test_a_furnace_form_refuses_a_bad_value(hass: HomeAssistant, house) -> None:
     result = await _add(
         hass, house["entry_id"], "furnace", {"input_high_btuh": 60000, "afue": 150}

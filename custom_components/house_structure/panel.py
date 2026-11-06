@@ -24,6 +24,9 @@ Websocket commands, asked over the sidebar page's own connection:
   draw over the House tab's drawing (``{"overlays": [...]}``).
 * ``house_structure/house``: the rooms (with their names and floors), the
   equipment and the buildings, for the House tab.
+* ``house_structure/layout``: the full layout (house settings, each part's
+  settings and built attributes, areas with neighbours, the parts as a CSV
+  sheet). For agents and the Home Assistant support MCP server.
 """
 
 from __future__ import annotations
@@ -39,6 +42,7 @@ from homeassistant.helpers import floor_registry as fr
 import voluptuous as vol
 
 from .constants import DOMAIN, OVERLAYS, OVERLAYS_EVENT, TABS, TABS_EVENT
+from .diagnostics import house_layout
 from .tabs import HOUSE_ORDER, ordered, ordered_overlays
 
 STATIC_URL = "/house_structure_static"
@@ -67,6 +71,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_tabs)
     websocket_api.async_register_command(hass, ws_overlays)
     websocket_api.async_register_command(hass, ws_house)
+    websocket_api.async_register_command(hass, ws_layout)
     version = await hass.async_add_executor_job(_version)
     tabs = hass.data.setdefault(TABS, {})
     tabs["house"] = {
@@ -180,3 +185,29 @@ def ws_house(hass: HomeAssistant, connection, msg: dict) -> None:
         if floor is not None:
             floors[area.id] = (floor.level, floor.name)
     connection.send_result(msg["id"], house_view(hass.data.get(DOMAIN), names, floors))
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "house_structure/layout",
+        vol.Optional("include_sheet", default=True): bool,
+    }
+)
+@callback
+def ws_layout(hass: HomeAssistant, connection, msg: dict) -> None:
+    """The full house layout: settings, parts, areas and optional CSV sheet."""
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if not entries:
+        connection.send_result(
+            msg["id"],
+            {"error": "House Structure is not set up"},
+        )
+        return
+    connection.send_result(
+        msg["id"],
+        house_layout(
+            hass,
+            entries[0],
+            include_sheet=msg.get("include_sheet", True),
+        ),
+    )

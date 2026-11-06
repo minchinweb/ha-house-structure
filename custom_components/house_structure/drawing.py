@@ -753,14 +753,16 @@ def _band(faces: set[str], low: str, high: str) -> str:
     return "mid"
 
 
-def _starts(sizes: dict[str, float], start: float) -> dict[str, float]:
-    """Where each non-empty band starts, one ``GAP`` after the band before it."""
+def _starts(
+    sizes: dict[str, float], start: float, gap: float = GAP
+) -> dict[str, float]:
+    """Where each non-empty band starts, one ``gap`` after the band before it."""
     starts: dict[str, float] = {}
     at = start
     for band in BANDS:
         if sizes.get(band):
             starts[band] = at
-            at += sizes[band] + GAP
+            at += sizes[band] + gap
     return starts
 
 
@@ -770,12 +772,15 @@ def _grid_line(
     x0: float,
     y0: float,
     unit: str,
+    gap: float = GAP,
 ) -> tuple[list[Box], list[str], float]:
     """One floor's rooms with no position typed, on a 3 by 3 grid of the house's
     edges. A room goes in the column its outside walls put it against (west, east,
     or the middle) and the row likewise (south, north, or the middle). Each row and
     column is as wide or deep as its biggest cell, and a room sits against the edge
-    it is on. Returns the boxes, the notes and the depth the grid takes."""
+    it is on. ``gap`` is the space between bands and between rooms in one cell
+    (0 for a linked component that will be snapped flush). Returns the boxes, the
+    notes and the depth the grid takes."""
     notes: list[str] = []
     cells: dict[tuple[str, str], list[Box]] = {}
     for room in line:
@@ -789,22 +794,22 @@ def _grid_line(
 
     def cell_width(key: tuple[str, str]) -> float:
         members = cells.get(key, [])
-        return sum(b.width for b in members) + GAP * max(len(members) - 1, 0)
+        return sum(b.width for b in members) + gap * max(len(members) - 1, 0)
 
     def cell_depth(key: tuple[str, str]) -> float:
         return max((b.depth for b in cells.get(key, [])), default=0.0)
 
     col_w = {c: max(cell_width((r, c)) for r in BANDS) for c in BANDS}
     row_d = {r: max(cell_depth((r, c)) for c in BANDS) for r in BANDS}
-    col_x = _starts({c: w for c, w in col_w.items() if w}, x0)
-    row_y = _starts({r: d for r, d in row_d.items() if d}, y0)
+    col_x = _starts({c: w for c, w in col_w.items() if w}, x0, gap)
+    row_y = _starts({r: d for r, d in row_d.items() if d}, y0, gap)
     boxes: list[Box] = []
     for (r, c), members in cells.items():
         x = col_x[c] + _start_of(c, col_w[c], cell_width((r, c)))
         for box in members:
             y = row_y[r] + _start_of(r, row_d[r], box.depth)
             boxes.append(replace(box, x=x, y=y))
-            x += box.width + GAP
+            x += box.width + gap
     depth = max(row_y[r] + row_d[r] for r in row_y) - y0 if row_y else 0.0
     return boxes, notes, depth
 
@@ -817,17 +822,70 @@ def _start_of(band: str, space: float, used: float) -> float:
 
 # the way out of a room through each of its faces, along the house grid
 OUTWARD = {"N": (0.0, 1.0), "S": (0.0, -1.0), "E": (1.0, 0.0), "W": (-1.0, 0.0)}
+# minimum shared edge when sliding a room along a face (matches ``_shared_face``)
+SHARE_MIN = 0.3
 
 
-def _touching(p: Box, face: str, n: Box) -> Box:
-    """``n`` set against ``p``'s ``face``, its low edge level with p's."""
-    x, y = {
-        "E": (p.x + p.width, p.y),
-        "W": (p.x - n.width, p.y),
-        "N": (p.x, p.y + p.depth),
-        "S": (p.x, p.y - n.depth),
-    }[face]
-    return replace(n, x=x, y=y)
+def _touching(p: Box, face: str, n: Box, along: float = 0.0) -> Box:
+    """``n`` set against ``p``'s ``face``.
+
+    ``along`` is metres from the face's west or south end to ``n``'s low edge on
+    that face, so several rooms can share one face (an outside stretch, an open
+    entrance and a bathroom on a kitchen's east wall, for example).
+    """
+    if face == "E":
+        return replace(n, x=p.x + p.width, y=p.y + along)
+    if face == "W":
+        return replace(n, x=p.x - n.width, y=p.y + along)
+    if face == "N":
+        return replace(n, x=p.x + along, y=p.y + p.depth)
+    return replace(n, x=p.x + along, y=p.y - n.depth)
+
+
+def _along_span(box: Box, face: str) -> float:
+    """How much of ``face`` ``box`` occupies (depth on E/W, width on N/S)."""
+    return box.depth if face in ("E", "W") else box.width
+
+
+def _along_prefer(p: Box, face: str, n: Box) -> float:
+    """``along`` that keeps ``n``'s centre where it already sits relative to ``p``."""
+    n_span = _along_span(n, face)
+    if face in ("E", "W"):
+        return (n.y + n.depth / 2) - (p.y + n_span / 2)
+    return (n.x + n.width / 2) - (p.x + n_span / 2)
+
+
+def _along_candidates(p: Box, face: str, n: Box) -> list[float]:
+    """Offsets along ``face`` to try, nearest to ``n``'s current place first.
+
+    Covers flush-low, flush-high, centred on ``p``, and steps across the range
+    that still shares at least ``SHARE_MIN`` with ``p`` — so a second room can
+    slide past one already on the face instead of failing the corner seat.
+    """
+    p_span = _span(p, face)
+    n_span = _along_span(n, face)
+    lo, hi = SHARE_MIN - n_span, p_span - SHARE_MIN
+    if hi < lo:
+        mid = (p_span - n_span) / 2
+        lo = hi = mid
+    prefer = max(lo, min(hi, _along_prefer(p, face, n)))
+    step = max(0.25, min(n_span, max(p_span, n_span)) / 4)
+    samples = [lo]
+    at = lo + step
+    while at < hi - 1e-9:
+        samples.append(at)
+        at += step
+    samples.append(hi)
+    points = [prefer, 0.0, p_span - n_span, (p_span - n_span) / 2, *samples]
+    seen: set[float] = set()
+    out: list[float] = []
+    for value in sorted(points, key=lambda v: (abs(v - prefer), v)):
+        key = round(value, 3)
+        if key in seen or value < lo - 1e-9 or value > hi + 1e-9:
+            continue
+        seen.add(key)
+        out.append(value)
+    return out or [prefer]
 
 
 def _overlaps(a: Box, b: Box) -> bool:
@@ -841,17 +899,26 @@ def _overlaps(a: Box, b: Box) -> bool:
 
 
 def _against(p: Box, n: Box, others: list[Box], walled: set[str]) -> Box | None:
-    """``n`` set against one of ``p``'s faces: the one that points most towards
-    where ``n`` was placed, faces with an outside wall last. None when every
-    such spot would overlap another room."""
+    """``n`` set against one of ``p``'s faces, slid along it to a free stretch.
+
+    Prefers the face that points most towards where ``n`` was placed. A face with
+    an outside wall is tried later, except the best-facing one — a kitchen's east
+    wall can be partly outside and still host the entrance and the bath on the
+    rest of that face. None when no non-overlapping seat shares ``SHARE_MIN``.
+    """
     dx = (n.x + n.width / 2) - (p.x + p.width / 2)
     dy = (n.y + n.depth / 2) - (p.y + p.depth / 2)
     order = sorted(OUTWARD, key=lambda f: -(OUTWARD[f][0] * dx + OUTWARD[f][1] * dy))
-    order.sort(key=lambda f: f in walled)  # stable: the walled faces go last
+    best = order[0]
+    # keep the primary direction even when it has an outside wall; demote others
+    order.sort(key=lambda f: f in walled and f != best)
     for face in order:
-        spot = _touching(p, face, n)
-        if not any(_overlaps(spot, o) for o in others):
-            return spot
+        for along in _along_candidates(p, face, n):
+            spot = _touching(p, face, n, along)
+            if any(_overlaps(spot, o) for o in others):
+                continue
+            if _shared_face(p, spot) is not None:
+                return spot
     return None
 
 
@@ -893,6 +960,63 @@ def _floor_index(
     }
 
 
+def _beside_pairs(elements: dict[str, Element]) -> list[tuple[str, str]]:
+    """Each same-floor link as ``(area, other)``: internal walls and beside/open."""
+    walls = [
+        (e.area_id or "", e.other_area_id or "")
+        for e in elements.values()
+        if e.kind == INTERNAL_WALL
+    ]
+    for area, items in neighbours(elements).items():
+        walls.extend((area, n["area_id"]) for n in items if n["position"] == BESIDE)
+    return walls
+
+
+def _link_graph(areas: set[str], walls: list[tuple[str, str]]) -> dict[str, set[str]]:
+    """Undirected beside links among ``areas`` only."""
+    links: dict[str, set[str]] = {a: set() for a in areas}
+    for a, b in walls:
+        if a in links and b in links and a != b:
+            links[a].add(b)
+            links[b].add(a)
+    return links
+
+
+def _components(
+    rooms: list[Element], links: dict[str, set[str]]
+) -> list[list[Element]]:
+    """Connected components of ``rooms`` by ``links``, each sorted by area id."""
+    by_area = {r.area_id or "": r for r in rooms if r.area_id}
+    seen: set[str] = set()
+    out: list[list[Element]] = []
+    for start in sorted(by_area):
+        if start in seen:
+            continue
+        group: list[str] = []
+        todo = [start]
+        while todo:
+            area = todo.pop()
+            if area in seen or area not in by_area:
+                continue
+            seen.add(area)
+            group.append(area)
+            todo.extend(sorted(links.get(area, ())))
+        out.append([by_area[a] for a in sorted(group)])
+    return out
+
+
+def _same_floor_links(
+    walls: list[tuple[str, str]], boxes: dict[str, Box], floor_of: dict[str, int]
+) -> dict[str, set[str]]:
+    """Beside links that stay on one floor, among rooms that have a box."""
+    links: dict[str, set[str]] = {}
+    for a, b in walls:
+        if a != b and a in boxes and b in boxes and floor_of.get(a) == floor_of.get(b):
+            links.setdefault(a, set()).add(b)
+            links.setdefault(b, set()).add(a)
+    return links
+
+
 def _snap_to_walls(
     boxes: dict[str, Box],
     typed: set[str],
@@ -908,13 +1032,10 @@ def _snap_to_walls(
     whose positions are given, and ``walls`` each link's two rooms. Links between
     floors are ignored (``floor_of`` gives each room's floor). A group of linked
     rooms with no typed room keeps the one it was grid-placed at as its start.
+    Each seat slides along the shared face so several rooms can share one wall.
     Returns each moved room's ``room it was put against``.
     """
-    links: dict[str, set[str]] = {}
-    for a, b in walls:
-        if a != b and a in boxes and b in boxes and floor_of.get(a) == floor_of.get(b):
-            links.setdefault(a, set()).add(b)
-            links.setdefault(b, set()).add(a)
+    links = _same_floor_links(walls, boxes, floor_of)
     fixed = set(typed)
     seen: set[str] = set()
     for start in sorted(boxes):
@@ -949,6 +1070,107 @@ def _snap_to_walls(
     return snapped
 
 
+def _close_links(
+    boxes: dict[str, Box],
+    typed: set[str],
+    walls: list[tuple[str, str]],
+    faces: dict[str, set[str]],
+    floor_of: dict[str, int],
+) -> dict[str, str]:
+    """A second pass: move untyped rooms so leftover same-floor links touch.
+
+    The first snap seats each room against one neighbour. Links that were not
+    used (two rooms both fixed to a hall, or a seat that failed) are closed here
+    by sliding the movable room along the held one's face. User-typed positions
+    stay fixed. Returns each moved room's hold room.
+    """
+    links = _same_floor_links(walls, boxes, floor_of)
+    moved: dict[str, str] = {}
+
+    def touching_count(area: str) -> int:
+        here = boxes[area]
+        return sum(
+            1
+            for other in links.get(area, ())
+            if other in boxes and _shared_face(here, boxes[other]) is not None
+        )
+
+    changed = True
+    while changed:
+        changed = False
+        pairs = sorted(
+            {
+                tuple(sorted((a, b)))
+                for a, others in links.items()
+                for b in others
+                if a < b
+            }
+        )
+        for a, b in pairs:
+            if _shared_face(boxes[a], boxes[b]) is not None:
+                continue
+            if a in typed and b in typed:
+                continue
+            if a in typed:
+                move, hold = b, a
+            elif b in typed:
+                move, hold = a, b
+            elif touching_count(a) != touching_count(b):
+                # move the one that touches fewer neighbours already
+                move, hold = (a, b) if touching_count(a) < touching_count(b) else (b, a)
+            else:
+                move, hold = (a, b) if a > b else (b, a)
+            others = [bx for k, bx in boxes.items() if k != move]
+            spot = _against(boxes[hold], boxes[move], others, faces.get(hold, set()))
+            if spot is None:
+                continue
+            boxes[move] = spot
+            moved[move] = hold
+            changed = True
+    return moved
+
+
+def _seed_floor(
+    line: list[Element],
+    faces: dict[str, set[str]],
+    walls: list[tuple[str, str]],
+    x0: float,
+    unit: str,
+) -> tuple[list[Box], list[str], float]:
+    """Seed one floor's untyped rooms: linked components packed, singles banded.
+
+    Rooms linked on this floor (internal wall or beside/open) share one grid with
+    no gap between bands, so snap starts from a tight pack. Unlinked rooms keep
+    the edged band layout with ``GAP``. Separate linked components sit ``GAP``
+    apart. Returns the boxes, notes and the depth the seeds take.
+    """
+    areas = {r.area_id or "" for r in line if r.area_id}
+    links = _link_graph(areas, walls)
+    linked = [c for c in _components(line, links) if len(c) > 1]
+    singles = [r for c in _components(line, links) if len(c) == 1 for r in c]
+    boxes: list[Box] = []
+    notes: list[str] = []
+    depth = 0.0
+    cursor = x0
+    for comp in sorted(linked, key=lambda c: min(r.area_id or "" for r in c)):
+        part, part_notes, part_depth = _grid_line(
+            comp, faces, cursor, 0.0, unit, gap=0.0
+        )
+        boxes.extend(part)
+        notes.extend(part_notes)
+        depth = max(depth, part_depth)
+        if part:
+            cursor = max(b.x + b.width for b in part) + GAP
+    if singles:
+        part, part_notes, part_depth = _grid_line(
+            singles, faces, cursor, 0.0, unit, gap=GAP
+        )
+        boxes.extend(part)
+        notes.extend(part_notes)
+        depth = max(depth, part_depth)
+    return boxes, notes, depth
+
+
 def _place(
     elements: dict[str, Element],
     unit: str,
@@ -957,9 +1179,10 @@ def _place(
     view: int = 0,
 ) -> tuple[list[Box], list[str]]:
     """Each room's box at its position. Rooms without one go after them, each
-    floor's rooms in a grid placed by their outside walls, one floor group above
-    the one before, ``FLOOR_GAP`` apart. Upper floors go up the page from the
-    view's side, whichever way the view turns."""
+    floor's rooms seeded by their outside walls (linked rooms packed with no
+    band gap), then snapped flush along shared faces, one floor group above the
+    one before, ``FLOOR_GAP`` apart. Upper floors go up the page from the view's
+    side, whichever way the view turns."""
     boxes: list[Box] = []
     notes: list[str] = []
     loose: list[Element] = []
@@ -979,9 +1202,10 @@ def _place(
     # the way along the house's y axis that goes up the page in this view
     _, screen_dy = project((0.0, 1.0, 0.0), view)
     up = 1.0 if screen_dy < 0 else -1.0
+    walls = _beside_pairs(elements)
     groups: list[list[str]] = []  # each floor's grid-placed rooms, lowest floor first
     for line in _floor_lines(loose, floors):
-        line_boxes, line_notes, depth = _grid_line(line, faces, edge, 0.0, unit)
+        line_boxes, line_notes, depth = _seed_floor(line, faces, walls, edge, unit)
         if depth:
             groups.append([b.area for b in line_boxes])
         boxes.extend(line_boxes)
@@ -989,15 +1213,8 @@ def _place(
         notes.extend(line_notes)
     by_area = {b.area: b for b in boxes}
     floor_of = _floor_index(elements, set(by_area), floors)
-    # rooms linked on the same floor: an internal wall, or a neighbour beside them
-    walls = [
-        (e.area_id or "", e.other_area_id or "")
-        for e in elements.values()
-        if e.kind == INTERNAL_WALL
-    ]
-    for area, items in neighbours(elements).items():
-        walls.extend((area, n["area_id"]) for n in items if n["position"] == BESIDE)
     snapped = _snap_to_walls(by_area, typed, walls, faces, floor_of)
+    snapped.update(_close_links(by_area, typed, walls, faces, floor_of))
     _stack_floors(by_area, groups, up)
     titles = {e.area_id: e.title for e in elements.values() if e.kind == ROOM}
     for area in sorted(grid_placed):

@@ -25,10 +25,19 @@ from .model import Raw, build, neighbours
 from .orientation import outline_walls, wall_rotation
 
 
-async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, entry: ConfigEntry
+def house_layout(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    *,
+    include_sheet: bool = True,
+    include_entities: bool = False,
 ) -> dict[str, Any]:
-    """The house, its parts and its areas."""
+    """The house layout: settings, parts, areas and (optionally) the CSV sheet.
+
+    Used by the ``house_structure/layout`` websocket command and by diagnostics.
+    Nothing in it says where the house is. Entity states and sky readings are
+    left out unless ``include_entities`` is true (diagnostics).
+    """
     raws = [
         Raw(s.subentry_id, s.subentry_type, s.title, dict(s.data))
         for s in entry.subentries.values()
@@ -36,7 +45,7 @@ async def async_get_config_entry_diagnostics(
     elements, skipped = build(dict(entry.data), raws)
     areas = ar.async_get(hass)
     floors = fr.async_get(hass)
-    entities = er.async_get(hass)
+    entities = er.async_get(hass) if include_entities else None
 
     def floor_of(area_id: str | None) -> str | None:
         area = areas.async_get_area(area_id) if area_id else None
@@ -62,13 +71,14 @@ async def async_get_config_entry_diagnostics(
         if element:
             part["area"] = area_name(element.area_id)
             part["floor"] = floor_of(element.area_id)
-        device = part_device(hass, entry.entry_id, raw.id)
-        if device:
-            part["device_area"] = area_name(device.area_id)
-            part["entities"] = [
-                _entity(hass, e.entity_id)
-                for e in er.async_entries_for_device(entities, device.id)
-            ]
+        if include_entities:
+            device = part_device(hass, entry.entry_id, raw.id)
+            if device:
+                part["device_area"] = area_name(device.area_id)
+                part["entities"] = [
+                    _entity(hass, e.entity_id)
+                    for e in er.async_entries_for_device(entities, device.id)
+                ]
         parts.append(part)
 
     in_area: dict[str, list[str]] = {}
@@ -80,7 +90,7 @@ async def async_get_config_entry_diagnostics(
                 )
 
     links = neighbours(elements)
-    return {
+    out: dict[str, Any] = {
         "house": dict(entry.data),
         "options": dict(entry.options),
         "skipped": skipped,
@@ -98,9 +108,23 @@ async def async_get_config_entry_diagnostics(
             }
             for area in areas.async_list_areas()
         ],
-        "sky": _sky(entry),
         "outline": _outline(hass),
     }
+    if include_sheet:
+        # imported here so layout stays usable in tests that never open the form
+        from .sheet_flow import export_sheet
+
+        out["sheet"] = export_sheet(hass, entry)
+    return out
+
+
+async def async_get_config_entry_diagnostics(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> dict[str, Any]:
+    """The house, its parts and its areas."""
+    data = house_layout(hass, entry, include_sheet=False, include_entities=True)
+    data["sky"] = _sky(entry)
+    return data
 
 
 def _entity(hass: HomeAssistant, entity_id: str) -> dict[str, Any]:

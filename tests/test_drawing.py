@@ -426,8 +426,8 @@ def test_rooms_with_no_position_are_chained_off_the_room_they_share_a_wall_with(
     boxes, notes = _place(elements, "m")
     where = {b.area: b for b in boxes}
     kitchen, landing, bath = where["kitchen"], where["landing"], where["bath"]
-    assert (landing.x, landing.y) == pytest.approx((4.0, 0.0))  # kitchen's east face
-    assert _shared_face(kitchen, landing) is not None
+    shared = _shared_face(kitchen, landing)
+    assert shared is not None and shared[0] == "E"  # against the kitchen's east face
     assert _shared_face(landing, bath) is not None
     assert any("shared wall" in note for note in notes)
 
@@ -500,6 +500,102 @@ def test_rooms_linked_beside_on_the_same_floor_are_drawn_together_without_a_wall
     boxes, _ = _place(elements, "m")
     where = {b.area: b for b in boxes}
     assert _shared_face(where["kitchen"], where["hall"]) is not None
+
+
+def _internal(id_: str, area: str, other: str, **data) -> Raw:
+    return Raw(
+        id_,
+        INTERNAL_WALL,
+        f"Wall to {other}",
+        {"area_id": area, "other_area_id": other, **data},
+    )
+
+
+def test_linked_rooms_on_one_floor_pack_flush_around_a_hall():
+    # rooms seeded on different outside-wall bands must still close every link
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0),
+        _wall("ke", "kitchen", "E"),
+        _wall("ks", "kitchen", "S"),
+        _room("dining", width_m=3.0, depth_m=3.0),
+        _wall("de", "dining", "E"),
+        _wall("ds", "dining", "S"),
+        _room("living", width_m=5.0, depth_m=4.0),
+        _wall("le", "living", "E"),
+        _wall("ln", "living", "N"),
+        _room("office", width_m=3.0, depth_m=3.0),
+        _wall("oe", "office", "E"),
+        _wall("on", "office", "N"),
+        _room("hall", width_m=2.0, depth_m=6.0),
+        _room("bath", width_m=2.0, depth_m=2.0),
+        _wall("bw", "bath", "W"),
+        _room("laundry", width_m=2.0, depth_m=2.0),
+        _wall("lw", "laundry", "W"),
+        _internal("1", "hall", "kitchen"),
+        _internal("2", "hall", "dining"),
+        _internal("3", "hall", "living"),
+        _internal("4", "hall", "office"),
+        _internal("5", "hall", "bath"),
+        _internal("6", "hall", "laundry"),
+        _internal("7", "kitchen", "dining"),
+        _internal("8", "living", "office"),
+    )
+    boxes, _ = _place(elements, "m")
+    where = {b.area: b for b in boxes}
+    for a, b in (
+        ("hall", "kitchen"),
+        ("hall", "dining"),
+        ("hall", "living"),
+        ("hall", "office"),
+        ("hall", "bath"),
+        ("hall", "laundry"),
+        ("kitchen", "dining"),
+        ("living", "office"),
+    ):
+        assert _shared_face(where[a], where[b]) is not None, f"{a}-{b}"
+
+
+def test_several_rooms_share_one_face_with_an_outside_stretch():
+    # kitchen east: outside wall (window), open to the entrance, wall to bath
+    elements = _elements(
+        _room("kitchen", width_m=5.0, depth_m=4.0, open=["entrance"]),
+        _wall("ke", "kitchen", "E", length_m=1.5),
+        _wall("ks", "kitchen", "S"),
+        _wall("kn", "kitchen", "N"),
+        _wall("kw", "kitchen", "W"),
+        _window("kw_win", "ke", width_m=1.0, height_m=1.2),
+        _room("entrance", width_m=2.0, depth_m=1.5),
+        _room("bath", width_m=2.0, depth_m=2.0),
+        _internal("kb", "kitchen", "bath"),
+    )
+    boxes, _ = _place(elements, "m")
+    where = {b.area: b for b in boxes}
+    kitchen, entrance, bath = where["kitchen"], where["entrance"], where["bath"]
+    to_entrance = _shared_face(kitchen, entrance)
+    to_bath = _shared_face(kitchen, bath)
+    assert to_entrance is not None
+    assert to_bath is not None
+    assert to_entrance[0] == to_bath[0]  # both on the same face of the kitchen
+    # their stretches on that face must not overlap
+    _, e0, e1 = to_entrance
+    _, b0, b1 = to_bath
+    assert min(e1, b1) - max(e0, b0) <= 1e-6
+
+
+def test_linked_component_is_seeded_without_a_band_gap():
+    # two linked rooms on opposite outside edges: no 1 m gap left between them
+    elements = _elements(
+        _room("west", width_m=3.0, depth_m=3.0),
+        _wall("ww", "west", "W"),
+        _room("east", width_m=3.0, depth_m=3.0),
+        _wall("ee", "east", "E"),
+        _internal("we", "west", "east"),
+    )
+    boxes, _ = _place(elements, "m")
+    where = {b.area: b for b in boxes}
+    assert _shared_face(where["west"], where["east"]) is not None
+    gap = where["east"].x - (where["west"].x + where["west"].width)
+    assert gap == pytest.approx(0.0)
 
 
 def test_floor_groups_keep_their_gap_and_do_not_snap_across_floors():
