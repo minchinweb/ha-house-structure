@@ -31,6 +31,27 @@ except ImportError:
 FRONTEND = Path("custom_components/house_structure/frontend")
 
 
+@task(
+    help={
+        "scenario": "kitchen-face, hall-hub, or sample-house",
+        "view": "0=SW 1=NW 2=NE 3=SE",
+        "png": "Also export a PNG with Inkscape when available",
+        "diagnostics": "Path to a house_structure/layout or diagnostics JSON dump",
+    }
+)
+def render(ctx, scenario="kitchen-face", view=1, png=False, diagnostics=""):
+    """Render a house plan locally through the real drawing code (no HA)."""
+    cmd = ["uv", "run", "python", "scripts/render_local.py"]
+    if diagnostics:
+        cmd.extend(["--from-diagnostics", diagnostics])
+    else:
+        cmd.append(scenario)
+    cmd.extend(["--view", str(view), "-o", "out"])
+    if png:
+        cmd.append("--png")
+    ctx.run(" ".join(cmd), pty=False)
+
+
 @task(help={"check": "Only compare the files with their pins; download nothing."})
 def vendor(ctx, check=False):
     """Fetch the Thermal Lab page's pinned scripts (Chart.js) into the integration.

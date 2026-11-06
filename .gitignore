@@ -39,3 +39,9 @@ venv*/
 
 
 .venv/
+
+# local drawing renders
+out/
+sample_house_nw*.png
+sample_house_nw*.svg
+_recovered_sample.py
