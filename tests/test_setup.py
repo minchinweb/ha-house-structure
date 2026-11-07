@@ -784,6 +784,42 @@ async def test_rooms_beside_and_above(hass: HomeAssistant, house) -> None:
     }
 
 
+async def test_an_open_link_shows_from_the_other_room(hass: HomeAssistant, house):
+    entry_id = house["entry_id"]
+    den = ar.async_get(hass).async_create("Den")
+    await _add(
+        hass, entry_id, "room", {"area_id": den.id, "open": [house["master"].id]}
+    )
+    await hass.async_block_till_done()
+    entry = hass.config_entries.async_get_entry(entry_id)
+
+    def room(area_id):
+        return next(
+            s
+            for s in entry.subentries.values()
+            if s.subentry_type == "room" and s.data["area_id"] == area_id
+        )
+
+    # the master bedroom's form ticks Den as open, as Den's own form does for it
+    shown = await hass.config_entries.subentries.async_init(
+        (entry_id, "room"),
+        context={
+            "source": SOURCE_RECONFIGURE,
+            "subentry_id": room(house["master"].id).subentry_id,
+        },
+    )
+    assert _suggested(shown)["open"] == [den.id]
+
+    # unticking it removes the link from both rooms
+    result = await hass.config_entries.subentries.async_configure(
+        shown["flow_id"], {"area_id": house["master"].id}
+    )
+    assert result["type"] is FlowResultType.ABORT
+    await hass.async_block_till_done()
+    assert room(den.id).data["open"] == []
+    assert room(house["master"].id).data["open"] == []
+
+
 async def test_a_door_follows_its_contact(hass: HomeAssistant, house) -> None:
     entry_id = house["entry_id"]
     entry = hass.config_entries.async_get_entry(entry_id)
@@ -877,14 +913,15 @@ async def test_a_sheet_makes_the_walls_between_rooms(hass: HomeAssistant, house)
     hall_kitchen = walls[frozenset((hall.id, kitchen.id))]
     assert hall_kitchen.data["open"] is True  # the hallway opens onto it
     assert hall_kitchen.data["length_m"] == pytest.approx(96 * 0.0254)
-    assert (
-        hall_kitchen.title == "Opening to Kitchen"
-        or hall_kitchen.title == "Opening to Hall"
-    )
+    # the sheet fills in the face from the footprints: the kitchen is east of the hall
+    assert hall_kitchen.data["area_id"] == hall.id
+    assert hall_kitchen.data["face"] == "E"
+    assert hall_kitchen.title == "East opening to Kitchen"
     kitchen_den = walls[frozenset((kitchen.id, den.id))]
     assert kitchen_den.data["open"] is False  # two rooms, no hallway or stairs
     assert kitchen_den.data["length_m"] == pytest.approx(96 * 0.0254)
-    assert kitchen_den.title.startswith("Wall to")
+    assert kitchen_den.data["face"] == "S"  # the kitchen is south of the den
+    assert kitchen_den.title == "South wall to Kitchen"
     room_types = {
         s.data["area_id"]: s.data["room_type"]
         for s in _subentries(hass, entry_id, "room")

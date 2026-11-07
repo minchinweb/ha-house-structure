@@ -12,12 +12,14 @@ Compass north is drawn as an arrow, from the house rotation.
 
 A room is a box of its footprint and ceiling height. Its outside walls are
 drawn on their faces, each as long as its length (walls on a face follow each
-other), and any stretch of face no wall covers is dashed. Its windows and doors
-are centred on their walls in a row (window sills at ``SILL``, doors from the
-floor), and its registers are dots. An internal wall is drawn on the face its
-room shares with the room on the other side, from either room, found from the
-two rooms' positions, and a door in one is drawn on it; without the positions
-the wall is listed under the drawing instead.
+other). A stretch of face with a typed internal wall is solid; an open (no-wall)
+neighbour is a dotted outline; a beside neighbour with no internal wall part yet
+is dash-dotted; any remaining stretch (no wall and no neighbour) is dashed.
+Its windows and doors are centred on their walls in a row (window sills at
+``SILL``, doors from the floor), and its registers are dots. An internal wall
+is drawn on the face its room shares with the room on the other side, from
+either room, found from the two rooms' positions, and a door in one is drawn on
+it; without the positions the wall is listed under the drawing instead.
 The house view places each room at its position and floor level, and draws each
 register's run from the plenum: straight across at the plenum's height, then up
 or down to the outlet. The runs are schematic (they do not follow the joists or
@@ -36,7 +38,7 @@ from typing import NamedTuple
 
 from .constants import DOOR, INTERNAL_WALL, REGISTER, ROOF, ROOM, WALL, WINDOW
 from .ducts import R_IMPERIAL_TO_SI
-from .geometry import FACES, FEET_INCHES, FOOT, format_size
+from .geometry import FACES, FEET_INCHES, FOOT, OPPOSITE, format_size
 from .model import ABOVE, BELOW, BESIDE, Element, neighbours
 
 COS30 = math.sqrt(3) / 2
@@ -91,10 +93,13 @@ WALL_FILL, WALL_LINE = "#e2d3ae", "#7a6a46"
 WINDOW_FILL, WINDOW_LINE = "#9fd3f0", "#3b7bb0"
 DOOR_FILL, DOOR_LINE = "#a8744a", "#5c3b1e"
 ROOF_FILL, ROOF_LINE = "#9c7b6b", "#4e342e"
-OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E"}
+# Face outlines when there is no solid wall fill: missing exterior, open
+# neighbour (no wall), and implied neighbour (beside, wall not typed yet).
+MISSING_LINE, MISSING_DASH = "#b0a58c", "4 3"
+OPEN_LINE, OPEN_DASH = "#78909c", "1.5 3.5"
+IMPLIED_LINE, IMPLIED_DASH = "#5d5346", "7 3 1.5 3"
 # the way into a room from each face, along the house grid
 INWARD = {"S": (0.0, 1.0), "N": (0.0, -1.0), "W": (1.0, 0.0), "E": (-1.0, 0.0)}
-MISSING_LINE = "#b0a58c"
 SIZE_NOTE = "a: Size assumed: no size typed, so the drawing uses its default size."
 DEFAULT_NOTE = "b: Manual J default R-value: none typed."  # its label is marked b
 FACE_ORDER = ("N", "E", "S", "W")  # far faces first, so the near ones overlay them
@@ -116,6 +121,7 @@ class Poly(NamedTuple):
     opacity: float = 1.0
     dashed: bool = False
     layer: str = "rooms"
+    dasharray: str = MISSING_DASH
 
 
 class Run(NamedTuple):
@@ -614,6 +620,25 @@ def _opening_labels(
     return labels
 
 
+def _outline(
+    box: Box,
+    face: str,
+    start: float,
+    end: float,
+    stroke: str,
+    dash: str,
+) -> Poly:
+    """A dashed or dotted face stretch with no wall fill."""
+    return Poly(
+        _quad(box, face, start, end, 0.0, box.height),
+        "none",
+        stroke,
+        1.0,
+        True,
+        dasharray=dash,
+    )
+
+
 def _add_room(
     scene: Scene,
     box: Box,
@@ -624,12 +649,17 @@ def _add_room(
     unit: str = "m",
     labelled: bool = False,
     defaults: dict[str, float] | None = None,
+    links: list[tuple[str, float, float, str]] | None = None,
 ) -> None:
     """Draw one room's floor, walls, windows, doors and outlets (far faces first).
 
     ``inside`` is the room's internal walls and the doors in them, each with the
-    face and the stretch of it to draw on (see ``_shared_face``). A stretch of a
-    face that no wall covers is dashed.
+    face and the stretch of it to draw on (see ``_shared_face``). ``links`` are
+    same-floor neighbour stretches with no typed internal wall: each
+    ``(face, start, end, kind)`` where ``kind`` is ``open`` or ``implied``. A
+    typed internal wall is solid; an open neighbour is dotted; an implied
+    neighbour (beside, wall not typed) is dash-dotted; any leftover stretch is
+    dashed as a missing exterior.
     """
     defaults = defaults or {}
     # an upper floor is see-through, so the room below shows through it
@@ -645,10 +675,32 @@ def _add_room(
         span = _span(box, face)
         stretches = _wall_stretches(by_face[face], span)
         shared = [(item, s, e) for item, on, s, e in inside or () if on == face]
-        covered = [(s, e) for _, s, e in stretches] + [(s, e) for _, s, e in shared]
-        for start, end in _gaps(covered, span):
-            outline = _quad(box, face, start, end, 0.0, box.height)
-            scene.polygons.append(Poly(outline, "none", MISSING_LINE, 1.0, True))
+        # solid walls cover the face; open typed internals are drawn dotted
+        solid = [
+            (s, e)
+            for item, s, e in shared
+            if item.kind == INTERNAL_WALL and not item.open_link
+        ]
+        opened = [
+            (s, e)
+            for item, s, e in shared
+            if item.kind == INTERNAL_WALL and item.open_link
+        ]
+        linked = [(s, e, kind) for on, s, e, kind in links or () if on == face]
+        open_links = [(s, e) for s, e, kind in linked if kind == "open"]
+        implied = [(s, e) for s, e, kind in linked if kind == "implied"]
+        walled = [(s, e) for _, s, e in stretches] + solid
+        neighbour = opened + open_links + implied
+        for start, end in _gaps(walled + neighbour, span):
+            scene.polygons.append(
+                _outline(box, face, start, end, MISSING_LINE, MISSING_DASH)
+            )
+        for start, end in opened + open_links:
+            scene.polygons.append(_outline(box, face, start, end, OPEN_LINE, OPEN_DASH))
+        for start, end in implied:
+            scene.polygons.append(
+                _outline(box, face, start, end, IMPLIED_LINE, IMPLIED_DASH)
+            )
         for wall, start, end in stretches:
             outline = _quad(box, face, start, end, 0.0, box.height)
             scene.polygons.append(Poly(outline, WALL_FILL, WALL_LINE, opacity))
@@ -663,8 +715,8 @@ def _add_room(
             scene.labels.extend(
                 _wall_labels(box, face, wall, start, end, unit, defaults)
             )
-        for item, start, end in shared:  # the walls first, so the doors sit on them
-            if item.kind == INTERNAL_WALL:
+        for item, start, end in shared:  # solid internals first, then their doors
+            if item.kind == INTERNAL_WALL and not item.open_link:
                 outline = _quad(box, face, start, end, 0.0, box.height)
                 scene.polygons.append(Poly(outline, WALL_FILL, WALL_LINE, opacity))
         for item, start, end in shared:
@@ -705,6 +757,140 @@ def _inside_parts(
             continue
         placed.append((item, *found))
     return placed, notes
+
+
+def _dashed_faces(
+    box: Box,
+    rotation: float,
+    parts: Parts,
+    inside: list,
+    links: list[tuple[str, float, float, str]],
+) -> list[str]:
+    """The faces ``_add_room`` leaves a dashed stretch on (no wall, no neighbour)."""
+    out = []
+    for face in FACE_ORDER:
+        span = _span(box, face)
+        walls = [
+            w for w in parts.walls.get(box.area, []) if _face_of(w, rotation) == face
+        ]
+        covered = [(s, e) for _, s, e in _wall_stretches(walls, span)]
+        covered += [
+            (s, e)
+            for item, on, s, e in inside
+            if on == face and item.kind == INTERNAL_WALL
+        ]
+        covered += [(s, e) for on, s, e, _ in links if on == face]
+        if _gaps(covered, span):
+            out.append(face)
+    return out
+
+
+def _typed_internal_others(parts: Parts, area_id: str) -> set[str]:
+    """The other rooms already covered by a typed internal wall on ``area_id``."""
+    others: set[str] = set()
+    for wall in parts.internal.get(area_id, []):
+        other = wall.other_area_id if wall.area_id == area_id else wall.area_id
+        if other:
+            others.add(other)
+    return others
+
+
+def _link_stretches(
+    elements: dict[str, Element],
+    parts: Parts,
+    area_id: str,
+    boxes: dict[str, Box],
+) -> list[tuple[str, float, float, str]]:
+    """Same-floor neighbour stretches with no typed internal wall.
+
+    Each item is ``(face, start, end, kind)`` where ``kind`` is ``open`` (no wall
+    between) or ``implied`` (beside, wall not typed yet). Typed internal walls
+    are left to ``_inside_parts``.
+    """
+    here = boxes.get(area_id)
+    if here is None:
+        return []
+    typed = _typed_internal_others(parts, area_id)
+    out: list[tuple[str, float, float, str]] = []
+    for link in neighbours(elements).get(area_id, []):
+        if link["position"] != BESIDE:
+            continue
+        other_id = link["area_id"]
+        if other_id in typed:
+            continue
+        there = boxes.get(other_id)
+        found = _shared_face(here, there) if there else None
+        if found is None:
+            continue
+        face, start, end = found
+        out.append((face, start, end, "open" if link.get("open") else "implied"))
+    return out
+
+
+def _wall_coverage(
+    elements: dict[str, Element],
+    rotation: float,
+    boxes: dict[str, Box],
+) -> dict[str, dict[str, list[tuple[float, float]]]]:
+    """Each room's outside-wall stretches by house face (metres along the face)."""
+    by_face: dict[tuple[str, str], list[Element]] = {}
+    for wall in elements.values():
+        if wall.kind != WALL or not wall.area_id:
+            continue
+        by_face.setdefault((wall.area_id, _face_of(wall, rotation)), []).append(wall)
+    out: dict[str, dict[str, list[tuple[float, float]]]] = {}
+    for (area, face), walls in by_face.items():
+        box = boxes.get(area)
+        if box is None:
+            continue
+        out.setdefault(area, {})[face] = [
+            (start, end) for _, start, end in _wall_stretches(walls, _span(box, face))
+        ]
+    return out
+
+
+def _stretch_hits(covered: list[tuple[float, float]], start: float, end: float) -> bool:
+    """Whether ``[start, end]`` overlaps any stretch in ``covered``."""
+    return any(min(end, hi) - max(start, lo) > 1e-6 for lo, hi in covered)
+
+
+def _shared_on_other(
+    a: Box, face: str, start: float, end: float, b: Box
+) -> tuple[float, float]:
+    """``a``'s shared stretch remapped onto ``b``'s opposite face."""
+    if face in ("N", "S"):
+        return (a.x + start) - b.x, (a.x + end) - b.x
+    return (a.y + start) - b.y, (a.y + end) - b.y
+
+
+def _share_hits_outside(
+    a: Box,
+    b: Box,
+    shared: tuple[str, float, float],
+    coverage: dict[str, dict[str, list[tuple[float, float]]]] | None,
+) -> bool:
+    """Whether the shared stretch sits on either room's outside wall."""
+    if not coverage:
+        return False
+    face, start, end = shared
+    if _stretch_hits(coverage.get(a.area, {}).get(face, []), start, end):
+        return True
+    other_start, other_end = _shared_on_other(a, face, start, end, b)
+    return _stretch_hits(
+        coverage.get(b.area, {}).get(OPPOSITE[face], []), other_start, other_end
+    )
+
+
+def _legal_share(
+    a: Box,
+    b: Box,
+    coverage: dict[str, dict[str, list[tuple[float, float]]]] | None = None,
+) -> tuple[str, float, float] | None:
+    """``_shared_face`` when the share is not on an outside wall, else None."""
+    shared = _shared_face(a, b)
+    if shared is None or _share_hits_outside(a, b, shared, coverage):
+        return None
+    return shared
 
 
 def _floor_lines(
@@ -898,27 +1084,78 @@ def _overlaps(a: Box, b: Box) -> bool:
     )
 
 
-def _against(p: Box, n: Box, others: list[Box], walled: set[str]) -> Box | None:
+def _link_faces(elements: dict[str, Element]) -> dict[tuple[str, str], str]:
+    """Preferred face of the first room for seating the second, from typed walls.
+
+    An internal wall's ``face`` is the face of its ``area_id`` that the other
+    room sits on. The reverse link uses the opposite face.
+    """
+    out: dict[tuple[str, str], str] = {}
+    for e in elements.values():
+        if (
+            e.kind != INTERNAL_WALL
+            or e.face not in OPPOSITE
+            or not e.area_id
+            or not e.other_area_id
+        ):
+            continue
+        out[(e.area_id, e.other_area_id)] = e.face
+        out[(e.other_area_id, e.area_id)] = OPPOSITE[e.face]
+    return out
+
+
+def _against(
+    p: Box,
+    n: Box,
+    others: list[Box],
+    walled: set[str],
+    coverage: dict[str, dict[str, list[tuple[float, float]]]] | None = None,
+    prefer: str | None = None,
+) -> Box | None:
     """``n`` set against one of ``p``'s faces, slid along it to a free stretch.
 
-    Prefers the face that points most towards where ``n`` was placed. A face with
-    an outside wall is tried later, except the best-facing one — a kitchen's east
-    wall can be partly outside and still host the entrance and the bath on the
-    rest of that face. None when no non-overlapping seat shares ``SHARE_MIN``.
+    Prefers ``prefer`` when typed (an internal wall's face) and tries only that
+    face — so two neighbours can both be pinned to a kitchen's east wall. With
+    no typed face, prefers the direction ``n`` already points, demoting faces
+    that already have an outside wall (except the best-facing one, so a partial
+    outside stretch can still host neighbours). A seat whose shared stretch
+    overlaps either room's outside wall is skipped, as is one that would put an
+    outside wall against any other room. None when no non-overlapping seat
+    shares ``SHARE_MIN``.
     """
-    dx = (n.x + n.width / 2) - (p.x + p.width / 2)
-    dy = (n.y + n.depth / 2) - (p.y + p.depth / 2)
-    order = sorted(OUTWARD, key=lambda f: -(OUTWARD[f][0] * dx + OUTWARD[f][1] * dy))
-    best = order[0]
-    # keep the primary direction even when it has an outside wall; demote others
-    order.sort(key=lambda f: f in walled and f != best)
+    if prefer in OUTWARD:
+        order = [prefer]
+        best = prefer
+    else:
+        dx = (n.x + n.width / 2) - (p.x + p.width / 2)
+        dy = (n.y + n.depth / 2) - (p.y + p.depth / 2)
+        order = sorted(
+            OUTWARD, key=lambda f: -(OUTWARD[f][0] * dx + OUTWARD[f][1] * dy)
+        )
+        best = order[0]
+        # keep the primary direction even when it has an outside wall; demote others
+        order.sort(key=lambda f: f in walled and f != best)
+    cov = coverage or {}
     for face in order:
         for along in _along_candidates(p, face, n):
             spot = _touching(p, face, n, along)
             if any(_overlaps(spot, o) for o in others):
                 continue
-            if _shared_face(p, spot) is not None:
-                return spot
+            shared = _shared_face(p, spot)
+            if shared is None or _share_hits_outside(p, spot, shared, cov):
+                continue
+            # also reject seats that put an outside wall against any other room
+            hits_other = False
+            for other in others:
+                if other.area == p.area:
+                    continue
+                side = _shared_face(spot, other)
+                if side is not None and _share_hits_outside(spot, other, side, cov):
+                    hits_other = True
+                    break
+            if hits_other:
+                continue
+            return spot
     return None
 
 
@@ -1023,6 +1260,8 @@ def _snap_to_walls(
     walls: list[tuple[str, str]],
     faces: dict[str, set[str]],
     floor_of: dict[str, int],
+    coverage: dict[str, dict[str, list[tuple[float, float]]]] | None = None,
+    link_faces: dict[tuple[str, str], str] | None = None,
 ) -> dict[str, str]:
     """Move each room with no typed position against a room it is linked to on
     the same floor (an internal wall, or a neighbour beside it), and so on from
@@ -1033,9 +1272,13 @@ def _snap_to_walls(
     floors are ignored (``floor_of`` gives each room's floor). A group of linked
     rooms with no typed room keeps the one it was grid-placed at as its start.
     Each seat slides along the shared face so several rooms can share one wall.
-    Returns each moved room's ``room it was put against``.
+    ``coverage`` is each room's outside-wall stretches (see ``_wall_coverage``),
+    so a seat never lands on an exterior wall. ``link_faces`` prefers a typed
+    internal-wall face when seating. Returns each moved room's ``room it was put
+    against``.
     """
     links = _same_floor_links(walls, boxes, floor_of)
+    prefer = link_faces or {}
     fixed = set(typed)
     seen: set[str] = set()
     for start in sorted(boxes):
@@ -1060,7 +1303,14 @@ def _snap_to_walls(
             if n_area in fixed or abs(boxes[n_area].z - p.z) >= LEVEL_STEP:
                 continue
             others = [b for k, b in boxes.items() if k != n_area]
-            spot = _against(p, boxes[n_area], others, faces.get(p_area, set()))
+            spot = _against(
+                p,
+                boxes[n_area],
+                others,
+                faces.get(p_area, set()),
+                coverage,
+                prefer.get((p_area, n_area)),
+            )
             if spot is None:
                 continue
             boxes[n_area] = spot
@@ -1076,15 +1326,20 @@ def _close_links(
     walls: list[tuple[str, str]],
     faces: dict[str, set[str]],
     floor_of: dict[str, int],
+    coverage: dict[str, dict[str, list[tuple[float, float]]]] | None = None,
+    link_faces: dict[tuple[str, str], str] | None = None,
 ) -> dict[str, str]:
     """A second pass: move untyped rooms so leftover same-floor links touch.
 
     The first snap seats each room against one neighbour. Links that were not
     used (two rooms both fixed to a hall, or a seat that failed) are closed here
     by sliding the movable room along the held one's face. User-typed positions
-    stay fixed. Returns each moved room's hold room.
+    stay fixed. ``coverage`` keeps seats off outside-wall stretches.
+    ``link_faces`` prefers a typed internal-wall face when seating. Returns each
+    moved room's hold room.
     """
     links = _same_floor_links(walls, boxes, floor_of)
+    prefer = link_faces or {}
     moved: dict[str, str] = {}
 
     def touching_count(area: str) -> int:
@@ -1092,7 +1347,7 @@ def _close_links(
         return sum(
             1
             for other in links.get(area, ())
-            if other in boxes and _shared_face(here, boxes[other]) is not None
+            if other in boxes and _legal_share(here, boxes[other], coverage) is not None
         )
 
     # Cap iterations: a layout that never settles used to loop forever and
@@ -1108,27 +1363,44 @@ def _close_links(
             }
         )
         for a, b in pairs:
-            if _shared_face(boxes[a], boxes[b]) is not None:
+            # Seed packing can leave rooms touching on an outside wall; treat
+            # that as not closed so they are re-seated off the exterior.
+            if _legal_share(boxes[a], boxes[b], coverage) is not None:
                 continue
             if a in typed and b in typed:
                 continue
+            # Prefer moving the room that touches fewer neighbours; try both
+            # ways when neither is typed so a one-way miss (alphabet order)
+            # does not leave a link open.
             if a in typed:
-                move, hold = b, a
+                trials = [(b, a)]
             elif b in typed:
-                move, hold = a, b
+                trials = [(a, b)]
             elif touching_count(a) != touching_count(b):
-                # move the one that touches fewer neighbours already
-                move, hold = (a, b) if touching_count(a) < touching_count(b) else (b, a)
+                first = (a, b) if touching_count(a) < touching_count(b) else (b, a)
+                trials = [first, (first[1], first[0])]
             else:
-                move, hold = (a, b) if a > b else (b, a)
-            others = [bx for k, bx in boxes.items() if k != move]
-            spot = _against(boxes[hold], boxes[move], others, faces.get(hold, set()))
-            # A no-op seat still used to set changed and spin forever.
-            if spot is None or spot == boxes[move]:
-                continue
-            boxes[move] = spot
-            moved[move] = hold
-            changed = True
+                first = (a, b) if a > b else (b, a)
+                trials = [first, (first[1], first[0])]
+            for move, hold in trials:
+                if move in typed:
+                    continue
+                others = [bx for k, bx in boxes.items() if k != move]
+                spot = _against(
+                    boxes[hold],
+                    boxes[move],
+                    others,
+                    faces.get(hold, set()),
+                    coverage,
+                    prefer.get((hold, move)),
+                )
+                # A no-op seat still used to set changed and spin forever.
+                if spot is None or spot == boxes[move]:
+                    continue
+                boxes[move] = spot
+                moved[move] = hold
+                changed = True
+                break
         if not changed:
             break
     return moved
@@ -1207,6 +1479,7 @@ def _place(
     _, screen_dy = project((0.0, 1.0, 0.0), view)
     up = 1.0 if screen_dy < 0 else -1.0
     walls = _beside_pairs(elements)
+    link_faces = _link_faces(elements)
     groups: list[list[str]] = []  # each floor's grid-placed rooms, lowest floor first
     for line in _floor_lines(loose, floors):
         line_boxes, line_notes, depth = _seed_floor(line, faces, walls, edge, unit)
@@ -1217,8 +1490,14 @@ def _place(
         notes.extend(line_notes)
     by_area = {b.area: b for b in boxes}
     floor_of = _floor_index(elements, set(by_area), floors)
-    snapped = _snap_to_walls(by_area, typed, walls, faces, floor_of)
-    snapped.update(_close_links(by_area, typed, walls, faces, floor_of))
+    # spans (not positions) drive coverage, so one pass is enough for snap+close
+    coverage = _wall_coverage(elements, rotation, by_area)
+    snapped = _snap_to_walls(
+        by_area, typed, walls, faces, floor_of, coverage, link_faces
+    )
+    snapped.update(
+        _close_links(by_area, typed, walls, faces, floor_of, coverage, link_faces)
+    )
     _stack_floors(by_area, groups, up)
     titles = {e.area_id: e.title for e in elements.values() if e.kind == ROOM}
     for area in sorted(grid_placed):
@@ -1585,7 +1864,7 @@ def render(scene: Scene, width: int = 900) -> str:
     # the order the layers are drawn in: the roofs over the rooms and runs
     layers: dict[str, list[str]] = {"rooms": [], "runs": [], "roofs": []}
     for poly in scene.polygons:
-        dash = ' stroke-dasharray="4 3"' if poly.dashed else ""
+        dash = f' stroke-dasharray="{poly.dasharray}"' if poly.dashed else ""
         layers.setdefault(poly.layer, []).append(
             f'<polygon points="{" ".join(at(p) for p in poly.points)}" '
             f'fill="{poly.fill}" fill-opacity="{poly.opacity}" '
@@ -1812,10 +2091,10 @@ def room_svg(
         )
         return render(scene)
     parts = _parts(elements)
-    faces = {_face_of(w, rotation) for w in parts.walls.get(area_id, [])}
     placed, _ = _place(elements, unit, None, rotation, view)
     where = {b.area: b for b in placed}
     inside, door_notes = _inside_parts(elements, parts, area_id, where)
+    links = _link_stretches(elements, parts, area_id, where)
     _add_room(
         scene,
         box,
@@ -1826,15 +2105,24 @@ def room_svg(
         unit,
         labelled=True,
         defaults=defaults,
+        links=links,
     )
     _add_roofs(scene, [box], elements, rotation, unit, defaults)
     scene.notes.extend(box.notes)
     scene.notes.extend(door_notes)
     _add_links(scene, box, elements, where, neighbours(elements).get(area_id, []))
-    missing = [face for face in FACE_ORDER if face not in faces]
+    missing = _dashed_faces(box, rotation, parts, inside, links)
     if missing:
         scene.notes.append(
             "Dashed faces have no wall part yet: " + ", ".join(missing) + "."
+        )
+    if any(kind == "open" for *_, kind in links) or any(
+        item.open_link for item, *_ in inside if item.kind == INTERNAL_WALL
+    ):
+        scene.notes.append("Dotted faces are open (no wall) to a neighbour.")
+    if any(kind == "implied" for *_, kind in links):
+        scene.notes.append(
+            "Dash-dotted faces share a neighbour with no internal wall typed yet."
         )
     scene.notes.append(
         f"Looking from the {VIEWS[view % 4]}. Windows and doors (brown) sit centred, "
@@ -1897,7 +2185,18 @@ def house_svg(
     scene = Scene(north=_north(rotation, view), view=view % 4)
     for box in sorted(drawn, key=lambda b: _depth_key(b, view)):
         inside, door_notes = _inside_parts(elements, parts, box.area, where)
-        _add_room(scene, box, rotation, parts, colours, inside, unit, defaults=defaults)
+        links = _link_stretches(elements, parts, box.area, where)
+        _add_room(
+            scene,
+            box,
+            rotation,
+            parts,
+            colours,
+            inside,
+            unit,
+            defaults=defaults,
+            links=links,
+        )
         notes.extend(door_notes)
     # the plenum keeps its height's lift; each run's outlet goes with its floor
     plenum_lifts = floor_lifts(boxes) if exploded else []

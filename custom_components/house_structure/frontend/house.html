@@ -260,7 +260,9 @@ async function loadDrawing() {
     url = `/api/house_structure/room.svg?area=${encodeURIComponent(state.room)}&view=${state.view}&text=${text}&v=${stamp}`;
     box.setAttribute("aria-label", `${room ? room.name : "The room"}, from the ${VIEWS[state.view]}`);
     hint.textContent = `The room from its size and its parts, looking from the ${VIEWS[state.view]}. `
-      + "Dashed faces have no wall part yet; the dots are the registers' outlets. "
+      + "Solid faces are typed walls; dotted are open to a neighbour; dash-dotted share a "
+      + "neighbour with no internal wall typed yet; dashed have no wall part yet. "
+      + "The dots are the registers' outlets. "
       + "Arrows point to the rooms it links to: beside, open, above or below.";
   } else if (part) {
     url = `/api/house_structure/plan.svg?areas=${encodeURIComponent(part.areas.join(","))}&view=${state.view}&v=${stamp}`;

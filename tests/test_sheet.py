@@ -12,6 +12,7 @@ from custom_components.house_structure.sheet import (
     links,
     outside_faces,
     parse,
+    shared_face,
     shared_length,
 )
 
@@ -97,6 +98,8 @@ def test_outside_faces_leave_out_the_shared_side():
         "W": pytest.approx(3.0),
     }
     assert faces.get("E") is None
+    assert shared_face(hall, kitchen) == "E"
+    assert shared_face(kitchen, hall) == "W"
 
 
 def test_a_face_only_partly_shared_is_partly_outside():

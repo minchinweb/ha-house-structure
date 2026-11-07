@@ -197,6 +197,7 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
         fields[vol.Required("area_id")] = _AREA
     if kind == INTERNAL_WALL:
         fields[vol.Required("other_area_id")] = _AREA
+        fields[vol.Optional("face")] = _faces(float(house.get("rotation") or 0.0))
         fields[vol.Optional("open", default=False)] = selector.BooleanSelector()
     fields[vol.Optional("name")] = _TEXT
     if kind == ROOM:
@@ -334,6 +335,8 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
                 raise FieldError(key, f"a room is both {key} and {other}")
     if kind == INTERNAL_WALL:
         data["open"] = bool(form.get("open", False))
+        if data.get("face") and data["face"] not in FACES:
+            raise FieldError("face", f"not a face: {data['face']!r}")
     for key in ("facing", "shade_below", "transmittance", "blind_closed"):
         if form.get(key) is not None:
             data[key] = float(form[key])
@@ -713,8 +716,10 @@ def default_title(hass, entry, kind: str, data: dict) -> str:
         return f"{facing(host.data)} door".strip().capitalize()
     if kind == INTERNAL_WALL:
         other = areas.async_get_area(data.get("other_area_id") or "")
-        what = "Opening to" if data.get("open") else "Wall to"
-        return f"{what} {other.name if other else 'another room'}"
+        side = FACE_NAMES.get(data.get("face") or "", "")
+        link = "opening" if data.get("open") else "wall"
+        what = f"{side} {link}".strip().capitalize()
+        return f"{what} to {other.name if other else 'another room'}"
     if kind == ROOM:  # Room, Hallway or Stairs
         return data.get("room_type", "room").capitalize()
     if kind == REGISTER:
@@ -746,9 +751,10 @@ class _PartFlow(ConfigSubentryFlow):
             if "beside" not in subentry.data:
                 current["beside"] = self._same_floor(area_id)
             # links another room made show as ticked: unticking one removes it
-            current["beside"] = sorted(
-                set(current.get("beside") or []) | set(self._beside_links(area_id))
-            )
+            for key in ("beside", "open"):
+                current[key] = sorted(
+                    set(current.get(key) or []) | set(self._links_from(area_id, key))
+                )
         return await self._step("reconfigure", user_input, current)
 
     def _house(self) -> dict:
@@ -804,22 +810,22 @@ class _PartFlow(ConfigSubentryFlow):
                     out.append(d.get("area_id"))
         return [a for a in dict.fromkeys(out) if a]
 
-    def _beside_links(self, area_id: str | None) -> list[str]:
-        """The other rooms whose own list names this room as beside."""
+    def _links_from(self, area_id: str | None, key: str) -> list[str]:
+        """The other rooms whose own ``key`` list (beside or open) names this room."""
         if not area_id:
             return []
         return [
             sub.data["area_id"]
             for sub in self._rooms()
             if sub.data.get("area_id") not in (None, area_id)
-            and area_id in (sub.data.get("beside") or [])
+            and area_id in (sub.data.get(key) or [])
         ]
 
-    def _unlink_beside(self, area_id: str, keep: list[str]) -> None:
-        """Take this room out of other rooms' beside lists, except those kept.
+    def _unlink(self, area_id: str, keep: list[str], key: str) -> None:
+        """Take this room out of other rooms' ``key`` lists, except those kept.
 
-        The form ticks every beside link, from either side, so a room left
-        unticked here must come off the other room's list too.
+        The form ticks every beside or open link, from either side, so a room
+        left unticked here must come off the other room's list too.
         """
         entry = self._get_entry()
         for sub in self._rooms():
@@ -827,12 +833,12 @@ class _PartFlow(ConfigSubentryFlow):
             other = data.get("area_id")
             if other in (None, area_id) or other in keep:
                 continue
-            beside = data.get("beside") or []
-            if area_id in beside:
+            links = data.get(key) or []
+            if area_id in links:
                 self.hass.config_entries.async_update_subentry(
                     entry,
                     sub,
-                    data={**data, "beside": [a for a in beside if a != area_id]},
+                    data={**data, key: [a for a in links if a != area_id]},
                 )
 
     def _same_floor(self, area_id: str | None) -> list[str]:
@@ -913,7 +919,8 @@ class _PartFlow(ConfigSubentryFlow):
                     data
                 )
                 if step_id == "reconfigure" and self.kind == ROOM:
-                    self._unlink_beside(data["area_id"], data["beside"])
+                    self._unlink(data["area_id"], data["beside"], "beside")
+                    self._unlink(data["area_id"], data["open"], "open")
                 if step_id == "reconfigure":
                     return self.async_update_and_abort(
                         self._get_entry(),
@@ -947,8 +954,10 @@ class _PartFlow(ConfigSubentryFlow):
         url = f"{RoomDrawingView.url}?area={quote(area)}&v={int(time.time())}"
         return (
             f"![Room drawing]({url})\n\nThe room from its size and its parts as "
-            "saved, looking from the south-west. Dashed faces have no wall part yet; "
-            "the dots are the registers' outlets."
+            "saved, looking from the south-west. Solid faces are typed walls; "
+            "dotted are open to a neighbour; dash-dotted share a neighbour with no "
+            "internal wall typed yet; dashed have no wall part yet. The dots are "
+            "the registers' outlets."
         )
 
 

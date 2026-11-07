@@ -160,6 +160,30 @@ def shared_length(a: Footprint, b: Footprint) -> float:
     return total
 
 
+def shared_face(a: Footprint, b: Footprint) -> str | None:
+    """The face of ``a`` that ``b`` sits on (N, E, S or W), or None if they do
+    not share an edge on one floor.
+
+    When they share a corner (two edges), the longer share wins.
+    """
+    if not _touch(a.level, b.level):
+        return None
+    candidates: list[tuple[float, str]] = []
+    east = _overlap(a.y, a.north, b.y, b.north)
+    north = _overlap(a.x, a.east, b.x, b.east)
+    if _touch(a.east, b.x) and east > TOLERANCE:
+        candidates.append((east, "E"))
+    if _touch(a.x, b.east) and east > TOLERANCE:
+        candidates.append((east, "W"))
+    if _touch(a.north, b.y) and north > TOLERANCE:
+        candidates.append((north, "N"))
+    if _touch(a.y, b.north) and north > TOLERANCE:
+        candidates.append((north, "S"))
+    if not candidates:
+        return None
+    return max(candidates)[1]
+
+
 def overlap_area(a: Footprint, b: Footprint) -> float:
     """The floor both rooms take up, in square metres (0 if they do not overlap)."""
     return _overlap(a.x, a.east, b.x, b.east) * _overlap(a.y, a.north, b.y, b.north)

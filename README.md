@@ -91,7 +91,7 @@ its room from there: a door in an internal wall joins the rooms on both sides.
 | Roof | the rooms under it, face, pitch (`45` or `12:12`), floor area under it (or length along the eave and slope length) | solar exposure (W/m²) |
 | Window | the wall or roof it is in (and, in a shared roof, its room), glass size, share let in as heat, blind (a cover) | solar gain (W), less what the blind keeps out |
 | Door | the outside or internal wall it is in, its contact sensor (a binary sensor, on when open), width, height | open (follows the contact; only for a door with one) |
-| Internal wall | the room on the other side, length, height | this room minus the other (°C) |
+| Internal wall | the room on the other side, face of this room, length, height | this room minus the other (°C) |
 | Heating register | thermostat, its fan or damper | heating (on while the thermostat heats) |
 | Furnace | its room, input per stage (BTU/h), AFUE (%), blower curve | none |
 | Air conditioner | its indoor coil's room, size (tons), sensible capacity (BTU/h) | none |
@@ -116,9 +116,14 @@ garage. An **open to** list is for rooms beside it with **no wall between**,
 such as an open-plan kitchen: a link is open if either room lists it so.
 
 An **internal wall** part gives a beside link its size and a temperature
-difference sensor, and is where a door between two rooms goes. Its **Open**
-tick marks a link with no wall (an arch, say), which keeps the sensor. The
-sheet below creates these for you.
+difference sensor, and is where a door between two rooms goes. Its **Face**
+is which side of this room the other room sits on (north, east, south or
+west): set it when several neighbours share one face, such as a kitchen's east
+wall that is partly outside, partly open to a landing, and partly a wall to a
+bath. Leave it blank and the house drawing chooses. Its **Open** tick marks a
+link with no wall (an arch, say), which keeps the sensor. The sheet below
+creates these for you, and fills in the face from the rooms' footprints when
+it can.
 
 A room's **type** is a room, a **hallway** or **stairs**. A link to a hallway or
 stairs is open unless the sheet says otherwise.
@@ -272,6 +277,8 @@ House Structure publishes each room's parts as plain data in
                     "other_area_id": "upstairs_bath",
                     "area_m2": None,
                     "door_m2": 1.54,
+                    "open": False,
+                    "face": "E",  # this room's face; omitted when not typed
                 }
             ],
             "registers": [

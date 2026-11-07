@@ -16,7 +16,7 @@ Add the parts from the integration's page, in this order, so that each form can 
 2. **Rooms.** One per area. Give each its size. Give its position too (east and north of the house's south-west corner, and its floor height) if you want the house drawing, or if you will use the sheet to work out which rooms touch.
 3. **Outside walls and roofs.** Each is one face of a room, with its face and length. A roof can cover several rooms.
 4. **Windows and skylights.** Each sits in a wall or roof you have already added, so add the wall first.
-5. **Walls between rooms.** Each is a link between two rooms. The sheet (below) creates these for you from the rooms' footprints, so you rarely need to add them by hand.
+5. **Walls between rooms.** Each is a link between two rooms. Give the face of this room the other sits on when you care which side they share (a kitchen with two neighbours on its east wall, for example). The sheet (below) creates these for you from the rooms' footprints, so you rarely need to add them by hand.
 6. **Doors.** Each sits in an outside wall or an internal wall. Add a door's contact sensor if it has one.
 7. **Heating registers.** Each needs the thermostat (climate entity) that calls for its heat.
 8. **Equipment and detached buildings** (furnace, air conditioner, a building's rooms), if you have them.

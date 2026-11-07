@@ -17,7 +17,7 @@ import math
 from typing import NamedTuple
 
 from .constants import DOOR, INTERNAL_WALL, REGISTER, ROOF, ROOM, WALL, WINDOW
-from .geometry import Plane, face_azimuth
+from .geometry import OPPOSITE, Plane, face_azimuth
 
 # Defaults for a window: the share of the light double glazing lets in as
 # heat, and the share a closed blind still lets through.
@@ -104,8 +104,10 @@ class Element:
     below_grade_m: float | None = None
     # For a room: whether ``below_grade_m`` is the house's default, not its own.
     below_grade_default: bool = False
-    # For a wall: its length along the ground, and its face in the house's grid
-    # (N, E, S or W: the nearest one when the wall sets its own bearing).
+    # For an outside or internal wall: its length along the ground, and its face
+    # in the house's grid (N, E, S or W). For an outside wall, the nearest face
+    # when it sets its own bearing. For an internal wall, the face of ``area_id``
+    # that the other room sits on (optional).
     length_m: float | None = None
     face: str | None = None
     free_area_in2: float | None = None
@@ -168,6 +170,8 @@ class Element:
             out["other_area_id"] = self.other_area_id
             out["door_m2"] = round(self.door_m2, 3)
             out["open"] = self.open_link
+            if self.face:
+                out["face"] = self.face
         if self.kind == DOOR:
             out["host"] = self.host
             out["other_area_id"] = self.other_area_id
@@ -349,6 +353,7 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 r_value_si=_optional(d.get("r_value_si")),
             )
         elif raw.kind == INTERNAL_WALL:
+            face = d.get("face")
             elements[raw.id] = Element(
                 raw.id,
                 INTERNAL_WALL,
@@ -357,6 +362,9 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 size_m2=_area(d, "length_m", "height_m"),
                 other_area_id=d.get("other_area_id"),
                 open_link=bool(d.get("open", False)),
+                length_m=_optional(d.get("length_m")),
+                height_m=_optional(d.get("height_m")),
+                face=face if face in OPPOSITE else None,
             )
     for raw in raws:
         if raw.kind != WINDOW:
@@ -671,14 +679,19 @@ def rooms_summary(
             ):
                 side = room(this)
                 if side is not None:
-                    side["internal_walls"].append(
-                        {
-                            "title": e.title,
-                            "other_area_id": other,
-                            "area_m2": e.size_m2,
-                            "door_m2": e.door_m2,
-                        }
-                    )
+                    face = e.face
+                    if face and this == e.other_area_id:
+                        face = OPPOSITE[face]
+                    entry = {
+                        "title": e.title,
+                        "other_area_id": other,
+                        "area_m2": e.size_m2,
+                        "door_m2": e.door_m2,
+                        "open": e.open_link,
+                    }
+                    if face:
+                        entry["face"] = face
+                    side["internal_walls"].append(entry)
         elif e.kind == REGISTER:
             here["registers"].append(
                 {

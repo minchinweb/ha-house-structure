@@ -200,7 +200,7 @@ RAWS = [
         "int",
         INTERNAL_WALL,
         "Master to bath",
-        {"area_id": "master", "other_area_id": "bath"},
+        {"area_id": "master", "other_area_id": "bath", "face": "E"},
     ),
     Raw(
         "reg",
@@ -273,8 +273,12 @@ def test_rooms_summary_for_other_integrations():
     ]
     # the internal wall is in both rooms; the bath has no other parts
     assert master["internal_walls"][0]["other_area_id"] == "bath"
+    assert master["internal_walls"][0]["face"] == "E"
+    assert master["internal_walls"][0]["open"] is False
     assert bath["internal_walls"][0]["other_area_id"] == "master"
+    assert bath["internal_walls"][0]["face"] == "W"  # opposite of master's east
     assert bath["title"] is None and bath["windows"] == []
+    assert elements["int"].attributes()["face"] == "E"
 
 
 @pytest.mark.parametrize(

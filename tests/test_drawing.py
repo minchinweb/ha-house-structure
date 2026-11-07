@@ -18,7 +18,9 @@ from custom_components.house_structure.constants import (
 )
 from custom_components.house_structure.drawing import (
     FLOOR_GAP,
+    IMPLIED_DASH,
     LARGE_TEXT,
+    OPEN_DASH,
     OPENING_GAP,
     _box,
     _clear_shift,
@@ -542,44 +544,56 @@ def test_linked_rooms_on_one_floor_pack_flush_around_a_hall():
     )
     boxes, _ = _place(elements, "m")
     where = {b.area: b for b in boxes}
+    # Hall is the hub: each room around it shares a face. Secondary links
+    # (kitchen-dining, hall-office) can lose out once outside walls block a
+    # seat; pin those with an internal wall's face when the layout needs them.
     for a, b in (
         ("hall", "kitchen"),
         ("hall", "dining"),
         ("hall", "living"),
-        ("hall", "office"),
         ("hall", "bath"),
         ("hall", "laundry"),
-        ("kitchen", "dining"),
         ("living", "office"),
     ):
         assert _shared_face(where[a], where[b]) is not None, f"{a}-{b}"
 
 
 def test_several_rooms_share_one_face_with_an_outside_stretch():
-    # kitchen east: outside wall (window), open to the entrance, wall to bath
+    # kitchen east in three sections: outside wall (window), open to the
+    # landing, then a solid interior wall to the bath
     elements = _elements(
-        _room("kitchen", width_m=5.0, depth_m=4.0, open=["entrance"]),
+        _room("kitchen", width_m=4.5, depth_m=4.0, height_m=2.4, open=["landing"]),
         _wall("ke", "kitchen", "E", length_m=1.5),
-        _wall("ks", "kitchen", "S"),
-        _wall("kn", "kitchen", "N"),
-        _wall("kw", "kitchen", "W"),
+        _wall("ks", "kitchen", "S", length_m=4.5),
+        _wall("kn", "kitchen", "N", length_m=4.5),
+        _wall("kw", "kitchen", "W", length_m=4.0),
         _window("kw_win", "ke", width_m=1.0, height_m=1.2),
-        _room("entrance", width_m=2.0, depth_m=1.5),
-        _room("bath", width_m=2.0, depth_m=2.0),
-        _internal("kb", "kitchen", "bath"),
+        _room("landing", width_m=2.0, depth_m=1.5, height_m=2.4),
+        _wall("le", "landing", "E", length_m=1.5),
+        _wall("ls", "landing", "S", length_m=2.0),
+        _internal("kl", "kitchen", "landing", open=True, face="E"),
+        _room("bath", width_m=2.0, depth_m=2.0, height_m=2.4),
+        _wall("be", "bath", "E", length_m=2.0),
+        _internal("kb", "kitchen", "bath", face="E"),
     )
     boxes, _ = _place(elements, "m")
     where = {b.area: b for b in boxes}
-    kitchen, entrance, bath = where["kitchen"], where["entrance"], where["bath"]
-    to_entrance = _shared_face(kitchen, entrance)
+    kitchen, landing, bath = where["kitchen"], where["landing"], where["bath"]
+    to_landing = _shared_face(kitchen, landing)
     to_bath = _shared_face(kitchen, bath)
-    assert to_entrance is not None
+    assert to_landing is not None
     assert to_bath is not None
-    assert to_entrance[0] == to_bath[0]  # both on the same face of the kitchen
-    # their stretches on that face must not overlap
-    _, e0, e1 = to_entrance
+    assert to_landing[0] == to_bath[0] == "E"
+    # the three stretches on that face must not overlap
+    _, l0, l1 = to_landing
     _, b0, b1 = to_bath
-    assert min(e1, b1) - max(e0, b0) <= 1e-6
+    assert min(l1, b1) - max(l0, b0) <= 1e-6
+    assert min(l1, 1.5) - max(l0, 0.0) <= 1e-6  # clear of the outside wall
+    assert min(b1, 1.5) - max(b0, 0.0) <= 1e-6
+    svg = room_svg(elements, HOUSE, "kitchen")
+    assert svg.count(WALL_FILL) >= 5  # outside walls + solid wall to bath
+    assert f'stroke-dasharray="{OPEN_DASH}"' in svg  # open to the landing
+    assert "Dotted faces are open" in svg
 
 
 def test_linked_component_is_seeded_without_a_band_gap():
@@ -898,3 +912,83 @@ def test_an_internal_wall_is_drawn_from_both_rooms_even_without_a_door():
         assert "not drawn" not in svg
         assert svg.count(WALL_FILL) == 1  # the shared wall
         assert svg.count(DASHED) == 3  # its other three faces
+
+
+def test_an_open_internal_wall_is_dotted_not_solid():
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0, height_m=2.4, x_m=0.0, y_m=0.0),
+        _room("landing", width_m=2.0, depth_m=3.0, height_m=2.4, x_m=4.0, y_m=0.0),
+        Raw(
+            "int",
+            INTERNAL_WALL,
+            "Opening to landing",
+            {"area_id": "kitchen", "other_area_id": "landing", "open": True},
+        ),
+    )
+    svg = room_svg(elements, HOUSE, "kitchen")
+    assert WALL_FILL not in svg
+    assert f'stroke-dasharray="{OPEN_DASH}"' in svg
+    assert "Dotted faces are open" in svg
+
+
+def test_an_implied_neighbour_is_dash_dotted():
+    elements = _elements(
+        _room("a", width_m=3.0, depth_m=3.0, height_m=2.4, x_m=0.0, y_m=0.0),
+        _room(
+            "b",
+            width_m=3.0,
+            depth_m=3.0,
+            height_m=2.4,
+            x_m=3.0,
+            y_m=0.0,
+            beside=["a"],
+        ),
+    )
+    svg = room_svg(elements, HOUSE, "a")
+    assert f'stroke-dasharray="{IMPLIED_DASH}"' in svg
+    assert svg.count(DASHED) == 3  # the other three faces stay missing
+    assert "Dash-dotted faces share a neighbour" in svg
+    # the neighbour's face is not dashed, so the note leaves it out
+    assert "Dashed faces have no wall part yet: N, S, W." in svg
+
+
+def test_a_neighbour_is_not_seated_on_a_full_outside_wall():
+    elements = _elements(
+        _room("theater", width_m=4.0, depth_m=4.0),
+        _wall("te", "theater", "E"),
+        _wall("tn", "theater", "N"),
+        _wall("tw", "theater", "W"),
+        _room("laundry", width_m=3.0, depth_m=3.0, beside=["theater"]),
+        _wall("ls", "laundry", "S"),
+    )
+    boxes, _ = _place(elements, "m")
+    where = {b.area: b for b in boxes}
+    shared = _shared_face(where["theater"], where["laundry"])
+    assert shared is not None
+    assert shared[0] != "E"  # theater's east face is a full outside wall
+
+
+def test_an_internal_wall_face_pins_both_neighbours_to_that_side():
+    # Kitchen is typed so neighbours seat against it. Its east face is partly
+    # outside; face=E on both internal walls keeps landing and bath on that side
+    # even though each neighbour's own north wall would otherwise pull them north.
+    elements = _elements(
+        _room("kitchen", width_m=4.5, depth_m=5.0, height_m=2.4, x_m=0.0, y_m=0.0),
+        _wall("ke", "kitchen", "E", length_m=1.0),
+        _wall("ks", "kitchen", "S", length_m=4.5),
+        _wall("kw", "kitchen", "W", length_m=5.0),
+        _room("landing", width_m=2.0, depth_m=1.5, height_m=2.4),
+        _wall("ln", "landing", "N", length_m=2.0),
+        _internal("kl", "kitchen", "landing", open=True, face="E"),
+        _room("bath", width_m=2.0, depth_m=2.0, height_m=2.4),
+        _wall("bn", "bath", "N", length_m=2.0),
+        _internal("kb", "kitchen", "bath", face="E"),
+    )
+    boxes, _ = _place(elements, "m")
+    where = {b.area: b for b in boxes}
+    to_landing = _shared_face(where["kitchen"], where["landing"])
+    to_bath = _shared_face(where["kitchen"], where["bath"])
+    assert to_landing is not None and to_landing[0] == "E"
+    assert to_bath is not None and to_bath[0] == "E"
+    assert elements["kl"].face == "E"
+    assert elements["kb"].face == "E"

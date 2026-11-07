@@ -13,6 +13,7 @@ import re
 # The four faces of the house grid, as compass bearings before the rotation.
 FACES = {"N": 0.0, "E": 90.0, "S": 180.0, "W": 270.0}
 FACE_NAMES = {"N": "north", "E": "east", "S": "south", "W": "west"}
+OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E"}
 
 # Units sizes can be typed in, as metres per unit. In feet and inches a length
 # is typed as text (``12' 6"``); floor areas and volumes are in feet.

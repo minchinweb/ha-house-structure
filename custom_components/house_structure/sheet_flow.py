@@ -44,6 +44,7 @@ from .sheet import (
     links,
     outside_faces,
     parse,
+    shared_face,
     shared_length,
 )
 
@@ -524,8 +525,10 @@ def plan_sheet(hass, entry: ConfigEntry, text: str) -> SheetPlan:
                 )
             continue
         length = None
+        face = None
         if first in footprints and second in footprints:
             length = shared_length(footprints[first], footprints[second])
+            face = shared_face(footprints[first], footprints[second])
         heights = [
             room_data[area].get("height_m")
             for area in (first, second)
@@ -539,6 +542,8 @@ def plan_sheet(hass, entry: ConfigEntry, text: str) -> SheetPlan:
             "length_m": length or None,
             "height_m": min(heights) if len(heights) == 2 else None,
         }
+        if face:
+            data["face"] = face
         writes.append(
             {
                 "kind": INTERNAL_WALL,
