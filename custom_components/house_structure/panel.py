@@ -15,6 +15,11 @@ version is fetched. They include:
 * ``chart.umd.min.js``: Chart.js, vendored once for every tab (pinned in
   ``frontend/vendor.json``, refreshed with ``invoke vendor``), so opening the
   page fetches nothing from the internet.
+* ``icons.js``: the house integrations' icons as a Home Assistant icon set
+  (``house-structure:house``, ``house-structure:thermal-lab``,
+  ``house-structure:manual-j``), loaded on every page of Home Assistant's
+  frontend. The sidebar page uses the Thermal Lab one. Drawn by
+  ``scripts/brand.py``.
 
 Websocket commands, asked over the sidebar page's own connection:
 
@@ -48,7 +53,8 @@ from .tabs import HOUSE_ORDER, ordered, ordered_overlays
 STATIC_URL = "/house_structure_static"
 PANEL_PATH = "thermal-lab"
 FRONTEND = Path(__file__).parent / "frontend"
-_HASHED = ("frame.html", "house.html", "tab.js", "chart.umd.min.js")
+_HASHED = ("frame.html", "house.html", "tab.js", "chart.umd.min.js", "icons.js")
+SIDEBAR_ICON = "house-structure:thermal-lab"
 _STARTED = f"{DOMAIN}_panel"
 
 
@@ -80,11 +86,13 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         "order": HOUSE_ORDER,
     }
     hass.bus.async_fire(TABS_EVENT)
+    if frontend.DATA_EXTRA_MODULE_URL in hass.data:  # no frontend in some tests
+        frontend.add_extra_js_url(hass, f"{STATIC_URL}/icons.js?v={version}")
     frontend.async_register_built_in_panel(
         hass,
         "iframe",
         sidebar_title="Thermal Lab",
-        sidebar_icon="mdi:home-thermometer-outline",
+        sidebar_icon=SIDEBAR_ICON,
         frontend_url_path=PANEL_PATH,
         require_admin=False,
         config={"url": f"{STATIC_URL}/frame.html?v={version}"},

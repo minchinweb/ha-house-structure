@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="custom_components/house_structure/brand/dark_logo@2x.png">
+  <img alt="House Structure" src="custom_components/house_structure/brand/logo@2x.png" height="64">
+</picture>
+
 # House Structure
 
 A Home Assistant integration that describes your house once: its rooms, outside

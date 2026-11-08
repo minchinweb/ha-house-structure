@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from homeassistant.components.frontend import DATA_PANELS
+from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL, DATA_PANELS
 from homeassistant.config_entries import SOURCE_RECONFIGURE, SOURCE_USER
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -24,7 +24,12 @@ from custom_components.house_structure.constants import (
     UPDATED_EVENT,
 )
 from custom_components.house_structure.equipment import BTU_H_TO_W
-from custom_components.house_structure.panel import PANEL_PATH, STATIC_URL
+from custom_components.house_structure.panel import (
+    FRONTEND,
+    PANEL_PATH,
+    SIDEBAR_ICON,
+    STATIC_URL,
+)
 from custom_components.house_structure.sky import build_url
 
 LAT, LON = 53.5, -113.5
@@ -85,8 +90,37 @@ async def house(hass: HomeAssistant, aioclient_mock):
 async def test_the_page_is_in_the_sidebar(hass: HomeAssistant, house) -> None:
     panel = hass.data[DATA_PANELS][PANEL_PATH]
     assert panel.sidebar_title == "Thermal Lab"
+    assert panel.sidebar_icon == SIDEBAR_ICON
     assert panel.config["url"].startswith(f"{STATIC_URL}/frame.html?v=")
     assert hass.data[TABS]["house"]["order"] == 10
+
+
+class _Urls:
+    """Stands in for the frontend's extra module list (no frontend in tests)."""
+
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+
+    def add(self, url: str) -> None:
+        self.urls.append(url)
+
+
+@pytest.fixture
+def extra_urls(hass: HomeAssistant) -> _Urls:
+    """The extra modules the frontend would load, set up before House Structure."""
+    hass.data[DATA_EXTRA_MODULE_URL] = urls = _Urls()
+    return urls
+
+
+async def test_the_icon_set_is_loaded_on_every_page(
+    hass: HomeAssistant, extra_urls: _Urls, house
+) -> None:
+    assert any(u.startswith(f"{STATIC_URL}/icons.js?v=") for u in extra_urls.urls)
+    prefix, name = SIDEBAR_ICON.split(":")
+    script = (FRONTEND / "icons.js").read_text(encoding="utf-8")
+    assert f'window.customIcons["{prefix}"]' in script
+    for icon in (name, "house", "manual-j"):
+        assert f'"{icon}": {{' in script
 
 
 async def test_tabs_are_sent_as_they_change(
