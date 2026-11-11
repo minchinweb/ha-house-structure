@@ -37,6 +37,8 @@ SKY_SOURCES = [OPEN_METEO, SENSOR]
 OUTLINE = f"{DOMAIN}_outline"
 # The file the building outline is kept in, so it works offline.
 OUTLINE_STORE = f"{DOMAIN}.outline"
+# Sent when the outline is loaded or fetched, so its status sensor follows.
+OUTLINE_SIGNAL = f"{DOMAIN}_outline_changed"
 
 # Fired when the rooms' parts change, for integrations that use them.
 UPDATED_EVENT = "house_structure_updated"

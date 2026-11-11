@@ -13,12 +13,14 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import floor_registry as fr
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.house_structure.constants import (
     DOMAIN,
     OUTLINE,
+    OUTLINE_SIGNAL,
     OUTLINE_STORE,
     UPDATED_EVENT,
 )
@@ -139,6 +141,10 @@ async def house(hass: HomeAssistant, aioclient_mock, freezer):
 
 async def test_devices_are_in_the_room(hass: HomeAssistant, house) -> None:
     devices = dr.async_entries_for_config_entry(dr.async_get(hass), house["entry_id"])
+    # the house's own device carries the outline sensor and has no room
+    house_device = [d for d in devices if d.model == "House"]
+    assert len(house_device) == 1 and house_device[0].area_id is None
+    devices = [d for d in devices if d.model != "House"]
     assert sorted(d.model for d in devices) == [
         "Heating register",
         "Internal wall",
@@ -561,6 +567,37 @@ async def test_setup_restores_a_saved_outline(
     assert hass.data[OUTLINE]["points"] == points
     assert hass.data[OUTLINE]["rotation"] == 10.4
     osm.assert_not_called()
+
+
+async def test_the_outline_sensor_reports_the_status(
+    hass: HomeAssistant, hass_storage: dict, aioclient_mock, osm
+) -> None:
+    """A diagnostic sensor says whether the building was found."""
+    hass.config.latitude, hass.config.longitude = LAT, LON
+    osm.side_effect = OSError("busy")
+    aioclient_mock.get(build_url(LAT, LON), json=SKY)
+    entry = MockConfigEntry(domain=DOMAIN, data={"rotation": 10.4, "unit": "m"})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entity_id = er.async_get(hass).async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_outline"
+    )
+    assert hass.states.get(entity_id).state == "failed"
+
+    points = _outline(10.4, LAT, LON)
+    hass.data[OUTLINE] = {"points": points, "rotation": 10.4}
+    async_dispatcher_send(hass, OUTLINE_SIGNAL)
+    await hass.async_block_till_done()
+    state = hass.states.get(entity_id)
+    assert state.state == "found"
+    assert state.attributes["corners"] == len(points)
+    assert state.attributes["rotation"] == 10.4
+
+    hass.data[OUTLINE] = {}
+    async_dispatcher_send(hass, OUTLINE_SIGNAL)
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state == "not_found"
 
 
 async def test_no_map_without_openstreetmap(hass: HomeAssistant, osm) -> None:

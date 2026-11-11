@@ -348,6 +348,12 @@ is found at the home position (and the key itself is missing until House
 Structure has started). Sun Sweep reads this. Diagnostics keep only each
 wall's bearing and length, so the coordinates are not in them.
 
+The house's own device has a diagnostic sensor, **Building outline**, that
+says where this stands: `found`, `not_found` (OpenStreetMap answered with no
+building at the home position), `failed` (it could not be reached; the next
+start tries again) or `not_loaded`. When found, its attributes give the number
+of `corners` and the wall `rotation`.
+
 ### Adding a tab to the Thermal Lab page
 
 Put the tab in `hass.data["house_structure_tabs"]` and fire

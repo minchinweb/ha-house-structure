@@ -795,6 +795,15 @@
       },
       "temperature_difference": {
         "name": "Temperature difference"
+      },
+      "outline": {
+        "name": "Building outline",
+        "state": {
+          "found": "Found",
+          "not_found": "Not on OpenStreetMap",
+          "failed": "Could not reach OpenStreetMap",
+          "not_loaded": "Not loaded"
+        }
       }
     },
     "binary_sensor": {

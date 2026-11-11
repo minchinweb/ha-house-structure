@@ -27,10 +27,22 @@ from homeassistant.const import (
     UnitOfIrradiance,
     UnitOfPower,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.const import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .constants import INTERNAL_WALL, ROOF, ROOM, WALL, WINDOW
+from .constants import (
+    DOMAIN,
+    INTERNAL_WALL,
+    OUTLINE,
+    OUTLINE_SIGNAL,
+    ROOF,
+    ROOM,
+    WALL,
+    WINDOW,
+)
 from .coordinator import SkyCoordinator
 from .devices import HouseData, area_temperature
 from .entity import PartEntity, setup_parts
@@ -44,6 +56,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass, entry, async_add_entities):
     """Create each part's sensors on its device, now and as parts are added."""
     setup_parts(hass, entry, async_add_entities, _sensor_for)
+    async_add_entities([OutlineSensor(entry)])
 
 
 def _sensor_for(data: HouseData, element: Element) -> PartEntity | None:
@@ -241,6 +254,62 @@ class TemperatureDifferenceSensor(_PartSensor):
                 "Choose a temperature sensor in the area's settings for each room"
             )
         return out
+
+
+class OutlineSensor(SensorEntity):
+    """Whether the building outline was found, for the house's device.
+
+    ``found`` once OpenStreetMap (or the saved copy) gave the building,
+    ``not_found`` when it answered with no building at the home position,
+    ``failed`` when it could not be reached (the next setup tries again) and
+    ``not_loaded`` before it has been looked up. Sun Sweep draws its plain
+    square unless this is ``found``.
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_translation_key = "outline"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["found", "not_found", "failed", "not_loaded"]
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry) -> None:
+        self._attr_unique_id = f"{entry.entry_id}_outline"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name=entry.title,
+            manufacturer="House Structure",
+            model="House",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, OUTLINE_SIGNAL, self._changed)
+        )
+
+    @callback
+    def _changed(self) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def _info(self) -> dict | None:
+        return self.hass.data.get(OUTLINE)
+
+    @property
+    def native_value(self) -> str:
+        info = self._info
+        if info is None:
+            return "not_loaded"
+        if info.get("failed"):
+            return "failed"
+        return "found" if info.get("points") else "not_found"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        info = self._info or {}
+        if not info.get("points"):
+            return {}
+        return {"corners": len(info["points"]), "rotation": info.get("rotation")}
 
 
 def _round(value: float | None, digits: int = 0) -> float | None:

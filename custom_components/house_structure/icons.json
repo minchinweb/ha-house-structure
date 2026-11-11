@@ -9,6 +9,9 @@
       },
       "temperature_difference": {
         "default": "mdi:thermometer-lines"
+      },
+      "outline": {
+        "default": "mdi:home-outline"
       }
     },
     "binary_sensor": {

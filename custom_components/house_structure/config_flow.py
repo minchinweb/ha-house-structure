@@ -40,6 +40,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import selector
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 import voluptuous as vol
@@ -53,6 +54,7 @@ from .constants import (
     INTERNAL_WALL,
     OPEN_METEO,
     OUTLINE,
+    OUTLINE_SIGNAL,
     OUTLINE_STORE,
     REGISTER,
     ROOF,
@@ -128,6 +130,7 @@ async def async_ensure_outline(hass) -> dict:
             _LOGGER.warning("Could not fetch the building outline from OpenStreetMap")
             info = {"failed": True}  # not written to the store
             hass.data[OUTLINE] = info
+            async_dispatcher_send(hass, OUTLINE_SIGNAL)
             return info
         points = choose_outline(outlines, (lat, lon))
         info = {}
@@ -139,6 +142,7 @@ async def async_ensure_outline(hass) -> dict:
             await store.async_save({"lat": lat, "lon": lon, "info": info})
     _register_outline_view(hass, info)
     hass.data[OUTLINE] = info
+    async_dispatcher_send(hass, OUTLINE_SIGNAL)
     return info
 
 
