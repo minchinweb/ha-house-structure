@@ -14,10 +14,12 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import floor_registry as fr
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.house_structure.constants import (
     DOMAIN,
     OUTLINE,
+    OUTLINE_STORE,
     UPDATED_EVENT,
 )
 from custom_components.house_structure.devices import (
@@ -532,6 +534,33 @@ async def test_the_rotation_is_measured_and_drawn(hass: HomeAssistant, osm) -> N
     assert result["data"]["rotation"] == 15.0
     assert "preview" not in result["data"]
     osm.assert_called_once()  # fetched once, then kept
+
+
+async def test_setup_restores_a_saved_outline(
+    hass: HomeAssistant, hass_storage: dict, aioclient_mock, osm
+) -> None:
+    """Startup loads the stored ring, without the house form or another fetch."""
+    hass.config.latitude, hass.config.longitude = LAT, LON
+    points = _outline(10.4, LAT, LON)
+    hass_storage[OUTLINE_STORE] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": OUTLINE_STORE,
+        "data": {
+            "lat": LAT,
+            "lon": LON,
+            "info": {"points": points, "rotation": 10.4},
+        },
+    }
+    aioclient_mock.get(build_url(LAT, LON), json=SKY)
+    entry = MockConfigEntry(domain=DOMAIN, data={"rotation": 10.4, "unit": "m"})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert hass.data[OUTLINE]["points"] == points
+    assert hass.data[OUTLINE]["rotation"] == 10.4
+    osm.assert_not_called()
 
 
 async def test_no_map_without_openstreetmap(hass: HomeAssistant, osm) -> None:

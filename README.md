@@ -340,6 +340,14 @@ to your manifest so it is set up first, or `"dependencies"` if your
 integration can't work without it. The `version` goes up only when a key
 changes meaning or goes away; new keys may be added without it.
 
+The building outline measured from OpenStreetMap is
+`hass.data["house_structure_outline"]`. `points` is a list of
+`[latitude, longitude]` corners in ring order, and `rotation` is how far the
+walls are turned clockwise from north. `points` is missing until a building
+is found at the home position (and the key itself is missing until House
+Structure has started). Sun Sweep reads this. Diagnostics keep only each
+wall's bearing and length, so the coordinates are not in them.
+
 ### Adding a tab to the Thermal Lab page
 
 Put the tab in `hass.data["house_structure_tabs"]` and fire

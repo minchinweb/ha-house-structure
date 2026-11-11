@@ -54,6 +54,7 @@ async def async_setup_entry(hass, entry) -> bool:
     """Fetch the sky, then create the devices and sensors."""
     from homeassistant.core import callback
 
+    from .config_flow import async_ensure_outline
     from .coordinator import sky_coordinator
     from .devices import (
         HouseData,
@@ -65,6 +66,7 @@ async def async_setup_entry(hass, entry) -> bool:
     )
     from .issues import check
 
+    await async_ensure_outline(hass)
     elements = elements_of(entry)
     register_devices(hass, entry, elements)
     check(hass, entry.entry_id, elements)

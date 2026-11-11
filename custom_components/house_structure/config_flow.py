@@ -89,6 +89,66 @@ from .orientation import choose_outline, fetch_outlines, wall_rotation
 
 _LOGGER = logging.getLogger(__name__)
 
+# Set once OutlineMapView is registered. Registering it twice raises.
+_OUTLINE_VIEW = f"{OUTLINE}_view"
+
+
+async def async_ensure_outline(hass) -> dict:
+    """The building outline at the home position, loaded or fetched once.
+
+    A saved outline is used while the home position stays the same, including
+    after a restart, so other integrations can read
+    ``hass.data["house_structure_outline"]`` without the house form being open.
+    A failed fetch is remembered only in memory, so a later setup or form
+    tries OpenStreetMap again.
+
+    Args:
+        hass: The Home Assistant instance.
+
+    Returns:
+        ``{"points": [(lat, lon), ...], "rotation": degrees}`` when a building
+        was found, ``{"failed": True}`` when OpenStreetMap could not be
+        reached, or ``{}`` when it answered and had no building.
+    """
+    current = hass.data.get(OUTLINE)
+    if current and not current.get("failed"):
+        _register_outline_view(hass, current)
+        return current
+    lat, lon = hass.config.latitude, hass.config.longitude
+    # Kept on disk once fetched, so the outline works offline and is not
+    # fetched again while the home position stays the same.
+    store = Store(hass, 1, OUTLINE_STORE)
+    saved = await store.async_load() or {}
+    if saved.get("lat") == lat and saved.get("lon") == lon and "info" in saved:
+        info = saved["info"]
+    else:
+        try:
+            outlines = await hass.async_add_executor_job(fetch_outlines, lat, lon)
+        except OSError, ValueError, KeyError:
+            _LOGGER.warning("Could not fetch the building outline from OpenStreetMap")
+            info = {"failed": True}  # not written to the store
+            hass.data[OUTLINE] = info
+            return info
+        points = choose_outline(outlines, (lat, lon))
+        info = {}
+        if points:
+            info = {
+                "points": points,
+                "rotation": round(wall_rotation(points)[0], 1),
+            }
+            await store.async_save({"lat": lat, "lon": lon, "info": info})
+    _register_outline_view(hass, info)
+    hass.data[OUTLINE] = info
+    return info
+
+
+def _register_outline_view(hass, info: dict) -> None:
+    """Serve the outline drawing once there is a ring to draw."""
+    if not info.get("points") or hass.http is None or hass.data.get(_OUTLINE_VIEW):
+        return
+    hass.http.register_view(OutlineMapView(hass))
+    hass.data[_OUTLINE_VIEW] = True
+
 _AREA = selector.AreaSelector()
 _AREAS = selector.AreaSelector(selector.AreaSelectorConfig(multiple=True))
 _TEXT = selector.TextSelector()
@@ -590,39 +650,8 @@ class HouseStructureConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     async def _outline(self) -> dict:
-        """The building outline at the home position, fetched once from OSM."""
-        if OUTLINE in self.hass.data:
-            return self.hass.data[OUTLINE]
-        lat, lon = self.hass.config.latitude, self.hass.config.longitude
-        # Kept on disk once fetched, so the outline works offline and is not
-        # fetched again while the home position stays the same.
-        store = Store(self.hass, 1, OUTLINE_STORE)
-        saved = await store.async_load() or {}
-        if saved.get("lat") == lat and saved.get("lon") == lon:
-            info = saved["info"]
-        else:
-            try:
-                outlines = await self.hass.async_add_executor_job(
-                    fetch_outlines, lat, lon
-                )
-            except OSError, ValueError, KeyError:
-                _LOGGER.warning(
-                    "Could not fetch the building outline from OpenStreetMap"
-                )
-                return {"failed": True}  # not kept, so a later form tries again
-            points = choose_outline(outlines, (lat, lon))
-            info = {}
-            if points:
-                info = {
-                    "points": points,
-                    "rotation": round(wall_rotation(points)[0], 1),
-                }
-                await store.async_save({"lat": lat, "lon": lon, "info": info})
-        if info.get("points") and self.hass.http is not None:
-            # kept, so the view is registered once
-            self.hass.http.register_view(OutlineMapView(self.hass))
-        self.hass.data[OUTLINE] = info
-        return info
+        """The building outline at the home position, loaded or fetched once."""
+        return await async_ensure_outline(self.hass)
 
     async def _map_text(self, rotation: float | None) -> str:
         """Markdown for the form: the drawing, or why there is none."""
