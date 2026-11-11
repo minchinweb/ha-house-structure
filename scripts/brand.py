@@ -588,7 +588,9 @@ def _sun_sweep_icon() -> tuple[str, str]:
     ]
     turn = math.radians(108)
     sun_r = 2.15
-    sun = (cx + 10 * math.sin(turn), cy - 10 * math.cos(turn))
+    # The sun rides the middle of the ring, as it does in the logo.
+    ride = (10.2 + 8.35) / 2
+    sun = (cx + ride * math.sin(turn), cy - ride * math.cos(turn))
     path = " ".join(
         [
             circle(10.2, 1),
