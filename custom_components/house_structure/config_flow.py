@@ -149,6 +149,7 @@ def _register_outline_view(hass, info: dict) -> None:
     hass.http.register_view(OutlineMapView(hass))
     hass.data[_OUTLINE_VIEW] = True
 
+
 _AREA = selector.AreaSelector()
 _AREAS = selector.AreaSelector(selector.AreaSelectorConfig(multiple=True))
 _TEXT = selector.TextSelector()
