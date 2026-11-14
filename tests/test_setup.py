@@ -805,9 +805,17 @@ async def test_rooms_beside_and_above(hass: HomeAssistant, house) -> None:
     form = {"area_id": house["master"].id, "floor": "18000", "height": "96"}
     result = await edit({**form, "beside": [hall.id], "above": [hall.id]})
     assert result["errors"] == {"above": "invalid_above"}
-    result = await edit({**form, "beside": [hall.id], "above": [loft.id]})
+    # an L-shaped room's wing needs its width, depth and side together
+    result = await edit({**form, "wing_width": "60"})
+    assert result["errors"] == {"wing_depth": "invalid_wing_depth"}
+    wing = {"wing_width": "60", "wing_depth": "48", "wing_face": "N"}
+    result = await edit({**form, **wing, "beside": [hall.id], "above": [loft.id]})
     assert result["type"] is FlowResultType.ABORT
     await hass.async_block_till_done()
+    entry = hass.config_entries.async_get_entry(entry_id)
+    saved = entry.subentries[master.subentry_id].data
+    assert saved["wing_face"] == "N"
+    assert saved["wing_width_m"] == pytest.approx(60 * 0.0254)
 
     rooms = hass.data[DOMAIN]["rooms"]
     assert {

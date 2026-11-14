@@ -230,7 +230,7 @@ _SIZES = {
     WINDOW: ("width", "height"),
     DOOR: ("width", "height"),
     INTERNAL_WALL: ("length", "height"),
-    ROOM: ("width", "depth", "height", "below_grade"),
+    ROOM: ("width", "depth", "height", "below_grade", "wing_width", "wing_depth"),
     REGISTER: (),
 }
 # the positions on each kind of form (they may be negative), stored with ``_m``
@@ -303,6 +303,7 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
         fields[vol.Optional("blind")] = _COVER
         fields[vol.Optional("blind_closed", default=BLIND_CLOSED)] = _SHARE
     if kind == ROOM:
+        fields[vol.Optional("wing_face")] = _faces(float(house.get("rotation") or 0.0))
         fields[vol.Optional("room_type", default="room")] = _choice(ROOM_TYPES)
         fields[vol.Optional("volume")] = _TEXT
         fields[vol.Optional("below_ground", default=False)] = selector.BooleanSelector()
@@ -428,7 +429,33 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
             data[f"{size}_m{power}"] = _size(size, form[size], unit, power)
     if kind == INTERNAL_WALL and data["area_id"] == data["other_area_id"]:
         raise FieldError("other_area_id", "the two sides are the same room")
+    if kind == ROOM:
+        if form.get("wing_face"):
+            data["wing_face"] = form["wing_face"]
+        _check_wing(data)
     return data
+
+
+def _check_wing(data: dict) -> None:
+    """An L-shaped room's wing has a width, a depth and a face, or none of
+    them, and is smaller than the room's floor."""
+    face = data.get("wing_face") or None
+    if face is not None and face not in FACES:
+        raise FieldError("wing_face", f"not a face: {face!r}")
+    given = {
+        "wing_width": data.get("wing_width_m"),
+        "wing_depth": data.get("wing_depth_m"),
+        "wing_face": face,
+    }
+    if not any(given.values()):
+        data.pop("wing_face", None)
+        return
+    for field, value in given.items():
+        if not value:
+            raise FieldError(field, "a wing needs its width, depth and side")
+    floor = data.get("floor_m2")
+    if floor and given["wing_width"] * given["wing_depth"] >= floor:
+        raise FieldError("wing_width", "the wing is as big as the room's floor area")
 
 
 def _to_form(kind: str, data: dict, house: dict, title: str) -> dict:

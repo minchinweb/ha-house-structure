@@ -111,6 +111,9 @@
             "below_grade": "Wall depth below ground",
             "width": "Width (east to west)",
             "depth": "Depth (south to north)",
+            "wing_width": "L-shaped room: wing width (east to west)",
+            "wing_depth": "L-shaped room: wing depth (south to north)",
+            "wing_face": "L-shaped room: side the wing is on",
             "x": "East of the house's south-west corner",
             "y": "North of the house's south-west corner",
             "level": "Floor height above the ground",
@@ -130,7 +133,10 @@
             "y": "Where the room's south-west corner sits on the plan, north of the house's south-west corner (a minus sign for south).",
             "level": "The floor's height above the ground: 0 for the ground floor, about 2.7 m for the one above it, and a minus sign for a basement. Blank: the ground.",
             "room_type": "A hallway or stairs opens onto the rooms beside it: a link to one is an opening with no wall, unless the lists say otherwise.",
-            "open": "Rooms beside this one with no wall between, such as an open-plan kitchen. Enter each link once, from either room."
+            "open": "Rooms beside this one with no wall between, such as an open-plan kitchen. Enter each link once, from either room.",
+            "wing_width": "Only for an L-shaped room. Think of the L as two rectangles: the main one (the width and depth above, or shaped to fit) and a smaller wing against one of its sides. This is the wing's own length east to west. Give the wing's width, depth and side together, or leave all three empty.",
+            "wing_depth": "The wing's own length south to north. The floor area above is of the whole room, wing included.",
+            "wing_face": "The side of the main rectangle the wing is against. The drawing sets the wing where it fits best along that side (at the west or south end, for a room with a position typed). Walls, windows and registers are drawn on the main rectangle."
           }
         },
         "reconfigure": {
@@ -148,6 +154,9 @@
             "below_grade": "Wall depth below ground",
             "width": "Width (east to west)",
             "depth": "Depth (south to north)",
+            "wing_width": "L-shaped room: wing width (east to west)",
+            "wing_depth": "L-shaped room: wing depth (south to north)",
+            "wing_face": "L-shaped room: side the wing is on",
             "x": "East of the house's south-west corner",
             "y": "North of the house's south-west corner",
             "level": "Floor height above the ground",
@@ -167,7 +176,10 @@
             "y": "Where the room's south-west corner sits on the plan, north of the house's south-west corner (a minus sign for south).",
             "level": "The floor's height above the ground: 0 for the ground floor, about 2.7 m for the one above it, and a minus sign for a basement. Blank: the ground.",
             "room_type": "A hallway or stairs opens onto the rooms beside it: a link to one is an opening with no wall, unless the lists say otherwise.",
-            "open": "Rooms beside this one with no wall between, such as an open-plan kitchen. Enter each link once, from either room."
+            "open": "Rooms beside this one with no wall between, such as an open-plan kitchen. Enter each link once, from either room.",
+            "wing_width": "Only for an L-shaped room. Think of the L as two rectangles: the main one (the width and depth above, or shaped to fit) and a smaller wing against one of its sides. This is the wing's own length east to west. Give the wing's width, depth and side together, or leave all three empty.",
+            "wing_depth": "The wing's own length south to north. The floor area above is of the whole room, wing included.",
+            "wing_face": "The side of the main rectangle the wing is against. The drawing sets the wing where it fits best along that side (at the west or south end, for a room with a position typed). Walls, windows and registers are drawn on the main rectangle."
           }
         }
       },
@@ -189,7 +201,10 @@
         "invalid_depth": "Give the depth as a length, such as 4.1 m or 13' 6\".",
         "invalid_x": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south.",
         "invalid_y": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south.",
-        "invalid_level": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south."
+        "invalid_level": "Give a length such as 4.5 m or 14' 6\", with a minus sign for west or south.",
+        "invalid_wing_width": "Give the wing's width, depth and side together, as sizes more than 0, with the wing smaller than the room's floor area.",
+        "invalid_wing_depth": "Give the wing's width, depth and side together, as sizes more than 0.",
+        "invalid_wing_face": "Give the wing's width, depth and side together."
       }
     },
     "wall": {

@@ -1166,3 +1166,47 @@ def test_an_internal_wall_face_pins_both_neighbours_to_that_side():
     assert to_bath is not None and to_bath[0] == "E"
     assert elements["kl"].face == "E"
     assert elements["kb"].face == "E"
+
+
+def test_an_l_shaped_room_has_a_wing_against_the_face_it_names():
+    elements = _elements(
+        _room(
+            "living",
+            floor_m2=26.0,
+            beside=["kitchen"],
+            wing_width_m=2.0,
+            wing_depth_m=3.0,
+            wing_face="N",
+        ),
+        _room("kitchen", floor_m2=12.0),
+    )
+    boxes, notes = _place(elements, "m")
+    living = next(b for b in boxes if b.area == "living")
+    # the floor area is of the room and its wing together
+    assert living.width * living.depth == pytest.approx(20.0, rel=0.01)
+    dx, dy, width, depth = living.wing
+    assert (width, depth) == pytest.approx((2.0, 3.0))
+    assert dy == pytest.approx(living.depth, abs=0.02)  # on its north face
+    assert -0.02 <= dx <= living.width - width + 0.02  # and within it
+    assert any("L-shaped" in note for note in notes)
+    assert not any("could not be placed" in note for note in notes)
+    assert len(boxes) == 2  # the wing is part of its room
+
+
+def test_a_placed_rooms_wing_is_at_the_south_end_of_its_face():
+    elements = _elements(
+        _room(
+            "den",
+            width_m=4.0,
+            depth_m=3.0,
+            x_m=1.0,
+            y_m=2.0,
+            wing_width_m=1.5,
+            wing_depth_m=1.0,
+            wing_face="E",
+        ),
+    )
+    (den,), _ = _place(elements, "m")
+    assert den.wing == pytest.approx((4.0, 0.0, 1.5, 1.0))
+    svg = house_svg(elements, {"unit": "m"})
+    assert svg.startswith("<svg")

@@ -225,6 +225,12 @@ what else is known.
   OpenStreetMap, when one was found, so an L-shaped house comes out an L.
 - A **detached building**'s rooms are fitted on their own and set beside the
   house.
+- An **L-shaped room** is two rectangles: the room's main one, and a *wing*
+  against one of its sides. Give the wing's width, depth and side on the
+  room's form (`wing_width`, `wing_depth` and `wing_face` in a sheet); the
+  room's floor area is of both together. The wing is drawn as part of the
+  room, with no wall between. Walls, windows and registers are drawn on the
+  main rectangle.
 - Floor that **no room was given**, such as a hallway with no area of its
   own, may be left as an empty space in the middle of a floor. Rooms that
   both open on to it count as linked, though they are not drawn touching.
