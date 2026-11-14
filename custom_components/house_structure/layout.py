@@ -1202,6 +1202,7 @@ def arrange(
     above: list[tuple[str, str]],
     outline: list[tuple[float, float]] | None = None,
     holes: dict[str, list[Rect]] | None = None,
+    grid: float | None = None,
 ) -> dict[str, Rect]:
     """Fit every floor, and the floors over each other.
 
@@ -1218,6 +1219,11 @@ def arrange(
         outline: The building outline's corners in the house's grid.
         holes: Filled with each room's floor's holes (space no room was
             given, with rooms all round it), by the room's key.
+        grid: The step houses are built to, in metres (an inch, say). The
+            walls of the rooms that are shaped to fit are put on whole steps,
+            so each is a whole number of steps wide and deep: a house is
+            built 12 feet 6 wide, not 12 feet 6.3. A room with a width and
+            depth keeps them, with its south-west corner on a step.
 
     Returns:
         Every room's rectangle by its key, the already placed rooms included.
@@ -1263,4 +1269,25 @@ def arrange(
         placed.update(found)
         if i == first:
             footprint = [*found.values(), *floor.fixed.values(), *solver.holes]
+    if grid and grid > 0:
+        sized = {r.key: r.size for floor in floors for r in floor.rooms if r.size}
+        loose = {r.key for floor in floors for r in floor.rooms}
+        for key in loose:
+            placed[key] = _on_grid(placed[key], grid, sized.get(key))
+        if holes is not None:
+            for key, rects in holes.items():
+                holes[key] = [_on_grid(rect, grid) for rect in rects]
     return placed
+
+
+def _on_grid(rect: Rect, grid: float, size: tuple[float, float] | None = None) -> Rect:
+    """A rectangle with its sides on whole steps of the grid (or, for a room
+    that keeps its size, its south-west corner)."""
+
+    def snap(value: float) -> float:
+        return round(value / grid) * grid
+
+    if size:
+        x, y = snap(rect[0]), snap(rect[1])
+        return (x, y, x + size[0], y + size[1])
+    return (snap(rect[0]), snap(rect[1]), snap(rect[2]), snap(rect[3]))

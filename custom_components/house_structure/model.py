@@ -127,6 +127,9 @@ class Element:
     # For a window: the glass's width and height.
     glass_width_m: float | None = None
     glass_height_m: float | None = None
+    # For a window or door in an outside wall: how far its near edge is from
+    # the wall's left end, seen from outside. None: the drawing chooses.
+    from_left_m: float | None = None
     # For a register: its outlet, from its room's south-west corner, and its
     # height above the floor.
     at_x_m: float | None = None
@@ -393,6 +396,7 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
             frame=d.get("frame") or None,
             glass_width_m=_optional(d.get("width_m")),
             glass_height_m=_optional(d.get("height_m")),
+            from_left_m=_optional(d.get("from_left_m")),
         )
         if glass:
             elements[host.id] = replace(
@@ -425,6 +429,7 @@ def _add_door(elements: dict[str, Element], problems: list[str], raw: Raw) -> No
         r_value_si=_optional(d.get("r_value_si")),
         width_m=_optional(d.get("width_m")),
         height_m=_optional(d.get("height_m")),
+        from_left_m=_optional(d.get("from_left_m")),
     )
     if size:
         elements[host.id] = replace(

@@ -164,6 +164,23 @@ def test_a_smaller_floor_lines_up_with_the_floor_it_is_over():
     )
 
 
+def test_rooms_shaped_to_fit_are_whole_steps_of_the_grid():
+    inch = 0.0254
+    floor = _hub()
+    floor.rooms.append(Room("closet", 1.0, size=(1.0, 1.0)))
+    floor.links.append(("closet", "bed", None))
+    placed = arrange([floor], [], grid=inch)
+    for room in floor.rooms:
+        rect = placed[room.key]
+        wide, deep = rect[2] - rect[0], rect[3] - rect[1]
+        if room.size:  # keeps what was typed
+            assert (wide, deep) == pytest.approx(room.size)
+            continue
+        for length in (wide, deep):
+            assert length / inch == pytest.approx(round(length / inch), abs=1e-6)
+        assert wide * deep == pytest.approx(room.area, rel=0.02)
+
+
 def test_no_rooms_is_no_layout():
     assert fit(Floor(rooms=[])) == {}
     assert arrange([], []) == {}

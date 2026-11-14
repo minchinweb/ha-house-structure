@@ -68,6 +68,9 @@ LINK_COLOUR = "#37474f"
 LARGE_TEXT = 1.6  # the text scale of a single room drawn with large text
 BUILDING_GAP = 2.0  # m between the house and a detached building with no position
 SLAB = 0.3  # m from a ceiling to the floor above, where no floor height is typed
+# what houses are built to, by the house's unit: the rooms shaped to fit are
+# a whole number of these wide and deep (inches, or centimetres)
+BUILT_TO = {FEET_INCHES: 0.0254, "ft": 0.0254, "in": 0.0254, "m": 0.01}
 EXPLODE_GAP = 1.5  # m between floors on the page when they are drawn apart
 # Rooms whose floors are less than this above a floor's lowest room share that
 # floor: a split level's half flight (3 1/2 ft, a little under half a wall)
@@ -348,26 +351,55 @@ def _openings(
     start: float = 0.0,
     end: float | None = None,
 ) -> list[Poly]:
-    """The doors and windows of one wall, centred on its stretch of the face
-    (``start`` to ``end`` metres along it; the whole face by default) in a row:
-    doors first, from the floor, then windows, sills at ``SILL``."""
-    sizes = [(*_door_size(d), True) for d in doors]
-    sizes += [
+    """The doors and windows of one wall, on its stretch of the face (``start``
+    to ``end`` metres along it; the whole face by default): doors first, from
+    the floor, then windows, sills at ``SILL``.
+
+    One with a distance from the wall's left end (``from_left_m``: seen from
+    outside, so from the west end of a south wall, the south end of an east
+    wall, the east end of a north wall and the north end of a west wall) goes
+    there, kept on the wall. The others go in a row, in the order given,
+    centred on the longest stretch of the wall that those leave free.
+    """
+    items = [(*_door_size(d), True, d.from_left_m) for d in doors]
+    items += [
         (
             w.glass_width_m or DEFAULT_GLASS[0],
             w.glass_height_m or DEFAULT_GLASS[1],
             False,
+            w.from_left_m,
         )
         for w in windows
     ]
-    span = (_span(box, face) if end is None else end) - start
-    total = sum(width for width, _, _ in sizes)
-    gaps = OPENING_GAP * max(len(sizes) - 1, 0)
-    scale = min(1.0, max(0.9 * span - gaps, 0.0) / total) if total else 1.0
-    along = start + (span - (total * scale + gaps)) / 2
+    end = _span(box, face) if end is None else end
+    span = end - start
+    left_is_start = face in ("S", "E")  # the left end, seen from outside
+    spots: dict[int, tuple[float, float]] = {}  # each one's stretch of the face
+    for i, (width, _, _, from_left) in enumerate(items):
+        if from_left is None:
+            continue
+        width = min(width, 0.9 * span)
+        at = min(max(from_left, 0.0), span - width)
+        low = start + at if left_is_start else end - at - width
+        spots[i] = (low, low + width)
+    loose = [i for i in range(len(items)) if i not in spots]
+    if loose:
+        taken = [(a - start, b - start) for a, b in spots.values()]
+        free_from, free_to = max(
+            _gaps(taken, span) or [(0.0, span)], key=lambda gap: gap[1] - gap[0]
+        )
+        room = free_to - free_from
+        total = sum(items[i][0] for i in loose)
+        gaps = OPENING_GAP * (len(loose) - 1)
+        scale = min(1.0, max(0.9 * room - gaps, 0.0) / total) if total else 1.0
+        along = start + free_from + (room - (total * scale + gaps)) / 2
+        for i in loose:
+            width = items[i][0] * scale
+            spots[i] = (along, along + width)
+            along += width + OPENING_GAP
     out = []
-    for width, height, is_door in sizes:
-        width *= scale
+    for i, (_, height, is_door, _) in enumerate(items):
+        low, high = spots[i]
         if is_door:
             z0, z1 = 0.0, min(height, box.height - 0.05)
             fill, line = DOOR_FILL, DOOR_LINE
@@ -375,9 +407,7 @@ def _openings(
             z0 = max(0.1, min(SILL, box.height - height - 0.1))
             z1 = min(z0 + height, box.height - 0.05)
             fill, line = WINDOW_FILL, WINDOW_LINE
-        quad = _quad(box, face, along, along + width, z0, z1)
-        out.append(Poly(quad, fill, line, 0.9))
-        along += width + OPENING_GAP
+        out.append(Poly(_quad(box, face, low, high, z0, z1), fill, line, 0.9))
     return out
 
 
@@ -1146,7 +1176,13 @@ def _fit_house(
                 (a, b, faces.get((a, b))) for a, b in pairs if a in here and b in here
             ]
             plan.append(floor)
-        found = layout.arrange(plan, above, outline if number == 0 else None, holes)
+        found = layout.arrange(
+            plan,
+            above,
+            outline if number == 0 else None,
+            holes,
+            BUILT_TO.get(unit, BUILT_TO["m"]),
+        )
         if number and found and not any(floor.fixed for floor in plan):
             # a detached building with no position: beside what is placed
             east = max((r[2] for r in placed.values()), default=-BUILDING_GAP)

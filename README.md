@@ -217,7 +217,10 @@ what else is known.
   under it, with its sides on the same lines where it is big enough.
 - A room with a **floor area but no width or depth** takes the shape that
   fits between its neighbours, at that area, so the rooms fill the house
-  with no gaps. A room with a width and depth keeps them.
+  with no gaps. A room with a width and depth keeps them. A room shaped
+  this way comes out a whole number of inches wide and deep (centimetres,
+  for a house in metres), as houses are built, so its area can be a
+  fraction of a percent off what was typed.
 - The biggest floor is pulled into the shape of the **building outline** from
   OpenStreetMap, when one was found, so an L-shaped house comes out an L.
 - A **detached building**'s rooms are fitted on their own and set beside the

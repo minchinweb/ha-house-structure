@@ -238,6 +238,11 @@ _POSITIONS = {
     ROOM: ("x", "y", "level"),
     REGISTER: ("at_x", "at_y", "at_z"),
 }
+# the distances on each kind of form (0 or more), stored with ``_m``
+_DISTANCES = {
+    WINDOW: ("from_left",),
+    DOOR: ("from_left",),
+}
 PLENUM = ("plenum_x", "plenum_y", "plenum_z")
 
 
@@ -291,7 +296,7 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
     for size in _SIZES[kind]:
         key = vol.Required(size) if kind == WINDOW else vol.Optional(size)
         fields[key] = _TEXT
-    for position in _POSITIONS.get(kind, ()):
+    for position in (*_POSITIONS.get(kind, ()), *_DISTANCES.get(kind, ())):
         fields[vol.Optional(position)] = _TEXT
     if kind == WINDOW:
         fields[vol.Optional("transmittance", default=TRANSMITTANCE)] = _SHARE
@@ -413,6 +418,11 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
     for position in _POSITIONS.get(kind, ()):
         if form.get(position) not in (None, ""):
             data[f"{position}_m"] = _offset(position, form[position], unit)
+    for distance in _DISTANCES.get(kind, ()):
+        if form.get(distance) not in (None, ""):
+            data[f"{distance}_m"] = _offset(distance, form[distance], unit)
+            if data[f"{distance}_m"] < 0:
+                raise FieldError(distance, "a distance cannot be less than 0")
     for size, power in (("floor", 2), ("volume", 3)):
         if form.get(size) not in (None, ""):
             data[f"{size}_m{power}"] = _size(size, form[size], unit, power)
@@ -444,7 +454,7 @@ def _to_form(kind: str, data: dict, house: dict, title: str) -> dict:
         if data.get(f"{size}_m") is None:
             continue
         form[size] = format_size(data[f"{size}_m"], unit)
-    for position in _POSITIONS.get(kind, ()):
+    for position in (*_POSITIONS.get(kind, ()), *_DISTANCES.get(kind, ())):
         if data.get(f"{position}_m") is not None:
             form[position] = _signed(data[f"{position}_m"], unit)
     if kind == ROOF and "pitch" in data:

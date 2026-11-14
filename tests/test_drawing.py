@@ -218,8 +218,11 @@ def test_a_room_with_only_a_floor_area_is_shaped_to_fit_its_neighbours():
     boxes, notes = _place(elements, "m")
     where = {b.area: b for b in boxes}
     living, kitchen = where["living"], where["kitchen"]
-    assert living.width * living.depth == pytest.approx(20.0)
-    assert kitchen.width * kitchen.depth == pytest.approx(12.0)
+    # to the nearest centimetre each way, as a house in metres is built
+    assert living.width * living.depth == pytest.approx(20.0, rel=0.005)
+    assert kitchen.width * kitchen.depth == pytest.approx(12.0, rel=0.005)
+    for size in (living.width, living.depth, kitchen.width, kitchen.depth):
+        assert size * 100 == pytest.approx(round(size * 100), abs=1e-6)
     face, start, end = _shared_face(living, kitchen)
     # they share the whole of the face between them
     assert end - start == pytest.approx(
@@ -424,6 +427,26 @@ def test_windows_in_one_wall_have_a_gap_between_them():
     box = _box(next(e for e in elements.values() if e.kind == ROOM), 0.0, 0.0, 0.0, "m")
     first, second = _openings(box, "S", [elements["w1"], elements["w2"]], [])
     assert second.points[0][0] - first.points[1][0] == pytest.approx(OPENING_GAP)
+
+
+def test_a_window_goes_its_distance_from_the_left_end_seen_from_outside():
+    elements = _elements(
+        _room("hall", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0),
+        _wall("s", "hall", "S"),
+        _wall("w", "hall", "W"),
+        _window("s1", "s", width_m=0.8, height_m=1.1, from_left_m=0.5),
+        _window("w1", "w", width_m=0.8, height_m=1.1, from_left_m=0.5),
+        _window("w2", "w", width_m=0.6, height_m=1.1),
+    )
+    box = _box(next(e for e in elements.values() if e.kind == ROOM), 0.0, 0.0, 0.0, "m")
+    # a south wall's left end, from outside, is its west end
+    (south,) = _openings(box, "S", [elements["s1"]], [])
+    assert (south.points[0][0], south.points[1][0]) == pytest.approx((0.5, 1.3))
+    # a west wall's is its north end: 0.5 m back from y = 3
+    placed, loose = _openings(box, "W", [elements["w1"], elements["w2"]], [])
+    assert (placed.points[0][1], placed.points[1][1]) == pytest.approx((1.7, 2.5))
+    # the window with no distance is centred on what is left of the wall
+    assert (loose.points[0][1], loose.points[1][1]) == pytest.approx((0.55, 1.15))
 
 
 def test_links_are_drawn_as_arrows_to_the_rooms_beside_above_and_below():

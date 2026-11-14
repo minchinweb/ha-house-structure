@@ -1088,15 +1088,18 @@ async def test_a_sheet_adds_windows_doors_and_registers(hass: HomeAssistant, hou
     """Windows, doors and registers come in from a sheet, each in its wall or room."""
     entry_id = house["entry_id"]
     text = (
-        "kind,host,width,height,area_id,climate\n"
-        "window,South wall,36,48,,\n"
-        "door,South wall,,,,\n"
-        "register,,,,Master bedroom,climate.bedroom\n"
+        "kind,host,width,height,area_id,climate,from_left\n"
+        "window,South wall,36,48,,,1 m\n"
+        "door,South wall,,,,,\n"
+        "register,,,,Master bedroom,climate.bedroom,\n"
     )
     result = await _paste_and_accept(hass, entry_id, text)
     assert result["type"] is FlowResultType.ABORT, result
     assert result["description_placeholders"]["added"] == "3"
     assert _subentries(hass, entry_id, "window")
+    # how far the window is from the wall's left end, seen from outside
+    window = _subentries(hass, entry_id, "window")[-1]
+    assert window.data["from_left_m"] == pytest.approx(1.0)
     assert _subentries(hass, entry_id, "door")
     assert _subentries(hass, entry_id, "register")
 

@@ -61,6 +61,7 @@ COLUMNS = (
     "flow_cfm",
     "duct",
     "upstream",
+    "from_left",
     "at_x",
     "at_y",
     "at_z",

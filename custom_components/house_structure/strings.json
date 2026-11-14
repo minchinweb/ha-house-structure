@@ -355,6 +355,7 @@
             "area_id": "Room (only for a roof over several rooms)",
             "width": "Glass width",
             "height": "Glass height",
+            "from_left": "Distance from the wall's left end (seen from outside)",
             "transmittance": "Share of light let in as heat",
             "blind": "Blind or shade",
             "blind_closed": "Share let in with the blind closed",
@@ -368,7 +369,8 @@
             "blind": "A cover entity; its position (0 to 100) says how open it is.",
             "blind_closed": "How much of the sun still gets in with the blind shut.",
             "glazing": "Double or triple pane.",
-            "frame": "The frame material."
+            "frame": "The frame material.",
+            "from_left": "Stand outside, facing the wall. Measure along the wall from its left-hand end to the nearest edge of the glass. On a south wall the left end is the west end; on an east wall, the south end; on a north wall, the east end; on a west wall, the north end. Blank: the drawing sets the windows in a row in the middle of the wall. Only the drawings use this; a skylight has none."
           }
         },
         "reconfigure": {
@@ -380,6 +382,7 @@
             "area_id": "Room (only for a roof over several rooms)",
             "width": "Glass width",
             "height": "Glass height",
+            "from_left": "Distance from the wall's left end (seen from outside)",
             "transmittance": "Share of light let in as heat",
             "blind": "Blind or shade",
             "blind_closed": "Share let in with the blind closed",
@@ -393,7 +396,8 @@
             "blind": "A cover entity; its position (0 to 100) says how open it is.",
             "blind_closed": "How much of the sun still gets in with the blind shut.",
             "glazing": "Double or triple pane.",
-            "frame": "The frame material."
+            "frame": "The frame material.",
+            "from_left": "Stand outside, facing the wall. Measure along the wall from its left-hand end to the nearest edge of the glass. On a south wall the left end is the west end; on an east wall, the south end; on a north wall, the east end; on a west wall, the north end. Blank: the drawing sets the windows in a row in the middle of the wall. Only the drawings use this; a skylight has none."
           }
         }
       },
@@ -411,7 +415,8 @@
         "invalid_volume": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead.",
-        "invalid_area_id": "Choose one of the rooms the roof covers, or leave it empty."
+        "invalid_area_id": "Choose one of the rooms the roof covers, or leave it empty.",
+        "invalid_from_left": "Give a distance of 0 or more, such as 1.2 m or 3' 6\"."
       }
     },
     "door": {
@@ -430,13 +435,15 @@
             "sensor": "Contact sensor",
             "width": "Width",
             "height": "Height",
+            "from_left": "Distance from the wall's left end (seen from outside)",
             "r_imperial": "R-value (ft²·°F·h/BTU)"
           },
           "data_description": {
             "name": "Leave empty for a name from the wall.",
             "host": "An outside wall, or an internal wall for a door between two rooms.",
             "sensor": "A door or opening sensor, on when the door is open. Leave empty if the door has none.",
-            "r_imperial": "The door's insulation as built, such as 5 for a foam-core steel door. Blank uses Manual J's default, when Manual J is set up. Only doors in outside walls are labelled."
+            "r_imperial": "The door's insulation as built, such as 5 for a foam-core steel door. Blank uses Manual J's default, when Manual J is set up. Only doors in outside walls are labelled.",
+            "from_left": "For a door in an outside wall. Stand outside, facing the wall. Measure along the wall from its left-hand end to the nearest edge of the door. On a south wall the left end is the west end; on an east wall, the south end; on a north wall, the east end; on a west wall, the north end. Blank: the drawing chooses. Only the drawings use this."
           }
         },
         "reconfigure": {
@@ -448,13 +455,15 @@
             "sensor": "Contact sensor",
             "width": "Width",
             "height": "Height",
+            "from_left": "Distance from the wall's left end (seen from outside)",
             "r_imperial": "R-value (ft²·°F·h/BTU)"
           },
           "data_description": {
             "name": "Leave empty for a name from the wall.",
             "host": "An outside wall, or an internal wall for a door between two rooms.",
             "sensor": "A door or opening sensor, on when the door is open. Leave empty if the door has none.",
-            "r_imperial": "The door's insulation as built, such as 5 for a foam-core steel door. Blank uses Manual J's default, when Manual J is set up. Only doors in outside walls are labelled."
+            "r_imperial": "The door's insulation as built, such as 5 for a foam-core steel door. Blank uses Manual J's default, when Manual J is set up. Only doors in outside walls are labelled.",
+            "from_left": "For a door in an outside wall. Stand outside, facing the wall. Measure along the wall from its left-hand end to the nearest edge of the door. On a south wall the left end is the west end; on an east wall, the south end; on a north wall, the east end; on a west wall, the north end. Blank: the drawing chooses. Only the drawings use this."
           }
         }
       },
@@ -464,7 +473,8 @@
       },
       "error": {
         "invalid_width": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
-        "invalid_height": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft."
+        "invalid_height": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
+        "invalid_from_left": "Give a distance of 0 or more, such as 1.2 m or 3' 6\"."
       }
     },
     "internal_wall": {

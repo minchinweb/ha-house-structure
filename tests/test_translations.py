@@ -50,6 +50,8 @@ def test_the_drawing_fields_are_labelled():
     steps = {
         "room": (("width", "depth", "x", "y", "level"),),
         "register": (("at_x", "at_y", "at_z"),),
+        "window": (("from_left",),),
+        "door": (("from_left",),),
     }
     for kind, (fields,) in steps.items():
         for step in ("user", "reconfigure"):
