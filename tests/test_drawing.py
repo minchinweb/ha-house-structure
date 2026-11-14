@@ -30,12 +30,16 @@ from custom_components.house_structure.drawing import (
     _floor_shifts,
     _footprint,
     _gaps,
+    _inside_parts,
     _meet,
     _north,
     _openings,
+    _parts,
     _place,
     _shared_face,
+    _touching,
     _wall_stretches,
+    _wing_parts,
     face_order,
     house_svg,
     near_faces,
@@ -1230,3 +1234,73 @@ def test_a_wing_with_only_a_floor_area_is_shaped_to_fit():
     assert width * depth == pytest.approx(6.0, rel=0.02)
     assert dx == pytest.approx(living.width, abs=0.02)  # on its east face
     assert not any("could not be placed" in note for note in notes)
+
+
+def _winged_pair(den_y: float) -> dict:
+    return _elements(
+        _room(
+            "living",
+            width_m=6.0,
+            depth_m=4.0,
+            x_m=0.0,
+            y_m=0.0,
+            beside=["den"],
+            wing_width_m=2.0,
+            wing_depth_m=3.0,
+            wing_face="N",
+        ),
+        _room("den", width_m=3.0, depth_m=2.0, x_m=2.0, y_m=den_y),
+        _internal("wall", "living", "den"),
+    )
+
+
+def test_an_internal_wall_against_a_wing_is_drawn_on_the_wing():
+    # the den is a metre clear of the living room, against its wing's east face
+    elements = _winged_pair(5.0)
+    boxes, _ = _place(elements, "m")
+    where = {b.area: b for b in boxes}
+    parts = _parts(elements)
+    inside, notes = _inside_parts(elements, parts, "living", where)
+    assert (inside, notes) == ([], [])  # not on the main rectangle; no complaint
+    ((wall, face, start, end),) = _wing_parts(parts, "living", where)
+    assert (wall.id, face) == ("wall", "E")
+    assert (start, end) == pytest.approx((1.0, 3.0))  # along the wing's face
+    # from the den, the same wall is on its own west face
+    ((_, den_face, _, _),), den_notes = _inside_parts(elements, parts, "den", where)
+    assert (den_face, den_notes) == ("W", [])
+    assert "not drawn" not in house_svg(elements, {"unit": "m"})
+
+
+def test_rooms_whose_wings_touch_are_touching():
+    elements = _elements(
+        _room(
+            "a",
+            width_m=4.0,
+            depth_m=3.0,
+            x_m=0.0,
+            y_m=0.0,
+            wing_width_m=2.0,
+            wing_depth_m=1.0,
+            wing_face="E",
+        ),
+        _room(
+            "b",
+            width_m=3.0,
+            depth_m=3.0,
+            x_m=8.0,
+            y_m=0.0,
+            wing_width_m=2.0,
+            wing_depth_m=1.0,
+            wing_face="W",
+        ),
+        _internal("wall", "a", "b"),
+    )
+    boxes, _ = _place(elements, "m")
+    where = {b.area: b for b in boxes}
+    assert _shared_face(where["a"], where["b"]) is None
+    assert _touching(where["a"], where["b"])
+    # the wall between them is on each room's wing
+    parts = _parts(elements)
+    ((_, face, start, end),) = _wing_parts(parts, "a", where)
+    assert (face, start, end) == ("E", pytest.approx(0.0), pytest.approx(1.0))
+    assert _inside_parts(elements, parts, "a", where) == ([], [])

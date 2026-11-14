@@ -231,8 +231,10 @@ what else is known.
   `wing_floor`, `wing_width` and `wing_depth` in a sheet). A wing with only
   a floor area is shaped to fit, like a room. The room's floor area is of
   both together. The wing is drawn as part of the room, with no wall
-  between, and a room against the wing is against the room. Walls, windows
-  and registers are drawn on the main rectangle.
+  between, and a room against the wing is against the room (two rooms whose
+  wings touch are against each other too). An internal wall, or a door in
+  one, to a room against the wing is drawn on the wing. Outside walls,
+  windows and registers are drawn on the main rectangle.
 - Floor that **no room was given**, such as a hallway with no area of its
   own, may be left as an empty space in the middle of a floor. Rooms that
   both open on to it count as linked, though they are not drawn touching.

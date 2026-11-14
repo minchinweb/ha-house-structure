@@ -200,6 +200,25 @@ def test_a_room_against_a_wing_is_against_its_room():
     assert cost_of(floor, placed)["links"] == 0
 
 
+def test_two_rooms_whose_wings_touch_are_against_each_other():
+    fixed = {
+        "a": (0.0, 0.0, 4.0, 3.0),
+        "a#wing": (4.0, 0.0, 6.0, 1.0),
+        "b#wing": (6.0, 0.0, 8.0, 1.0),
+    }
+    floor = Floor(
+        rooms=[Room("b", 9.0, size=(3.0, 3.0))],
+        fixed=fixed,
+        links=[("a", "b", None), ("b", "b#wing", "W")],
+        wings={"a#wing": "a", "b#wing": "b"},
+    )
+    placed = {**fixed, "b": (8.0, 0.0, 11.0, 3.0)}
+    assert cost_of(floor, placed)["links"] == 0
+    # without the wings, the same rooms are not linked
+    floor.wings = {}
+    assert cost_of(floor, placed)["links"] > 0
+
+
 def test_no_rooms_is_no_layout():
     assert fit(Floor(rooms=[])) == {}
     assert arrange([], []) == {}

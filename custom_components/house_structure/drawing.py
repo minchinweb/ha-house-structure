@@ -749,8 +749,12 @@ def _add_room(
     defaults: dict[str, float] | None = None,
     links: list[tuple[str, float, float, str]] | None = None,
     against: list[tuple[str, float, float]] | None = None,
+    wing_inside: list[tuple[Element, str, float, float]] | None = None,
 ) -> None:
     """Draw one room's floor, walls, windows, doors and outlets (far faces first).
+
+    ``wing_inside`` is like ``inside``, for the internal walls and doors on the
+    faces of an L-shaped room's wing (see ``_wing_parts``).
 
     ``inside`` is the room's internal walls and the doors in them, each with the
     face and the stretch of it to draw on (see ``_shared_face``). ``links`` are
@@ -779,6 +783,23 @@ def _add_room(
                 scene.polygons.append(
                     _outline(wing_box, face, 0.0, span, WALL_LINE, "none")
                 )
+            opacity = 0.6 if face in near_faces(scene.view) else 0.9
+            on_face = [(i, s, e) for i, on, s, e in wing_inside or () if on == face]
+            for item, start, end in on_face:  # the walls, then the doors in them
+                if item.kind != INTERNAL_WALL:
+                    continue
+                if item.open_link:
+                    scene.polygons.append(
+                        _outline(wing_box, face, start, end, OPEN_LINE, OPEN_DASH)
+                    )
+                else:
+                    quad = _quad(wing_box, face, start, end, 0.0, wing_box.height)
+                    scene.polygons.append(Poly(quad, WALL_FILL, WALL_LINE, opacity))
+            for item, start, end in on_face:
+                if item.kind == DOOR:
+                    scene.polygons.append(
+                        _inside_door(wing_box, item, face, start, end)
+                    )
     by_face: dict[str, list[Element]] = {face: [] for face in FACE_ORDER}
     for wall in parts.walls.get(box.area, []):
         by_face[_face_of(wall, rotation)].append(wall)
@@ -889,6 +910,50 @@ def _against(here: Box, others: list[Box]) -> list[tuple[str, float, float]]:
     return out
 
 
+def _meeting(here: Box, there: Box) -> tuple[bool, str, float, float] | None:
+    """Where a room meets another: whether it is the room's wing that does
+    (not its main rectangle), then the face of that part and the stretch of it
+    they share. The other room's wing is part of it. None if they do not
+    touch."""
+    others = [box for box in (there, _wing_box(there)[0]) if box is not None]
+    for on_wing, part in ((False, here), (True, _wing_box(here)[0])):
+        if part is None:
+            continue
+        for other in others:
+            found = _shared_face(part, other)
+            if found is not None:
+                return (on_wing, *found)
+    return None
+
+
+def _inside_items(parts: Parts, area_id: str) -> list[Element]:
+    """A room's internal walls and the doors in them. A wall is drawn from
+    both rooms; a door only from its own room (its area)."""
+    return [
+        *parts.internal.get(area_id, []),
+        *(d for d in parts.inside_doors.get(area_id, []) if d.area_id == area_id),
+    ]
+
+
+def _wing_parts(
+    parts: Parts, area_id: str, boxes: dict[str, Box]
+) -> list[tuple[Element, str, float, float]]:
+    """The internal walls, and the doors in them, that are on an L-shaped
+    room's wing: each with the wing's face and the stretch of it shared with
+    the room on the other side (like ``_inside_parts``)."""
+    here = boxes.get(area_id)
+    if here is None or here.wing is None:
+        return []
+    out = []
+    for item in _inside_items(parts, area_id):
+        other_id = item.other_area_id if item.area_id == area_id else item.area_id
+        there = boxes.get(other_id or "")
+        found = _meeting(here, there) if there else None
+        if found is not None and found[0]:
+            out.append((item, *found[1:]))
+    return out
+
+
 def _inside_parts(
     elements: dict[str, Element],
     parts: Parts,
@@ -897,7 +962,8 @@ def _inside_parts(
 ) -> tuple[list[tuple[Element, str, float, float]], list[str]]:
     """A room's internal walls, and the doors in them, each on the face it shares
     with the room on the other side (``boxes``: where each room is placed), and a
-    note for each that cannot be placed."""
+    note for each that cannot be placed. The ones on the room's wing are left
+    to ``_wing_parts``."""
     here = boxes.get(area_id)
     placed, notes = [], []
     # a wall is drawn from both rooms; a door only from its own room (its area)
@@ -909,9 +975,10 @@ def _inside_parts(
         # the room on the other side: the wall's, or the door's (its wall's)
         other_id = item.other_area_id if item.area_id == area_id else item.area_id
         there = boxes.get(other_id or "")
-        found = _shared_face(here, there) if here and there else None
-        if found is None and here and there and _touching(here, there):
-            continue  # they meet at a wing, which has no walls of its own drawn
+        met = _meeting(here, there) if here and there else None
+        if met is not None and met[0]:
+            continue  # on the room's wing
+        found = None if met is None else met[1:]
         if found is None:
             why = (
                 "the two rooms do not touch"
@@ -984,10 +1051,10 @@ def _link_stretches(
         if other_id in typed:
             continue
         there = boxes.get(other_id)
-        found = _shared_face(here, there) if there else None
-        if found is None:
+        met = _meeting(here, there) if there else None
+        if met is None or met[0]:  # (a wing's faces are drawn plain)
             continue
-        face, start, end = found
+        _, face, start, end = met
         out.append((face, start, end, "open" if link.get("open") else "implied"))
     return out
 
@@ -1980,6 +2047,7 @@ def room_svg(
         defaults=defaults,
         links=links,
         against=_against(where[area_id], beside),
+        wing_inside=_wing_parts(parts, area_id, where),
     )
     _add_roofs(scene, [box], elements, rotation, unit, defaults)
     scene.notes.extend(box.notes)
@@ -2085,6 +2153,7 @@ def house_svg(
             defaults=defaults,
             links=links,
             against=_against(where[box.area], beside),
+            wing_inside=_wing_parts(parts, box.area, where),
         )
         notes.extend(door_notes)
     # the plenum goes with the floor it is on; each run's outlet with its own
