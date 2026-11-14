@@ -1210,3 +1210,23 @@ def test_a_placed_rooms_wing_is_at_the_south_end_of_its_face():
     assert den.wing == pytest.approx((4.0, 0.0, 1.5, 1.0))
     svg = house_svg(elements, {"unit": "m"})
     assert svg.startswith("<svg")
+
+
+def test_a_wing_with_only_a_floor_area_is_shaped_to_fit():
+    elements = _elements(
+        _room(
+            "living",
+            floor_m2=26.0,
+            beside=["kitchen"],
+            wing_floor_m2=6.0,
+            wing_face="E",
+        ),
+        _room("kitchen", floor_m2=12.0),
+    )
+    boxes, notes = _place(elements, "m")
+    living = next(b for b in boxes if b.area == "living")
+    assert living.width * living.depth == pytest.approx(20.0, rel=0.01)
+    dx, _, width, depth = living.wing
+    assert width * depth == pytest.approx(6.0, rel=0.02)
+    assert dx == pytest.approx(living.width, abs=0.02)  # on its east face
+    assert not any("could not be placed" in note for note in notes)

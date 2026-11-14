@@ -181,6 +181,25 @@ def test_rooms_shaped_to_fit_are_whole_steps_of_the_grid():
         assert wide * deep == pytest.approx(room.area, rel=0.02)
 
 
+def test_a_room_against_a_wing_is_against_its_room():
+    # an L: the den is in the corner the living room's wing makes with it
+    fixed = {
+        "living": (0.0, 0.0, 6.0, 4.0),
+        "living#wing": (0.0, 4.0, 2.0, 7.0),
+        "bath": (2.0, 4.0, 6.0, 5.0),  # between the living room and the den
+    }
+    floor = Floor(
+        rooms=[Room("den", 8.0, size=(4.0, 2.0))],
+        fixed=fixed,
+        links=[("living", "den", None)],
+        wings={"living#wing": "living"},
+    )
+    placed = arrange([floor], [])
+    # the only free place beside the living room is against its wing
+    assert placed["den"] == pytest.approx((2.0, 5.0, 6.0, 7.0), abs=0.05)
+    assert cost_of(floor, placed)["links"] == 0
+
+
 def test_no_rooms_is_no_layout():
     assert fit(Floor(rooms=[])) == {}
     assert arrange([], []) == {}

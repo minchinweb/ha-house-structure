@@ -138,6 +138,9 @@ class Floor:
             otherwise its south-west corner is at 0, 0.
         width: A first guess of how wide the floor is.
         voids: The areas of the voids to start with.
+        wings: For an L-shaped room, its second rectangle (among ``rooms`` or
+            ``fixed``) by key, with the key of the room it is part of. A room
+            against a wing is against its room.
     """
 
     rooms: list[Room]
@@ -148,6 +151,7 @@ class Floor:
     free: bool = False
     width: float | None = None
     voids: list[float] = field(default_factory=list)
+    wings: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -337,7 +341,15 @@ class _Fit:
                 continue
             self.linked.add((i, j))
             self.links.append((i, j, want))
+        # each room with its wings: a link is met by any of them
+        self.whole: dict[int, list[int]] = {}
+        self.main: dict[int, int] = {}  # each wing's room
+        for wing, room in floor.wings.items():
+            if wing in index and room in index:
+                self.whole.setdefault(index[room], [index[room]]).append(index[wing])
+                self.main[index[wing]] = index[room]
         self.has_links = {i for pair in self.linked for i in pair}
+        self.has_links |= {w for w, room in self.main.items() if room in self.has_links}
         self.walls: list[dict[int, float]] = []
         self.eaves: list[set[int]] = []
         self.mins: list[tuple[float, float]] = []
@@ -516,19 +528,38 @@ class _Fit:
                 ),
             )
             got = pairs.get((i, j))
+            mine, yours = self.whole.get(i, (i,)), self.whole.get(j, (j,))
+            if len(mine) > 1 or len(yours) > 1:
+                # an L-shaped room: the longest wall any of its parts shares
+                apart = _apart(a, b)
+                for p in mine:
+                    for q in yours:
+                        if p == q or every[p] is None or every[q] is None:
+                            continue
+                        apart = min(apart, _apart(every[p], every[q]))
+                        if p < q:
+                            other = pairs.get((p, q))
+                        else:
+                            other = pairs.get((q, p))
+                            if other is not None:
+                                other = (_OPPOSITE[other[0]], other[1])
+                        if other is not None and (got is None or other[1] > got[1]):
+                            got = other
+            else:
+                apart = _apart(a, b)
             if got is not None and got[1] >= need:
                 if want is not None and got[0] != want:
                     parts["links"] += W_FACE
             elif any(
-                pairs.get((i, h), (0, 0.0))[1] >= need
-                and pairs.get((j, h), (0, 0.0))[1] >= need
+                any(pairs.get((p, h), (0, 0.0))[1] >= need for p in mine)
+                and any(pairs.get((q, h), (0, 0.0))[1] >= need for q in yours)
                 for h in range(first_hole, len(every))
             ):
                 parts["links"] += W_ACROSS
             elif got is not None:
                 parts["links"] += W_LINK * (1.0 - 0.5 * got[1] / need)
             else:
-                parts["links"] += W_LINK * (1.0 + _apart(a, b) / scale)
+                parts["links"] += W_LINK * (1.0 + apart / scale)
         for i in range(n):
             if rects[i] is None:
                 continue
@@ -565,9 +596,11 @@ class _Fit:
                     )
         for (i, j), (_, length) in pairs.items():
             # only between rooms that have links: one with none says nothing
+            p, q = sorted((self.main.get(i, i), self.main.get(j, j)))
             if (
                 i < n
-                and (i, j) not in self.linked
+                and p != q
+                and (p, q) not in self.linked
                 and i in self.has_links
                 and j in self.has_links
             ):

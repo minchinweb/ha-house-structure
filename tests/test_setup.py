@@ -807,7 +807,12 @@ async def test_rooms_beside_and_above(hass: HomeAssistant, house) -> None:
     assert result["errors"] == {"above": "invalid_above"}
     # an L-shaped room's wing needs its width, depth and side together
     result = await edit({**form, "wing_width": "60"})
+    assert result["errors"] == {"wing_face": "invalid_wing_face"}
+    result = await edit({**form, "wing_width": "60", "wing_face": "N"})
     assert result["errors"] == {"wing_depth": "invalid_wing_depth"}
+    # or its floor area, which must be less than the room's
+    result = await edit({**form, "wing_floor": "18000", "wing_face": "N"})
+    assert result["errors"] == {"wing_floor": "invalid_wing_floor"}
     wing = {"wing_width": "60", "wing_depth": "48", "wing_face": "N"}
     result = await edit({**form, **wing, "beside": [hall.id], "above": [loft.id]})
     assert result["type"] is FlowResultType.ABORT

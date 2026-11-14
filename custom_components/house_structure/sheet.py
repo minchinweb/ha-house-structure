@@ -46,6 +46,7 @@ COLUMNS = (
     "level",
     "wing_width",
     "wing_depth",
+    "wing_floor",
     "wing_face",
     "below_ground",
     "beside",

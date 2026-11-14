@@ -128,6 +128,7 @@ class Element:
     # the first (``wing_face``: N, E, S or W). The floor area is of both.
     wing_width_m: float | None = None
     wing_depth_m: float | None = None
+    wing_floor_m2: float | None = None
     wing_face: str | None = None
     # For a window: the glass's width and height.
     glass_width_m: float | None = None
@@ -320,6 +321,7 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 level_m=_optional(d.get("level_m")),
                 wing_width_m=_optional(d.get("wing_width_m")),
                 wing_depth_m=_optional(d.get("wing_depth_m")),
+                wing_floor_m2=_optional(d.get("wing_floor_m2")),
                 wing_face=d.get("wing_face") or None,
             )
         elif raw.kind == REGISTER:

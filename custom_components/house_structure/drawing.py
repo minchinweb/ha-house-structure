@@ -254,11 +254,22 @@ def _turn_gap(a: float, b: float) -> float:
 WING = "#wing"  # after a room's area: its wing's name among the rooms fitted
 
 
-def _wing(room: Element) -> tuple[float, float, str] | None:
-    """An L-shaped room's wing: its width, depth and the face of the room's
-    main rectangle it is against. None for a room with no wing."""
-    if room.wing_width_m and room.wing_depth_m and room.wing_face in FACES:
-        return room.wing_width_m, room.wing_depth_m, room.wing_face
+def _wing(room: Element) -> tuple[float, float, str, bool] | None:
+    """An L-shaped room's wing: its width, depth, the face of the room's main
+    rectangle it is against, and whether it is to be shaped to fit (it has a
+    floor area, but no width or depth: it is square until then). None for a
+    room with no wing."""
+    width, depth, area = room.wing_width_m, room.wing_depth_m, room.wing_floor_m2
+    if room.wing_face not in FACES:
+        return None
+    if width and depth:
+        return width, depth, room.wing_face, False
+    if area and width:
+        return width, area / width, room.wing_face, False
+    if area and depth:
+        return area / depth, depth, room.wing_face, False
+    if area:
+        return math.sqrt(area), math.sqrt(area), room.wing_face, True
     return None
 
 
@@ -848,6 +859,18 @@ def _wing_box(box: Box) -> tuple[Box | None, tuple[str, float, float] | None]:
     return wing, _shared_face(box, wing)
 
 
+def _touching(a: Box, b: Box) -> bool:
+    """Whether two rooms share a wall: a room's wing is part of the room."""
+    mine = [a, _wing_box(a)[0]]
+    yours = [b, _wing_box(b)[0]]
+    return any(
+        _shared_face(p, q) is not None
+        for p in mine
+        for q in yours
+        if p is not None and q is not None
+    )
+
+
 def _against(here: Box, others: list[Box]) -> list[tuple[str, float, float]]:
     """The stretches of a room's faces ``(face, start, end)`` that another
     room (``others``: the rooms on its floor, where they really are), or a
@@ -887,6 +910,8 @@ def _inside_parts(
         other_id = item.other_area_id if item.area_id == area_id else item.area_id
         there = boxes.get(other_id or "")
         found = _shared_face(here, there) if here and there else None
+        if found is None and here and there and _touching(here, there):
+            continue  # they meet at a wing, which has no walls of its own drawn
         if found is None:
             why = (
                 "the two rooms do not touch"
@@ -1214,10 +1239,16 @@ def _fit_house(
                         x = room.x_m + {"E": width, "W": -wing[0]}.get(wing[2], 0.0)
                         y = room.y_m + {"N": depth, "S": -wing[1]}.get(wing[2], 0.0)
                         floor.fixed[area + WING] = (x, y, x + wing[0], y + wing[1])
+                        floor.wings[area + WING] = area
                     continue
                 if wing:
+                    floor.wings[area + WING] = area
                     floor.rooms.append(
-                        layout.Room(area + WING, wing[0] * wing[1], wing[:2])
+                        layout.Room(
+                            area + WING,
+                            wing[0] * wing[1],
+                            None if wing[3] else wing[:2],
+                        )
                     )
                 loose.add(area)
                 square = any("square" in note for note in why)
@@ -1314,7 +1345,7 @@ def _fit_house(
         ):
             continue
         seen.add(_pair(a, b))
-        if _shared_face(by_area[a], by_area[b]) is None and not layout.linked_across(
+        if not _touching(by_area[a], by_area[b]) and not layout.linked_across(
             placed[a], placed[b], holes.get(a, [])
         ):
             notes.append(
