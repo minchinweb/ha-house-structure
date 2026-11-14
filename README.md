@@ -195,13 +195,42 @@ Above the drawing:
 
 - **View** turns it a quarter turn at a time, to look from the south-west,
   north-west, north-east or south-east corner.
-- **Floors** draws the house's floors together or pulled apart. Apart, each is
-  lifted 2.5 m more than the one below, so an upper floor doesn't hide the one
-  under it. A room less than 3 1/2 ft above a floor's lowest room (a split
-  level's half flight) stays on that floor.
+- **Floors** draws the house's floors together, stacked as they are built, or
+  apart, one above the other up the page, so an upper floor doesn't hide the
+  one under it. A room less than 3 1/2 ft above a floor's lowest room (a
+  split level's half flight) stays on that floor.
 - **Show** switches the layers: the **heating runs** (on to start with), the
   **roofs** (off, as they hide the rooms), and any overlay another
   integration adds, such as Home Thermal Lab's heat flow between the rooms.
+
+### Where the rooms are drawn
+
+A room with a position typed (in the sheet below) is drawn there. The house
+needs no positions, though: the rooms without one are fitted together from
+what else is known.
+
+- Rooms **linked beside** each other share a wall, on the face an internal
+  wall names if it names one.
+- An **outside wall** stays on the outside, with no room against it, for as
+  much of the face as its length (the whole face if it has none).
+- A room sits **over the rooms it is above**, and each floor over the one
+  under it.
+- A room with a **floor area but no width or depth** takes the shape that
+  fits between its neighbours, at that area, so the rooms fill the house
+  with no gaps. A room with a width and depth keeps them.
+- The biggest floor is pulled into the shape of the **building outline** from
+  OpenStreetMap, when one was found, so an L-shaped house comes out an L.
+- A **detached building**'s rooms are fitted on their own and set beside the
+  house.
+- Floor that **no room was given**, such as a hallway with no area of its
+  own, may be left as an empty space in the middle of a floor. Rooms that
+  both open on to it count as linked, though they are not drawn touching.
+
+A floor's rooms with no floor height typed sit on the floor below: its
+ceiling height and 0.3 m up. The caption under the drawing names any linked
+rooms that could not be put against each other, which usually means the
+links and outside walls round them cannot all be true at once. The same house
+is always drawn the same way; it changes when a room, wall or link does.
 
 A roof is drawn as a slope rising from its eave at its pitch. A room with roofs
 on opposite faces gets a gable: the two meet half way across, with the gable

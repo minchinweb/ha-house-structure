@@ -100,6 +100,31 @@ def outline_walls(outline: list[Point]) -> list[tuple[float, float]]:
     ]
 
 
+def outline_grid(outline: list[Point], rotation: float) -> list[tuple[float, float]]:
+    """The outline's corners in the house's grid: metres east and north along
+    the house's own faces (turned ``rotation`` clockwise from north), from its
+    first corner. A closed way's repeated corner is left out.
+
+    Only the shape is kept, so the result does not give away where it is.
+    """
+    ring = list(outline)
+    if len(ring) > 1 and ring[0] == ring[-1]:
+        ring.pop()
+    if len(ring) < 3:
+        return []
+    turn = math.radians(rotation)
+    out = []
+    for point in ring:
+        east, north = _metres(ring[0], point)
+        out.append(
+            (
+                round(east * math.cos(turn) - north * math.sin(turn), 2),
+                round(east * math.sin(turn) + north * math.cos(turn), 2),
+            )
+        )
+    return out
+
+
 def _inside(point: Point, outline: list[Point]) -> bool:
     lat, lon = point
     inside = False

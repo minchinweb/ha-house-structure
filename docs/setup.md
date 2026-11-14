@@ -13,7 +13,7 @@ House Structure describes your house once, in Home Assistant, and gives each roo
 Add the parts from the integration's page, in this order, so that each form can offer the parts it needs.
 
 1. **House** (the first form, when you add the integration). Set the house's rotation (measured from the building on OpenStreetMap when it can be found), the unit, and the sky source (Open-Meteo, or a solar radiation sensor). Everything else on this form can wait.
-2. **Rooms.** One per area. Give each its size. Give its position too (east and north of the house's south-west corner, and its floor height) if you want the house drawing, or if you will use the sheet to work out which rooms touch.
+2. **Rooms.** One per area. Give each its size: a floor area is enough. The house drawing fits the rooms together from their links and outside walls, and shapes a room with no width or depth to fit, so positions are not needed for it. Give a room its position (east and north of the house's south-west corner, and its floor height) only to pin it exactly, or if you will use the sheet to work out which rooms touch.
 3. **Outside walls and roofs.** Each is one face of a room, with its face and length. A roof can cover several rooms.
 4. **Windows and skylights.** Each sits in a wall or roof you have already added, so add the wall first.
 5. **Walls between rooms.** Each is a link between two rooms. Give the face of this room the other sits on when you care which side they share (a kitchen with two neighbours on its east wall, for example). The sheet (below) creates these for you from the rooms' footprints, so you rarely need to add them by hand.

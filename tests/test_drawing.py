@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import math
 import re
 
@@ -17,13 +18,16 @@ from custom_components.house_structure.constants import (
     WINDOW,
 )
 from custom_components.house_structure.drawing import (
-    FLOOR_GAP,
+    _PLACED,
     IMPLIED_DASH,
     LARGE_TEXT,
     OPEN_DASH,
     OPENING_GAP,
+    SLAB,
     _box,
     _clear_shift,
+    _floor_index,
+    _floor_shifts,
     _footprint,
     _gaps,
     _meet,
@@ -33,7 +37,6 @@ from custom_components.house_structure.drawing import (
     _shared_face,
     _wall_stretches,
     face_order,
-    floor_lifts,
     house_svg,
     near_faces,
     project,
@@ -145,19 +148,39 @@ def test_a_room_with_no_size_is_noted_not_drawn():
     assert room_svg(elements, HOUSE, "missing") is None
 
 
-def test_rooms_without_a_position_go_after_the_placed_ones():
+def _apart(a, b) -> bool:
+    """Whether two boxes take up none of the same floor."""
+    return (
+        min(a.x + a.width, b.x + b.width) - max(a.x, b.x) < 1e-6
+        or min(a.y + a.depth, b.y + b.depth) - max(a.y, b.y) < 1e-6
+    )
+
+
+def _open_face(boxes, area: str, face: str) -> bool:
+    """Whether no other room is against a room's face."""
+    where = {b.area: b for b in boxes}
+    here = where[area]
+    return not any(
+        (_shared_face(here, other) or ("",))[0] == face
+        for other in boxes
+        if other.area != area
+    )
+
+
+def test_a_room_without_a_position_goes_beside_the_placed_ones():
     elements = _elements(
         _room("placed", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0),
         _room("loose", width_m=2.0, depth_m=3.0),
     )
     boxes, notes = _place(elements, "m")
-    loose = next(b for b in boxes if b.area == "loose")
-    assert loose.x == pytest.approx(5.0)  # the placed room ends at 4 m, then a metre
-    assert loose.y == pytest.approx(0.0)
-    assert any("placed from its walls" in note for note in notes)
+    where = {b.area: b for b in boxes}
+    assert (where["placed"].x, where["placed"].y) == (0.0, 0.0)  # it stays put
+    assert (where["loose"].width, where["loose"].depth) == (2.0, 3.0)
+    assert _apart(where["placed"], where["loose"])
+    assert any("no position typed" in note for note in notes)
 
 
-def test_loose_rooms_sit_against_the_edges_their_outside_walls_are_on():
+def test_loose_rooms_keep_their_outside_walls_on_the_outside():
     elements = _elements(
         _room("ne", width_m=3.0, depth_m=3.0),
         _wall("ne_n", "ne", "N"),
@@ -171,36 +194,150 @@ def test_loose_rooms_sit_against_the_edges_their_outside_walls_are_on():
         _wall("w_w", "w", "W"),
     )
     boxes, _ = _place(elements, "m")
-    at = {b.area: (b.x, b.y) for b in boxes}
-    # the east edge, with the north-east corner at the top and the room with only
-    # an east wall between it and the south-east corner
-    assert at["ne"][0] == at["e"][0] == at["se"][0] > at["w"][0]
-    assert at["se"][1] < at["e"][1] < at["ne"][1]
+    for area, face in (
+        ("ne", "N"),
+        ("ne", "E"),
+        ("e", "E"),
+        ("se", "S"),
+        ("se", "E"),
+        ("w", "W"),
+    ):
+        assert _open_face(boxes, area, face), f"{area} {face}"
+    for a in boxes:
+        for b in boxes:
+            assert a is b or _apart(a, b)
 
 
-def test_floor_groups_of_loose_rooms_are_spaced_apart():
+def test_a_room_with_only_a_floor_area_is_shaped_to_fit_its_neighbours():
+    # two rooms given by area alone fill a rectangle between them: no gap, no
+    # ragged edge, and each keeps its floor area
     elements = _elements(
-        _room("ground", width_m=3.0, depth_m=3.0),
-        _room("upstairs", width_m=3.0, depth_m=3.0),
+        _room("living", floor_m2=20.0, beside=["kitchen"]),
+        _room("kitchen", floor_m2=12.0),
     )
-    boxes, _ = _place(elements, "m", {"ground": 0, "upstairs": 1})
+    boxes, notes = _place(elements, "m")
+    where = {b.area: b for b in boxes}
+    living, kitchen = where["living"], where["kitchen"]
+    assert living.width * living.depth == pytest.approx(20.0)
+    assert kitchen.width * kitchen.depth == pytest.approx(12.0)
+    face, start, end = _shared_face(living, kitchen)
+    # they share the whole of the face between them
+    assert end - start == pytest.approx(
+        living.width if face in ("N", "S") else living.depth
+    )
+    assert any("shaped to fit" in note for note in notes)
+
+
+def test_a_room_with_a_width_and_depth_keeps_them():
+    elements = _elements(
+        _room("living", floor_m2=20.0, beside=["bath"]),
+        _room("bath", width_m=2.0, depth_m=1.5),
+    )
+    boxes, _ = _place(elements, "m")
+    bath = next(b for b in boxes if b.area == "bath")
+    assert (bath.width, bath.depth) == (2.0, 1.5)
+
+
+def test_the_same_house_is_always_placed_the_same():
+    raws = (
+        _room("living", floor_m2=20.0, beside=["kitchen", "hall"]),
+        _room("kitchen", floor_m2=12.0, beside=["hall"]),
+        _room("hall", floor_m2=6.0),
+    )
+    first, _ = _place(_elements(*raws), "m")
+    _PLACED.clear()  # fitted again, not read back
+    again, _ = _place(_elements(*raws), "m")
+    assert first == again
+
+
+def test_a_floor_with_no_heights_typed_sits_on_the_one_below():
+    elements = _elements(
+        _room("ground", width_m=3.0, depth_m=3.0, height_m=2.5),
+        _room("upstairs", width_m=3.0, depth_m=3.0),
+        _room("cellar", width_m=3.0, depth_m=3.0, height_m=2.0),
+    )
+    boxes, _ = _place(elements, "m", {"ground": 0, "upstairs": 1, "cellar": -1})
     at = {b.area: b for b in boxes}
-    gap = at["upstairs"].y - (at["ground"].y + at["ground"].depth)
-    assert gap == pytest.approx(FLOOR_GAP)
+    assert at["ground"].z == pytest.approx(0.0)
+    assert at["upstairs"].z == pytest.approx(2.5 + SLAB)
+    assert at["cellar"].z == pytest.approx(-2.0 - SLAB)
+
+
+def test_a_room_sits_over_the_room_it_is_above():
+    elements = _elements(
+        _room("living", floor_m2=20.0, beside=["kitchen"]),
+        _room("kitchen", floor_m2=12.0, above=["bedroom"]),
+        _room("bedroom", floor_m2=9.0),
+    )
+    floors = {"living": 0, "kitchen": 0, "bedroom": 1}
+    boxes, _ = _place(elements, "m", floors)
+    at = {b.area: b for b in boxes}
+    kitchen, bedroom = at["kitchen"], at["bedroom"]
+    over_x = min(kitchen.x + kitchen.width, bedroom.x + bedroom.width) - max(
+        kitchen.x, bedroom.x
+    )
+    over_y = min(kitchen.y + kitchen.depth, bedroom.y + bedroom.depth) - max(
+        kitchen.y, bedroom.y
+    )
+    assert over_x > 0 and over_y > 0
+    assert over_x * over_y >= 0.5 * 9.0  # most of the bedroom is over the kitchen
+
+
+def test_the_biggest_floor_is_fitted_to_the_building_outline():
+    # an L: the south-east quarter of the square is missing
+    outline = [(0, 0), (5, 0), (5, 5), (10, 5), (10, 10), (0, 10)]
+    elements = _elements(
+        _room("a", floor_m2=25.0, beside=["b"]),
+        _room("b", floor_m2=25.0, beside=["c"]),
+        _room("c", floor_m2=25.0),
+    )
+    boxes, _ = _place(elements, "m", outline=outline)
+    # 75 m² of rooms in a 75 m² outline: nothing is in the missing quarter
+    for box in boxes:
+        in_notch = (box.x + box.width > 5.01) and (box.y < 4.99)
+        assert not in_notch, box.area
+
+
+def test_a_detached_building_is_set_beside_the_house():
+    elements = _elements(
+        _room("living", floor_m2=20.0, beside=["kitchen"]),
+        _room("kitchen", floor_m2=12.0),
+        _room("garage", width_m=6.0, depth_m=6.0),
+    )
+    boxes, _ = _place(elements, "m", buildings=[["garage"]])
+    at = {b.area: b for b in boxes}
+    house_east = max(b.x + b.width for b in boxes if b.area != "garage")
+    assert at["garage"].x > house_east
 
 
 @pytest.mark.parametrize("view", [0, 1, 2, 3])
-def test_upper_floor_groups_go_up_the_page_whichever_way_the_view_turns(view):
+def test_floors_drawn_apart_go_up_the_page_whichever_way_the_view_turns(view):
     elements = _elements(
         _room("ground", width_m=3.0, depth_m=3.0),
         _room("upstairs", width_m=3.0, depth_m=3.0),
     )
-    boxes, _ = _place(elements, "m", {"ground": 0, "upstairs": 1}, view=view)
-    screen = {
-        b.area: project((b.x + b.width / 2, b.y + b.depth / 2, b.z), view)[1]
-        for b in boxes
-    }
-    assert screen["upstairs"] < screen["ground"]
+    floors = {"ground": 0, "upstairs": 1}
+    boxes, _ = _place(elements, "m", floors)
+    shifts = _floor_shifts(boxes, _floor_index(elements, set(floors), floors), view)
+    assert shifts["ground"] == (0.0, 0.0)
+    dx, dy = shifts["upstairs"]
+    here = next(b for b in boxes if b.area == "upstairs")
+    before = project((here.x, here.y, here.z), view)
+    after = project((here.x + dx, here.y + dy, here.z), view)
+    assert after[0] == pytest.approx(before[0])  # straight up the page
+    # clear of the floor below: its lowest corner is above the ground's ceiling
+    ground = next(b for b in boxes if b.area == "ground")
+    top = min(
+        project((ground.x + x, ground.y + y, ground.z + ground.height), view)[1]
+        for x in (0.0, 3.0)
+        for y in (0.0, 3.0)
+    )
+    low = max(
+        project((here.x + dx + x, here.y + dy + y, here.z), view)[1]
+        for x in (0.0, 3.0)
+        for y in (0.0, 3.0)
+    )
+    assert low < top
 
 
 def test_a_floor_above_the_ground_sits_at_its_level():
@@ -428,13 +565,13 @@ def test_rooms_with_no_position_are_chained_off_the_room_they_share_a_wall_with(
     boxes, notes = _place(elements, "m")
     where = {b.area: b for b in boxes}
     kitchen, landing, bath = where["kitchen"], where["landing"], where["bath"]
-    shared = _shared_face(kitchen, landing)
-    assert shared is not None and shared[0] == "E"  # against the kitchen's east face
+    assert _shared_face(kitchen, landing) is not None  # against the kitchen
+    assert (kitchen.x, kitchen.y) == (0.0, 0.0)  # which stays where it was typed
     assert _shared_face(landing, bath) is not None
-    assert any("shared wall" in note for note in notes)
+    assert any("no position typed" in note for note in notes)
 
 
-def test_floors_drawn_apart_lift_each_floor_above_the_one_below():
+def test_a_split_level_stays_on_its_floor():
     elements = _elements(
         _room("rec", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=-2.4),
         _room("kitchen", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=0.0),
@@ -443,8 +580,14 @@ def test_floors_drawn_apart_lift_each_floor_above_the_one_below():
         _room("landing", width_m=2.0, depth_m=2.0, x_m=7.0, y_m=0.0, level_m=1.0),
         _room("office", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=2.7),
     )
-    boxes, _ = _place(elements, "m")
-    assert floor_lifts(boxes, gap=2.5) == [(-2.4, 0.0), (0.0, 2.5), (2.7, 5.0)]
+    areas = {"rec", "kitchen", "den", "landing", "office"}
+    assert _floor_index(elements, areas, None) == {
+        "rec": 0,
+        "kitchen": 1,
+        "den": 1,
+        "landing": 1,
+        "office": 2,
+    }
 
 
 def test_more_than_three_and_a_half_feet_up_is_another_floor():
@@ -453,9 +596,12 @@ def test_more_than_three_and_a_half_feet_up_is_another_floor():
         _room("half", width_m=4.0, depth_m=3.0, x_m=4.0, y_m=0.0, level_m=1.06),
         _room("loft", width_m=4.0, depth_m=3.0, x_m=8.0, y_m=0.0, level_m=1.08),
     )
-    boxes, _ = _place(elements, "m")
     # 3 1/2 ft is 1.067 m: the half level stays, the loft starts a floor
-    assert floor_lifts(boxes, gap=2.5) == [(0.0, 0.0), (1.08, 2.5)]
+    assert _floor_index(elements, {"main", "half", "loft"}, None) == {
+        "main": 0,
+        "half": 0,
+        "loft": 1,
+    }
 
 
 def test_floors_drawn_apart_keep_the_real_run_lengths():
@@ -612,8 +758,8 @@ def test_linked_component_is_seeded_without_a_band_gap():
     assert gap == pytest.approx(0.0)
 
 
-def test_floor_groups_keep_their_gap_and_do_not_snap_across_floors():
-    # a room upstairs listed beside one downstairs must not pull the floors together
+def test_a_link_between_floors_does_not_pull_the_rooms_side_by_side():
+    # a room upstairs listed beside one downstairs stays on its own floor
     elements = _elements(
         _room("ground", width_m=3.0, depth_m=3.0),
         _room("ground2", width_m=3.0, depth_m=3.0, beside=["ground"]),
@@ -623,9 +769,14 @@ def test_floor_groups_keep_their_gap_and_do_not_snap_across_floors():
     floors = {"ground": 0, "ground2": 0, "upstairs": 1, "upstairs2": 1}
     boxes, _ = _place(elements, "m", floors)
     where = {b.area: b for b in boxes}
-    ground_top = max(where["ground"].y + 3.0, where["ground2"].y + 3.0)
-    upstairs_bottom = min(where["upstairs"].y, where["upstairs2"].y)
-    assert upstairs_bottom - ground_top >= FLOOR_GAP - 1e-6
+    assert where["upstairs"].z == where["upstairs2"].z > where["ground"].z
+    assert _shared_face(where["ground"], where["ground2"]) is not None
+    assert _shared_face(where["upstairs"], where["upstairs2"]) is not None
+    # the upper floor is over the lower one, not beside it
+    assert not _apart(
+        replace(where["upstairs"], width=6.0, x=min(b.x for b in boxes if b.z > 0)),
+        replace(where["ground"], width=6.0, x=min(b.x for b in boxes if b.z == 0)),
+    )
 
 
 def test_the_north_arrow_is_in_its_own_column_clear_of_the_rooms():

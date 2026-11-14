@@ -13,7 +13,10 @@ Examples::
 Scenarios:
   kitchen-face  Kitchen east face shared by outside window, open entrance, bath
   hall-hub      Several rooms packing flush around a hall
-  sample-house  Multi-room facsimile; ground floor left untyped so the packer runs
+  sample-house  Multi-room facsimile; ground floor left untyped so the rooms are fitted
+
+A diagnostics dump is fitted to its building outline (``--no-outline`` to
+leave it out) and keeps its detached buildings apart.
 """
 
 from __future__ import annotations
@@ -47,6 +50,8 @@ from custom_components.house_structure.model import Raw, build  # noqa: E402
 
 # house settings, parts, area→floor level, pairs to check for shared faces
 Scenario = tuple[dict, list[Raw], dict[str, int], list[tuple[str, str]]]
+# what the rooms are fitted to: the outline's corners and the detached buildings
+Shape = dict
 
 HOUSE = {
     "rotation": 12.0,
@@ -297,6 +302,27 @@ SCENARIOS = {
 }
 
 
+def shape_from_diagnostics(path: Path) -> Shape:
+    """The building outline (from its walls' bearings and lengths) and the
+    detached buildings in a ``house_structure/layout`` or diagnostics dump."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    rotation = float((data.get("house") or {}).get("rotation") or 0.0)
+    # outward bearing, quarter turns from north -> the way round the outline
+    step = {0: (-1, 0), 1: (0, 1), 2: (1, 0), 3: (0, -1)}
+    points = []
+    x = y = 0.0
+    for wall in (data.get("outline") or {}).get("walls") or []:
+        dx, dy = step[round(((wall["facing"] - rotation) % 360) / 90) % 4]
+        points.append((round(x, 2), round(y, 2)))
+        x, y = x + dx * wall["length_m"], y + dy * wall["length_m"]
+    buildings = [
+        list((p.get("settings") or {}).get("area_ids") or ())
+        for p in data.get("parts") or []
+        if p["kind"] == "building"
+    ]
+    return {"outline": points or None, "buildings": buildings}
+
+
 def from_diagnostics(path: Path) -> Scenario:
     """Load a ``house_structure/layout`` or diagnostics JSON dump."""
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -313,7 +339,7 @@ def from_diagnostics(path: Path) -> Scenario:
             continue
         # diagnostics only has floor names; map common labels, else 0
         level = 0
-        if name and "up" in str(name).lower():
+        if name and any(w in str(name).lower() for w in ("up", "attic", "second")):
             level = 1
         elif name and ("base" in str(name).lower() or "down" in str(name).lower()):
             level = -1
@@ -332,13 +358,15 @@ def report_placement(
     floors: dict[str, int],
     checks: list[tuple[str, str]],
     view: int,
+    shape: Shape,
 ) -> list:
     boxes, notes = _place(
         elements,
         house.get("unit", "m"),
         floors,
         house.get("rotation", 0.0),
-        view,
+        shape.get("outline"),
+        shape.get("buildings"),
     )
     at = {b.area: b for b in boxes}
     print(f"Placed {len(boxes)} rooms (view={VIEWS[view % 4]}):")
@@ -409,7 +437,12 @@ def main() -> int:
     parser.add_argument(
         "--exploded",
         action="store_true",
-        help="Pull floors apart",
+        help="Draw the floors side by side",
+    )
+    parser.add_argument(
+        "--no-outline",
+        action="store_true",
+        help="Ignore the building outline in the diagnostics",
     )
     parser.add_argument(
         "--png",
@@ -419,9 +452,13 @@ def main() -> int:
     parser.add_argument("--dpi", type=int, default=160)
     args = parser.parse_args()
 
+    shape: Shape = {}
     if args.from_diagnostics:
         house, raws, floors, checks = from_diagnostics(args.from_diagnostics)
         name = args.from_diagnostics.stem
+        shape = shape_from_diagnostics(args.from_diagnostics)
+        if args.no_outline:
+            shape["outline"] = None
     else:
         if args.scenario == "diagnostics":
             parser.error("diagnostics scenario needs --from-diagnostics")
@@ -434,16 +471,18 @@ def main() -> int:
         for problem in problems:
             print(f"  - {problem}")
 
-    report_placement(elements, house, floors, checks, args.view)
+    report_placement(elements, house, floors, checks, args.view, shape)
     svg = house_svg(
         elements,
         house,
         exploded=args.exploded,
         view=args.view,
         floors=floors,
+        **shape,
     )
     args.out.mkdir(parents=True, exist_ok=True)
-    svg_path = args.out / f"{name}_v{args.view}.svg"
+    apart = "_apart" if args.exploded else ""
+    svg_path = args.out / f"{name}_v{args.view}{apart}.svg"
     svg_path.write_text(svg, encoding="utf-8")
     print(f"wrote {svg_path.resolve()}")
     if args.png:

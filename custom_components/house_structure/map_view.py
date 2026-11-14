@@ -22,7 +22,7 @@ from homeassistant.helpers import floor_registry as fr
 from .constants import DOMAIN, OUTLINE, ROOM
 from .devices import elements_of
 from .drawing import house_svg, room_svg
-from .orientation import outline_svg
+from .orientation import outline_grid, outline_svg
 
 
 def _saved_house(hass: HomeAssistant):
@@ -47,6 +47,20 @@ def _saved_house(hass: HomeAssistant):
         if floor is not None and floor.level is not None:
             floors[area.id] = floor.level
     return elements, dict(entry.data), floors
+
+
+def _shape(hass: HomeAssistant, house: dict) -> dict:
+    """What the rooms are fitted to, for ``house_svg`` and ``room_svg``: the
+    building outline in the house's grid (if one was found) and the areas of
+    each detached building."""
+    points = hass.data.get(OUTLINE, {}).get("points")
+    rotation = float(house.get("rotation") or 0.0)
+    published = hass.data.get(DOMAIN)
+    buildings = published.get("buildings", []) if isinstance(published, dict) else []
+    return {
+        "outline": outline_grid(points, rotation) if points else None,
+        "buildings": [list(b.get("area_ids") or ()) for b in buildings],
+    }
 
 
 def _only(request: web.Request) -> set[str] | None:
@@ -93,13 +107,19 @@ class RoomDrawingView(HomeAssistantView):
         area = request.query.get("area")
         if saved is None or not area:
             return web.Response(status=404)
-        text = room_svg(
-            saved[0],
-            saved[1],
-            area,
-            view=_view(request),
-            defaults=_manual_j_defaults(self._hass),
-            large_text=request.query.get("text") == "large",
+        # Fitting the rooms together can take a second: off the event loop.
+        text = await self._hass.async_add_executor_job(
+            partial(
+                room_svg,
+                saved[0],
+                saved[1],
+                area,
+                view=_view(request),
+                defaults=_manual_j_defaults(self._hass),
+                large_text=request.query.get("text") == "large",
+                floors=saved[2],
+                **_shape(self._hass, saved[1]),
+            )
         )
         if text is None:
             return web.Response(status=404)
@@ -126,7 +146,7 @@ class HousePlanView(HomeAssistantView):
         if saved is None:
             return web.Response(status=404)
         exploded = request.query.get("exploded", "") in ("1", "true", "yes")
-        # Layout can be slow or non-converging; keep it off the event loop.
+        # Fitting the rooms together can take a second: off the event loop.
         text = await self._hass.async_add_executor_job(
             partial(
                 house_svg,
@@ -137,6 +157,7 @@ class HousePlanView(HomeAssistantView):
                 floors=saved[2],
                 defaults=_manual_j_defaults(self._hass),
                 only=_only(request),
+                **_shape(self._hass, saved[1]),
             )
         )
         return web.Response(

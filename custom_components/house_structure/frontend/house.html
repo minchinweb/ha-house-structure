@@ -275,8 +275,8 @@ async function loadDrawing() {
       ? "The house, drawn from its rooms with the floors pulled apart"
       : "The house, drawn from its rooms") + `, from the ${VIEWS[state.view]}`);
     hint.textContent = (state.exploded
-      ? "The floors pulled apart, so each can be seen. "
-      : "The rooms at their positions and floor levels. ")
+      ? "The floors apart, one above the other up the page, so each can be seen. "
+      : "The rooms fitted together, each floor over the one below. ")
       + "The heating runs go from the plenum to each register; they are schematic.";
   }
   const ticket = ++drawingTicket;
