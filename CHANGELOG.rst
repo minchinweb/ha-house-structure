@@ -3,6 +3,7 @@ Changelog
 
 .. release:: unreleased
 
+  - :feature:`-` **Where a detached building sits**: a building takes an optional side of the house (north, east, south or west), a distance from the house and a distance along that side (from the house's west end for a north or south side, its south end for an east or west one), in the house's unit. Left empty, it is east of the house, 2 m away, with south ends level, as before. Published as ``side``, ``gap_m`` and ``along_m`` next to ``area_ids`` (the summary stays at version 1: only keys were added).
   - :feature:`-` **L-shaped rooms**: a room takes an optional wing (the side of the room it is on, and its floor area or its width and depth), fitted against that side and drawn as part of the room. The room's floor area is of both, and a room against the wing is against the room.
   - :feature:`-` **Where a window or door is along its wall**: a window, or a door in an outside wall, takes an optional distance from the wall's left end, seen from outside (``from_left`` in a sheet). The drawings put it there; the ones without go in a row in what is left of the wall.
   - :feature:`-` Rooms shaped to fit come out a **whole number of inches** wide and deep (centimetres, for a house in metres).

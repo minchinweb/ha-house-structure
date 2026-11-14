@@ -317,6 +317,85 @@ def test_a_detached_building_is_set_beside_the_house():
     assert at["garage"].x > house_east
 
 
+def _house_and_garage(**spot):
+    """A 10 by 6 m house and a 4 by 3 m garage, which sits as ``spot`` says."""
+    elements = _elements(
+        _room("living", width_m=10.0, depth_m=6.0),
+        _room("garage", width_m=4.0, depth_m=3.0),
+    )
+    building = {"area_ids": ["garage"], **spot}
+    boxes, _ = _place(elements, "m", buildings=[building])
+    at = {b.area: b for b in boxes}
+    return at["living"], at["garage"]
+
+
+def test_a_detached_building_with_a_blank_place_is_where_it_always_was():
+    elements = _elements(
+        _room("living", width_m=10.0, depth_m=6.0),
+        _room("garage", width_m=4.0, depth_m=3.0),
+    )
+    plain, _ = _place(elements, "m", buildings=[["garage"]])
+    blank, _ = _place(
+        elements,
+        "m",
+        buildings=[
+            {"area_ids": ["garage"], "side": None, "gap_m": None, "along_m": None}
+        ],
+    )
+    assert blank == plain
+    at = {b.area: b for b in plain}
+    assert at["garage"].x == pytest.approx(at["living"].x + 10.0 + 2.0)
+    assert at["garage"].y == pytest.approx(at["living"].y)
+
+
+@pytest.mark.parametrize(
+    ("side", "gap", "x", "y"),
+    [
+        ("E", 5.0, 10.0 + 5.0, 0.0),
+        ("W", 5.0, -5.0 - 4.0, 0.0),
+        ("N", 5.0, 0.0, 6.0 + 5.0),
+        ("S", 5.0, 0.0, -5.0 - 3.0),
+        ("N", None, 0.0, 6.0 + 2.0),  # the gap is 2 m when not given
+        ("W", 0.0, -4.0, 0.0),  # touching
+    ],
+)
+def test_a_detached_building_sits_on_its_side_of_the_house(side, gap, x, y):
+    house, garage = _house_and_garage(side=side, gap_m=gap)
+    assert garage.x - house.x == pytest.approx(x)
+    assert garage.y - house.y == pytest.approx(y)
+
+
+@pytest.mark.parametrize(
+    ("side", "x", "y"),
+    [
+        ("N", 3.0, 6.0 + 2.0),  # from the west end
+        ("S", 3.0, -2.0 - 3.0),
+        ("E", 10.0 + 2.0, 3.0),  # from the south end
+        ("W", -2.0 - 4.0, 3.0),
+    ],
+)
+def test_a_detached_building_can_sit_along_its_side(side, x, y):
+    house, garage = _house_and_garage(side=side, along_m=3.0)
+    assert garage.x - house.x == pytest.approx(x)
+    assert garage.y - house.y == pytest.approx(y)
+
+
+def test_a_detached_building_with_only_a_gap_stays_east_of_the_house():
+    house, garage = _house_and_garage(gap_m=7.0)
+    assert garage.x - house.x == pytest.approx(10.0 + 7.0)
+
+
+def test_where_a_detached_building_sits_is_part_of_the_cached_layout():
+    elements = _elements(
+        _room("living", width_m=10.0, depth_m=6.0),
+        _room("garage", width_m=4.0, depth_m=3.0),
+    )
+    first, _ = _place(elements, "m", buildings=[{"area_ids": ["garage"], "side": "N"}])
+    second, _ = _place(elements, "m", buildings=[{"area_ids": ["garage"], "side": "S"}])
+    assert {b.area: b.y for b in first}["garage"] > 0
+    assert {b.area: b.y for b in second}["garage"] < 0
+
+
 @pytest.mark.parametrize("view", [0, 1, 2, 3])
 def test_floors_drawn_apart_go_up_the_page_whichever_way_the_view_turns(view):
     elements = _elements(

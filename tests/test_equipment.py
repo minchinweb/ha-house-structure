@@ -11,6 +11,7 @@ from custom_components.house_structure.equipment import (
     air_conditioner_from_form,
     air_conditioner_to_form,
     building_from_form,
+    building_to_form,
     equipment_summary,
     furnace_from_form,
     furnace_to_form,
@@ -92,5 +93,54 @@ def test_the_summary_lists_each_kind_in_order():
     assert [f["id"] for f in equipment["furnaces"]] == ["f1"]
     assert equipment["furnaces"][0]["blower"] == []
     assert equipment["air_conditioners"][0]["total_w"] == pytest.approx(2 * TON_TO_W)
-    assert buildings == [{"id": "b1", "title": "Garage", "area_ids": ["garage"]}]
+    assert buildings == [
+        {
+            "id": "b1",
+            "title": "Garage",
+            "area_ids": ["garage"],
+            "side": None,
+            "gap_m": None,
+            "along_m": None,
+        }
+    ]
     assert equipment_summary([]) == ({"furnaces": [], "air_conditioners": []}, [])
+
+
+def test_a_building_says_where_it_sits_in_metres():
+    form = {"area_ids": ["garage"], "side": "N", "gap": "10 ft", "along": "3"}
+    data = building_from_form(form, "m")
+    assert data == {
+        "area_ids": ["garage"],
+        "side": "N",
+        "gap_m": pytest.approx(3.048),
+        "along_m": 3.0,
+    }
+    # shown again in the house's unit
+    assert building_to_form(data, "m") == {
+        "area_ids": ["garage"],
+        "side": "N",
+        "gap": "3.048 m",
+        "along": "3 m",
+    }
+    assert building_to_form(building_from_form(form, "ft"), "ft")["along"] == "3 ft"
+
+
+def test_a_building_with_no_place_stores_none_of_it():
+    data = building_from_form({"area_ids": ["garage"], "side": "", "gap": ""})
+    assert data == {"area_ids": ["garage"]}
+    assert building_to_form(data) == {"area_ids": ["garage"]}
+
+
+@pytest.mark.parametrize(
+    ("extra", "field"),
+    [
+        ({"side": "up"}, "side"),
+        ({"gap": "far"}, "gap"),
+        ({"gap": "-1"}, "gap"),
+        ({"along": "-2 m"}, "along"),
+    ],
+)
+def test_a_building_refuses_a_place_that_cannot_be(extra, field):
+    with pytest.raises(FieldError) as err:
+        building_from_form({"area_ids": ["garage"], **extra})
+    assert err.value.field == field

@@ -58,6 +58,14 @@ def test_the_drawing_fields_are_labelled():
             form = strings["config_subentries"][kind]["step"][step]
             assert set(fields) <= set(form["data"]), (kind, step)
             assert set(fields) <= set(form["data_description"]), (kind, step)
+    # the building form says where the building sits
+    for step in ("user", "reconfigure"):
+        form = strings["config_subentries"]["building"]["step"][step]
+        for field in ("side", "gap", "along"):
+            assert field in form["data"], step
+            assert form["data_description"][field], step
+    errors = strings["config_subentries"]["building"]["error"]
+    assert "invalid_gap" in errors and "invalid_along" in errors
     house = strings["config"]["step"]["user"]
     for key in ("plenum_x", "plenum_y", "plenum_z"):
         assert key in house["data"] and key in house["data_description"]

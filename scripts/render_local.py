@@ -316,7 +316,12 @@ def shape_from_diagnostics(path: Path) -> Shape:
         points.append((round(x, 2), round(y, 2)))
         x, y = x + dx * wall["length_m"], y + dy * wall["length_m"]
     buildings = [
-        list((p.get("settings") or {}).get("area_ids") or ())
+        {
+            "area_ids": list((p.get("settings") or {}).get("area_ids") or ()),
+            "side": (p.get("settings") or {}).get("side"),
+            "gap_m": (p.get("settings") or {}).get("gap_m"),
+            "along_m": (p.get("settings") or {}).get("along_m"),
+        }
         for p in data.get("parts") or []
         if p["kind"] == "building"
     ]

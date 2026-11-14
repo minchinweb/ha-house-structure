@@ -1081,7 +1081,7 @@ class InternalWallFlow(_PartFlow):
     kind = INTERNAL_WALL
 
 
-def _equipment_schema(kind: str) -> vol.Schema:
+def _equipment_schema(kind: str, house: dict) -> vol.Schema:
     """The form for a furnace, an air conditioner or a detached building."""
     name = {vol.Optional("name"): _TEXT}
     if kind == FURNACE:
@@ -1104,7 +1104,15 @@ def _equipment_schema(kind: str) -> vol.Schema:
                 vol.Optional("sensible_btuh"): _number("BTU/h"),
             }
         )
-    return vol.Schema({**name, vol.Required("area_ids"): _AREAS})
+    return vol.Schema(
+        {
+            **name,
+            vol.Required("area_ids"): _AREAS,
+            vol.Optional("side"): _faces(float(house.get("rotation") or 0.0)),
+            vol.Optional("gap"): _TEXT,
+            vol.Optional("along"): _TEXT,
+        }
+    )
 
 
 _EQUIPMENT_NAMES = {
@@ -1135,8 +1143,17 @@ class _EquipmentFlow(ConfigSubentryFlow):
         """Change one."""
         subentry = self._get_reconfigure_subentry()
         _, to_form = EQUIPMENT_FORMS[self.kind]
-        current = {**to_form(dict(subentry.data)), "name": subentry.title}
+        current = {
+            **to_form(dict(subentry.data), **self._units()),
+            "name": subentry.title,
+        }
         return await self._step("reconfigure", user_input, current)
+
+    def _units(self) -> dict[str, str]:
+        """The house's unit, for the form that has lengths (a building's)."""
+        if self.kind != BUILDING:
+            return {}
+        return {"unit": self._get_entry().data.get("unit", "m")}
 
     async def _step(
         self, step_id: str, user_input: dict[str, Any] | None, current: dict
@@ -1145,7 +1162,7 @@ class _EquipmentFlow(ConfigSubentryFlow):
         if user_input is not None:
             from_form, _ = EQUIPMENT_FORMS[self.kind]
             try:
-                data = from_form(user_input)
+                data = from_form(user_input, **self._units())
             except FieldError as err:
                 errors[err.field] = f"invalid_{err.field}"
             else:
@@ -1164,8 +1181,11 @@ class _EquipmentFlow(ConfigSubentryFlow):
         return self.async_show_form(
             step_id=step_id,
             data_schema=self.add_suggested_values_to_schema(
-                _equipment_schema(self.kind), current
+                _equipment_schema(self.kind, dict(self._get_entry().data)), current
             ),
+            description_placeholders={
+                "unit": _unit_label(self._get_entry().data.get("unit", "m"))
+            },
             errors=errors,
         )
 
@@ -1183,6 +1203,6 @@ class AirConditionerFlow(_EquipmentFlow):
 
 
 class BuildingFlow(_EquipmentFlow):
-    """A detached building, such as a garage: the rooms in it."""
+    """A detached building, such as a garage: its rooms, and where it sits."""
 
     kind = BUILDING

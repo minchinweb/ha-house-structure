@@ -241,6 +241,64 @@ async def test_a_furnace_can_be_changed(hass: HomeAssistant, house) -> None:
     assert furnace["input_high_w"] == pytest.approx(70000 * BTU_H_TO_W)
 
 
+async def test_a_building_keeps_where_it_sits(hass: HomeAssistant, house) -> None:
+    entry_id = house["entry_id"]
+    garage = house["garage"].id
+    result = await _add(
+        hass,
+        entry_id,
+        "building",
+        {"area_ids": [garage], "side": "N", "gap": "10 ft", "along": "3 m"},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result
+    published = hass.data[DOMAIN]["buildings"][0]
+    assert published["side"] == "N"
+    assert published["gap_m"] == pytest.approx(3.048)
+    assert published["along_m"] == pytest.approx(3.0)
+
+    entry = hass.config_entries.async_get_entry(entry_id)
+    sub = next(s for s in entry.subentries.values() if s.subentry_type == "building")
+    result = await hass.config_entries.subentries.async_init(
+        (entry_id, "building"),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": sub.subentry_id},
+    )
+    assert result["type"] is FlowResultType.FORM
+    suggested = {
+        str(key): key.description["suggested_value"]
+        for key in result["data_schema"].schema
+        if key.description
+    }
+    assert suggested["side"] == "N"
+    assert suggested["gap"] == "3.048 m"
+    assert suggested["along"] == "3 m"
+
+    # a blank field clears it
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"area_ids": [garage], "side": "E"}
+    )
+    assert result["type"] is FlowResultType.ABORT
+    await hass.async_block_till_done()
+    published = hass.data[DOMAIN]["buildings"][0]
+    assert (published["side"], published["gap_m"], published["along_m"]) == (
+        "E",
+        None,
+        None,
+    )
+
+
+async def test_a_building_form_refuses_a_distance_it_cannot_read(
+    hass: HomeAssistant, house
+) -> None:
+    result = await _add(
+        hass,
+        house["entry_id"],
+        "building",
+        {"area_ids": [house["garage"].id], "gap": "far"},
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"gap": "invalid_gap"}
+
+
 async def test_repairs_wait_until_something_needs_the_size(
     hass: HomeAssistant, house
 ) -> None:

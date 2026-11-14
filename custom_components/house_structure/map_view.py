@@ -51,15 +51,23 @@ def _saved_house(hass: HomeAssistant):
 
 def _shape(hass: HomeAssistant, house: dict) -> dict:
     """What the rooms are fitted to, for ``house_svg`` and ``room_svg``: the
-    building outline in the house's grid (if one was found) and the areas of
-    each detached building."""
+    building outline in the house's grid (if one was found) and each detached
+    building: its areas and where it sits (side, gap_m and along_m)."""
     points = hass.data.get(OUTLINE, {}).get("points")
     rotation = float(house.get("rotation") or 0.0)
     published = hass.data.get(DOMAIN)
     buildings = published.get("buildings", []) if isinstance(published, dict) else []
     return {
         "outline": outline_grid(points, rotation) if points else None,
-        "buildings": [list(b.get("area_ids") or ()) for b in buildings],
+        "buildings": [
+            {
+                "area_ids": list(b.get("area_ids") or ()),
+                "side": b.get("side"),
+                "gap_m": b.get("gap_m"),
+                "along_m": b.get("along_m"),
+            }
+            for b in buildings
+        ],
     }
 
 

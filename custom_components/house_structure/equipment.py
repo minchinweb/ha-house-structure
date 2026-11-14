@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 
 from .constants import AIR_CONDITIONER, BUILDING, FURNACE
-from .geometry import FieldError
+from .geometry import FACES, FieldError, format_size, parse_size
 
 BTU_H_TO_W = 0.29307107
 TON_TO_W = 12_000 * BTU_H_TO_W  # a ton of cooling is 12,000 BTU/h
@@ -158,21 +158,57 @@ def air_conditioner_to_form(data: dict) -> dict:
     return {k: v for k, v in form.items() if v is not None}
 
 
-def building_from_form(form: dict) -> dict:
+def _distance(form: dict, key: str, unit: str) -> float | None:
+    """A distance (0 or more) in metres from a length typed in the house's unit."""
+    value = form.get(key)
+    if value in (None, ""):
+        return None
+    try:
+        metres = parse_size(value, unit)
+    except ValueError:
+        raise FieldError(key, f"cannot read the distance {value!r}") from None
+    if metres < 0:
+        raise FieldError(key, "a distance is 0 or more")
+    return metres
+
+
+def building_from_form(form: dict, unit: str = "m") -> dict:
     """A detached building's stored settings from its form.
 
+    Where the building sits is optional: ``side`` of the house (``N``, ``E``,
+    ``S`` or ``W``), ``gap`` from the house's edge on that side, and ``along``
+    that side from its west or south end. The two distances are lengths in the
+    house's ``unit``, stored in metres as ``gap_m`` and ``along_m``; blank
+    ones are left out.
+
     Raises:
-        FieldError: No rooms were chosen.
+        FieldError: No rooms were chosen, or a value can't be used.
     """
     areas = [a for a in form.get("area_ids") or [] if a]
     if not areas:
         raise FieldError("area_ids", "choose the building's rooms")
-    return {"area_ids": areas}
+    data: dict = {"area_ids": areas}
+    side = form.get("side")
+    if side not in (None, ""):
+        if side not in FACES:
+            raise FieldError("side", "choose north, east, south or west")
+        data["side"] = side
+    for key in ("gap", "along"):
+        metres = _distance(form, key, unit)
+        if metres is not None:
+            data[f"{key}_m"] = metres
+    return data
 
 
-def building_to_form(data: dict) -> dict:
-    """The building's form from its stored settings."""
-    return {"area_ids": list(data.get("area_ids") or [])}
+def building_to_form(data: dict, unit: str = "m") -> dict:
+    """The building's form from its stored settings, distances in ``unit``."""
+    form: dict = {"area_ids": list(data.get("area_ids") or [])}
+    if data.get("side"):
+        form["side"] = data["side"]
+    for key in ("gap", "along"):
+        if data.get(f"{key}_m") is not None:
+            form[key] = format_size(data[f"{key}_m"], unit)
+    return form
 
 
 FORMS = {
@@ -192,7 +228,10 @@ def equipment_summary(raws: list) -> tuple[dict, list[dict]]:
         ``{"furnaces": [...], "air_conditioners": [...]}`` and the buildings,
         each in the order they were added, with their sub-entry ``id`` and
         ``title``. Powers in W, airflow in m³/s, static in Pa; AFUE as a
-        fraction; a blower curve as ``[[m³/s, Pa], ...]``.
+        fraction; a blower curve as ``[[m³/s, Pa], ...]``. A building also has
+        its ``side`` of the house (``N``, ``E``, ``S`` or ``W``) and its
+        ``gap_m`` from the house and ``along_m`` that side, each ``None`` when
+        not given.
     """
     equipment: dict = {"furnaces": [], "air_conditioners": []}
     buildings: list[dict] = []
@@ -220,5 +259,13 @@ def equipment_summary(raws: list) -> tuple[dict, list[dict]]:
                 }
             )
         elif raw.kind == BUILDING:
-            buildings.append({**base, "area_ids": list(d.get("area_ids") or [])})
+            buildings.append(
+                {
+                    **base,
+                    "area_ids": list(d.get("area_ids") or []),
+                    "side": d.get("side"),
+                    "gap_m": d.get("gap_m"),
+                    "along_m": d.get("along_m"),
+                }
+            )
     return equipment, buildings

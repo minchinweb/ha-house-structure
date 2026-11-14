@@ -763,11 +763,17 @@
           "description": "A building apart from the house, such as a detached garage. Its rooms are kept out of the house's loads and sized on their own. Its design temperatures are set in Manual J.",
           "data": {
             "name": "Name",
-            "area_ids": "Rooms (areas)"
+            "area_ids": "Rooms (areas)",
+            "side": "Side of the house",
+            "gap": "Distance from the house",
+            "along": "Distance along that side"
           },
           "data_description": {
             "name": "Leave empty for 'Detached building'.",
-            "area_ids": "The rooms in the building."
+            "area_ids": "The rooms in the building.",
+            "side": "Which side of the house the building is on. Leave empty to put it east of the house. A building whose rooms have an x and y typed stays where they put it, and ignores the side and distances.",
+            "gap": "The space between the house and the building: from the house's outer edge on that side (its overall box, corner to corner) to the building's nearest edge, in {unit} or with a unit after the number (3.2 m, 12' 6\"). Leave empty for 2 m.",
+            "along": "Where the building sits along that side, in {unit} or with a unit after the number. For a north or south side, it is measured east from the west end of the house to the building's west edge. For an east or west side, it is measured north from the south end of the house to the building's south edge. Leave empty to line the building up with that end (west for north or south, south for east or west)."
           }
         },
         "reconfigure": {
@@ -775,11 +781,17 @@
           "description": "A building apart from the house, such as a detached garage. Its rooms are kept out of the house's loads and sized on their own. Its design temperatures are set in Manual J.",
           "data": {
             "name": "Name",
-            "area_ids": "Rooms (areas)"
+            "area_ids": "Rooms (areas)",
+            "side": "Side of the house",
+            "gap": "Distance from the house",
+            "along": "Distance along that side"
           },
           "data_description": {
             "name": "Leave empty for 'Detached building'.",
-            "area_ids": "The rooms in the building."
+            "area_ids": "The rooms in the building.",
+            "side": "Which side of the house the building is on. Leave empty to put it east of the house. A building whose rooms have an x and y typed stays where they put it, and ignores the side and distances.",
+            "gap": "The space between the house and the building: from the house's outer edge on that side (its overall box, corner to corner) to the building's nearest edge, in {unit} or with a unit after the number (3.2 m, 12' 6\"). Leave empty for 2 m.",
+            "along": "Where the building sits along that side, in {unit} or with a unit after the number. For a north or south side, it is measured east from the west end of the house to the building's west edge. For an east or west side, it is measured north from the south end of the house to the building's south edge. Leave empty to line the building up with that end (west for north or south, south for east or west)."
           }
         }
       },
@@ -787,7 +799,10 @@
         "reconfigure_successful": "Saved."
       },
       "error": {
-        "invalid_area_ids": "Choose the building's rooms."
+        "invalid_area_ids": "Choose the building's rooms.",
+        "invalid_side": "Choose north, east, south or west.",
+        "invalid_gap": "Give a distance such as 3 m or 10' 6\", or leave it empty.",
+        "invalid_along": "Give a distance such as 3 m or 10' 6\", or leave it empty."
       }
     }
   },

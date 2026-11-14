@@ -36,7 +36,7 @@ from html import escape
 import itertools
 import math
 import textwrap
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from . import layout
 from .constants import DOOR, INTERNAL_WALL, REGISTER, ROOF, ROOM, WALL, WINDOW
@@ -1197,6 +1197,56 @@ def _room_walls(
     return out
 
 
+def _detached(
+    building: Any,
+) -> tuple[list[str], str | None, float | None, float | None]:
+    """A detached building's areas, side, gap and along, from what is passed.
+
+    A building is a list of areas (it sits east of the house, ``BUILDING_GAP``
+    away, south ends level), or a dict with ``area_ids`` and, optionally,
+    ``side`` (``N``, ``E``, ``S`` or ``W``), ``gap_m`` (from the house) and
+    ``along_m`` (from the house's west end for ``N`` and ``S``, its south end
+    for ``E`` and ``W``): the building as ``equipment_summary`` publishes it.
+    """
+    if isinstance(building, dict):
+        return (
+            list(building.get("area_ids") or ()),
+            building.get("side") or None,
+            building.get("gap_m"),
+            building.get("along_m"),
+        )
+    return list(building), None, None, None
+
+
+def _beside(
+    found: dict[str, layout.Rect],
+    house: list[layout.Rect],
+    side: str,
+    gap: float,
+    along: float,
+) -> dict[str, layout.Rect]:
+    """A building's rooms moved to the ``side`` of the house's box, ``gap`` away.
+
+    ``along`` is measured from the west end of the box for a north or south
+    side, and from the south end for an east or west one.
+    """
+    west = min(r[0] for r in house)
+    south = min(r[1] for r in house)
+    east = max(r[2] for r in house)
+    north = max(r[3] for r in house)
+    x0 = min(r[0] for r in found.values())
+    y0 = min(r[1] for r in found.values())
+    width = max(r[2] for r in found.values()) - x0
+    depth = max(r[3] for r in found.values()) - y0
+    if side in ("E", "W"):
+        dx = (east + gap if side == "E" else west - gap - width) - x0
+        dy = south + along - y0
+    else:
+        dx = west + along - x0
+        dy = (north + gap if side == "N" else south - gap - depth) - y0
+    return {k: (r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy) for k, r in found.items()}
+
+
 _PLACED: dict[tuple, tuple[list[Box], list[str]]] = {}  # the last few layouts
 _PLACED_KEPT = 8
 
@@ -1207,7 +1257,7 @@ def _place(
     floors: dict[str, int] | None = None,
     rotation: float = 0.0,
     outline: list[tuple[float, float]] | None = None,
-    buildings: list[list[str]] | None = None,
+    buildings: list[Any] | None = None,
 ) -> tuple[list[Box], list[str]]:
     """Each room's box where it is in the house, and the notes on placing them.
 
@@ -1216,8 +1266,9 @@ def _place(
     outside, a room sits over the rooms it is above, and a room with no width
     or depth typed takes the shape that fits. ``outline`` is the building
     outline in the house's grid, which the biggest floor is fitted to;
-    ``buildings`` are the areas of each detached building, which is fitted on
-    its own and set beside the house.
+    ``buildings`` are the detached buildings, each fitted on its own and set
+    beside the house: a list of areas, or a dict that also says which side of
+    the house, how far from it and how far along it (see ``_detached``).
 
     Fitting takes a second or two, so the last few layouts are kept: the same
     house is fitted once however often it is drawn.
@@ -1227,7 +1278,10 @@ def _place(
         rotation,
         None if floors is None else tuple(sorted(floors.items())),
         tuple(outline) if outline else None,
-        tuple(tuple(sorted(b)) for b in buildings or ()),
+        tuple(
+            (tuple(sorted(areas)), side, gap, along)
+            for areas, side, gap, along in map(_detached, buildings or ())
+        ),
         tuple(
             repr(e)
             for e in elements.values()
@@ -1250,7 +1304,7 @@ def _fit_house(
     floors: dict[str, int] | None,
     rotation: float,
     outline: list[tuple[float, float]] | None,
-    buildings: list[list[str]] | None,
+    buildings: list[Any] | None,
 ) -> tuple[list[Box], list[str]]:
     """``_place``, worked out."""
     notes: list[str] = []
@@ -1273,11 +1327,13 @@ def _fit_house(
         for item in items
         if item["position"] == ABOVE
     ]
-    detached = [set(areas) for areas in buildings or ()]
+    spots = [_detached(b) for b in buildings or ()]
+    detached = [set(areas) for areas, *_ in spots]
     away = set().union(*detached) if detached else set()
     structures = [[r for r in rooms if r.area_id not in away]]
     structures += [[r for r in rooms if r.area_id in areas] for areas in detached]
     placed: dict[str, layout.Rect] = {}
+    house: list[layout.Rect] = []  # the house's own rooms, once they are placed
     holes: dict[str, list[layout.Rect]] = {}  # each room's floor's holes
     levels: dict[str, float] = {}
     shaped: set[str] = set()
@@ -1350,14 +1406,30 @@ def _fit_house(
             BUILT_TO.get(unit, BUILT_TO["m"]),
         )
         if number and found and not any(floor.fixed for floor in plan):
-            # a detached building with no position: beside what is placed
-            east = max((r[2] for r in placed.values()), default=-BUILDING_GAP)
-            dx = east + BUILDING_GAP - min(r[0] for r in found.values())
-            dy = -min(r[1] for r in found.values())
-            found = {
-                k: (r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy)
-                for k, r in found.items()
-            }
+            # a detached building with no position typed
+            _, side, gap, along = spots[number - 1]
+            if side is None and gap is None and along is None:
+                # beside what is placed, to the east, south edges level
+                east = max((r[2] for r in placed.values()), default=-BUILDING_GAP)
+                dx = east + BUILDING_GAP - min(r[0] for r in found.values())
+                dy = -min(r[1] for r in found.values())
+                found = {
+                    k: (r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy)
+                    for k, r in found.items()
+                }
+            else:
+                # where it was put: the house's box when it has a side, else
+                # everything placed so far
+                around = house if side and house else list(placed.values())
+                found = _beside(
+                    found,
+                    around or [(0.0, 0.0, 0.0, 0.0)],
+                    side or "E",
+                    BUILDING_GAP if gap is None else gap,
+                    along or 0.0,
+                )
+        if number == 0:
+            house = list(found.values())
         placed.update(found)
     boxes: list[Box] = []
     for room in rooms:
@@ -1998,7 +2070,7 @@ def room_svg(
     large_text: bool = False,
     floors: dict[str, int] | None = None,
     outline: list[tuple[float, float]] | None = None,
-    buildings: list[list[str]] | None = None,
+    buildings: list[Any] | None = None,
 ) -> str | None:
     """One room's isometric drawing, or None when the area has no room part.
 
@@ -2093,7 +2165,7 @@ def house_svg(
     defaults: dict[str, float] | None = None,
     only: set[str] | None = None,
     outline: list[tuple[float, float]] | None = None,
-    buildings: list[list[str]] | None = None,
+    buildings: list[Any] | None = None,
 ) -> str:
     """The house from its rooms at their positions, with the heating runs on it.
 
@@ -2106,7 +2178,7 @@ def house_svg(
     which says which rooms share a floor.
 
     ``outline`` is the building outline's corners in the house's grid, and
-    ``buildings`` the areas of each detached building (see ``_place``).
+    ``buildings`` the detached buildings, with where each sits (see ``_place``).
 
     ``only`` draws just those areas' rooms (a floor or a detached building),
     still at their places in the whole house; their registers and runs go too.

@@ -100,7 +100,7 @@ its room from there: a door in an internal wall joins the rooms on both sides.
 | Heating register | thermostat, its fan or damper | heating (on while the thermostat heats) |
 | Furnace | its room, input per stage (BTU/h), AFUE (%), blower curve | none |
 | Air conditioner | its indoor coil's room, size (tons), sensible capacity (BTU/h) | none |
-| Detached building | its rooms, such as a garage's | none |
+| Detached building | its rooms, such as a garage's; optionally its side of the house, distance from it and distance along that side | none |
 
 The **furnace**, **air conditioner** and **detached building** are for
 integrations that size the heating and cooling, such as Manual J. Type the
@@ -109,7 +109,7 @@ other. Its **blower curve** is the blower table's airflow against external
 static pressure, such as `400 cfm = 0.30 inWC, 800 = 0.20, 1200 = 0.05`
 (airflow in cfm, l/s or m3/s; static in inWC or Pa). A detached building's
 rooms are sized apart from the house; its design temperatures are set in
-Manual J.
+Manual J. Where it sits is described under *The Thermal Lab page* below.
 
 A room's **rooms beside it** and **rooms above it** say which rooms it trades
 heat with through its walls and ceiling. Each link counts both ways (a room
@@ -224,7 +224,24 @@ what else is known.
 - The biggest floor is pulled into the shape of the **building outline** from
   OpenStreetMap, when one was found, so an L-shaped house comes out an L.
 - A **detached building**'s rooms are fitted on their own and set beside the
-  house.
+  house. The building's form can say where:
+  - **Side of the house**: north, east, south or west. Left empty, the
+    building goes east of the house (and of any building already placed).
+  - **Distance from the house**: the space between the house's outer edge on
+    that side and the building's nearest edge, not centre to centre. The
+    house's edge is that of its overall box, corner to corner, so an L-shaped
+    house is measured from the end that sticks out furthest. Left empty, it
+    is 2 m.
+  - **Distance along that side**: for a north or south side, measured east
+    from the west end of the house to the building's west edge; for an east
+    or west side, measured north from the south end of the house to the
+    building's south edge. Left empty, the building is lined up with that
+    end.
+
+  Distances are in the house's unit, or with a unit after the number
+  (`3.2 m`, `12' 6"`). A building whose rooms have an `x` and `y` typed stays
+  where they put it, and ignores all three. A later version may pre-fill these
+  from a nearby OpenStreetMap outline.
 - An **L-shaped room** is two rectangles: the room's main one, and a *wing*
   against one of its sides. On the room's form, give the side the wing is
   on and either its floor area or its width and depth (`wing_face`,
@@ -378,7 +395,16 @@ AFUE as a fraction:
             }
         ],
     },
-    "buildings": [{"id": "01J...", "title": "Garage", "area_ids": ["garage"]}],
+    "buildings": [
+        {
+            "id": "01J...",
+            "title": "Garage",
+            "area_ids": ["garage"],
+            "side": "E",  # N, E, S or W of the house; None if not given
+            "gap_m": 2.0,  # from the house; None if not given
+            "along_m": None,  # along that side; None if not given
+        }
+    ],
 }
 ```
 
