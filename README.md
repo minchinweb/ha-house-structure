@@ -214,7 +214,7 @@ what else is known.
 - An **outside wall** stays on the outside, with no room against it, for as
   much of the face as its length (the whole face if it has none).
 - A room sits **over the rooms it is above**, and each floor over the one
-  under it.
+  under it, with its sides on the same lines where it is big enough.
 - A room with a **floor area but no width or depth** takes the shape that
   fits between its neighbours, at that area, so the rooms fill the house
   with no gaps. A room with a width and depth keeps them.
@@ -225,6 +225,12 @@ what else is known.
 - Floor that **no room was given**, such as a hallway with no area of its
   own, may be left as an empty space in the middle of a floor. Rooms that
   both open on to it count as linked, though they are not drawn touching.
+  When a floor's rooms are much smaller than the building outline (less than
+  about 85% of it), the outline keeps its size and the rooms go round such a
+  space; otherwise the outline is shrunk to the rooms.
+- An outside wall shorter than its face is drawn on the stretch of the face
+  with **nothing against it**, clear of rooms that are not linked and of
+  hallway space too.
 
 A floor's rooms with no floor height typed sit on the floor below: its
 ceiling height and 0.3 m up. The caption under the drawing names any linked

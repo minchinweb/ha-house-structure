@@ -28,10 +28,15 @@ costs more for:
 * long thin rooms, and a long thin house;
 * voids, by their size;
 * a room not over the room it is above, or outside the footprint under it
-  (the building outline, when there is one).
+  (the building outline, when there is one);
+* footprint with no room over it, and a side of the floor that is not on a
+  side of the footprint.
 
 Floors are fitted one at a time, starting with the biggest; the others are
-then free to slide over it to where their rooms sit above the ones below.
+then free to slide over it to where their rooms sit above the ones below,
+their sides on its sides. A floor much smaller than the building outline (or
+than the floor it goes over) has floor no room was given: it keeps the
+outline's size, and the rooms go round a hole.
 """
 
 from __future__ import annotations
@@ -47,6 +52,7 @@ FACE_INDEX = {"N": N, "E": E, "S": S, "W": W}
 _OPPOSITE = (S, W, N, E)
 
 TOL = 0.05  # m: edges this close are the same edge
+TRUE = 0.3  # m: a floor's side this close to its footprint's is put on it
 NEAR = 0.6  # m: a room this close to a face covers it
 SHARE = 0.8  # m: linked rooms share at least this much wall (a doorway)
 MAX_VOIDS = 3
@@ -56,6 +62,8 @@ TRIES_MOST = 24000
 TIDY = 800  # tries kept back for the last improving
 TRIES_LEAST = {1: 400, 2: 2000, 3: 6000}  # for a floor of so few; 12000 for more
 HEAT, COOL = 2.0, 0.01  # the search's first heat, and how far it falls
+HEAT_HOT = 16.0  # a small floor is searched three times more, from this heat
+SMALL = 8  # rooms and voids: a floor of no more is small
 SOFT = 0.1  # how much a wrong size costs when the search starts (see ``stiff``)
 SEED = 20261113
 
@@ -79,6 +87,13 @@ W_ENVELOPE = 2.0
 W_OVERLAP = 60.0
 W_STACK = 6.0
 W_SUPPORT = 15.0
+W_FLUSH = 6.0  # a side of the floor that is not on a line of its footprint
+W_COVER = 6.0  # footprint with no room over it (nor a hole, up to HALLS)
+
+FLUSH_REACH = 1.0  # m: a side this far from a line costs all of W_FLUSH
+JOG = 0.75  # m: corners of an outline this close are on one line
+HALLS = 0.4  # how much of a floor may be holes (halls no room was given)
+FILL = 0.85  # the least of a building outline's area that is floor (not walls)
 
 ASPECT = 1.8  # a room may be this much longer than wide before it costs
 ASPECT_LONG = 5.0  # the same for a hallway or stairs
@@ -213,6 +228,20 @@ def _contacts(rects: list):
     return faces, pairs
 
 
+def _outer_lines(rects: list[Rect]) -> tuple[list[float], ...]:
+    """Where the outside of some rectangles is: the lines its west, south,
+    east and north sides are on (a side with another rectangle all along it
+    is not on the outside)."""
+    lines: tuple[list[float], ...] = ([], [], [], [])
+    faces, _ = _contacts(rects)
+    for rect, covered in zip(rects, faces, strict=True):
+        for face, k in ((W, 0), (S, 1), (E, 2), (N, 3)):
+            span = rect[2] - rect[0] if face in (N, S) else rect[3] - rect[1]
+            if sum(hi - lo for lo, hi in covered[face]) < span - TOL:
+                lines[k].append(rect[k])
+    return lines
+
+
 # --- the tree -------------------------------------------------------------
 
 
@@ -337,6 +366,8 @@ class _Fit:
         self.max_voids = min(MAX_VOIDS + len(self.fixed), 5)
         self.holes: list[Rect] = []  # the holes in the layout ``solve`` found
         self.middle = None  # of the footprint, for a floor that may slide
+        self.lines = _outer_lines(self.support)
+        self.footprint = sum((r[2] - r[0]) * (r[3] - r[1]) for r in self.support)
         if self.support:
             self.middle = (
                 (min(r[0] for r in self.support) + max(r[2] for r in self.support)) / 2,
@@ -422,6 +453,20 @@ class _Fit:
         elif self.free and self.middle is not None:
             dx += self.middle[0] - width / 2
             dy += self.middle[1] - depth / 2
+        if self.free and self.support:
+            # and from there on to the nearest side of the footprint
+            there = [r for r in rects if r is not None]
+            for axis in (0, 1):
+                low = min(r[axis] for r in there) + (dy if axis else dx)
+                high = max(r[axis + 2] for r in there) + (dy if axis else dx)
+                moves = [line - low for line in self.lines[axis]]
+                moves += [line - high for line in self.lines[axis + 2]]
+                move = min(moves, key=abs, default=0.0)
+                if abs(move) <= FLUSH_REACH:
+                    if axis:
+                        dy += move
+                    else:
+                        dx += move
         if dx or dy:
             rects = [r and (r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy) for r in rects]
             cells = [c and (c[0] + dx, c[1] + dy, c[2] + dx, c[3] + dy) for c in cells]
@@ -454,6 +499,8 @@ class _Fit:
                 "overlap",
                 "stack",
                 "support",
+                "flush",
+                "cover",
             ),
             0.0,
         )
@@ -579,10 +626,23 @@ class _Fit:
                 if over <= 0:
                     parts["stack"] += W_STACK * _apart(rect, other) / scale
         if self.support:
+            cover = 0.0
             for rect in placed:
                 area = (rect[2] - rect[0]) * (rect[3] - rect[1])
                 held = sum(_overlap(rect, other) for other in self.support)
                 parts["support"] += W_SUPPORT * max(0.0, area - held) / total
+                cover += held
+            # a hole is floor too (a hallway), but only so much of a floor
+            halls = sum(
+                _overlap(hole, other) for hole in holes for other in self.support
+            )
+            cover += min(halls, HALLS * total)
+            parts["cover"] += W_COVER * max(0.0, self.footprint - cover) / total
+            # each side of the floor is on a line of its footprint
+            for k in range(4):
+                side = (min if k < 2 else max)(rect[k] for rect in placed)
+                off = min(abs(side - line) for line in self.lines[k])
+                parts["flush"] += W_FLUSH * min(1.0, off / FLUSH_REACH)
         if detail is not None:
             detail.update(parts)
         return sum(parts.values())
@@ -783,10 +843,19 @@ class _Fit:
                     tree=_renumber(_without(tree, path), leaf),
                     voids=tuple(voids),
                 )
+        # one void bigger and another as much smaller: the floor stays as big
+        for which, area in enumerate(state.voids):
+            for other in range(len(state.voids)):
+                for part in (0.15, 0.4) if other != which else ():
+                    voids = list(state.voids)
+                    voids[which] -= area * part
+                    voids[other] += area * part
+                    yield _replace(state, voids=tuple(voids))
         if len(state.voids) < self.max_voids:
-            voids = (*state.voids, 0.08 * self.total)
-            for new in _grafts(tree, self.n + len(state.voids)):
-                yield _replace(state, tree=new, voids=voids)
+            for part in (0.08, 0.25):
+                voids = (*state.voids, part * self.total)
+                for new in _grafts(tree, self.n + len(state.voids)):
+                    yield _replace(state, tree=new, voids=voids)
         for i, room in enumerate(self.rooms):
             if room.size:
                 east, north = state.anchors[i]
@@ -858,32 +927,59 @@ class _Fit:
         keep = tries // 4
         steps = tries - keep
         keep += 2 * TIDY  # the last improving always has this much
-        now, now_cost = best, best_cost
-        seen, seen_cost = best, best_cost  # the best while annealing
-        for step in range(steps):
-            done = step / steps
-            heat = HEAT * (COOL**done)
-            if step % 64 == 0:
-                self.stiff = SOFT + (1.0 - SOFT) * done
-                now_cost, seen_cost = self.cost(now), self.cost(seen)
-            new = self._change(now, rng)
-            if new is None:
-                continue
-            new_cost = self.cost(new)
-            if new_cost <= now_cost or rng.random() < math.exp(
-                (now_cost - new_cost) / heat
-            ):
-                now, now_cost = new, new_cost
-                if now_cost < seen_cost:
-                    seen, seen_cost = now, now_cost
+        # a small floor with a footprint to line up with is quick, and is
+        # searched hot as well: that gets it out of a layout that only a few
+        # steps together would better
+        hot = self.free and self.support and 1 < leaves <= SMALL
+        heats = [HEAT_HOT] * 3 + [HEAT] if hot else [HEAT]
+        found = []
+        for first in heats:
+            now, now_cost = best, best_cost
+            seen, seen_cost = best, best_cost  # the best while annealing
+            for step in range(steps):
+                done = step / steps
+                heat = first * ((COOL * HEAT / first) ** done)
+                if step % 64 == 0:
+                    self.stiff = SOFT + (1.0 - SOFT) * done
+                    now_cost, seen_cost = self.cost(now), self.cost(seen)
+                new = self._change(now, rng)
+                if new is None:
+                    continue
+                new_cost = self.cost(new)
+                if new_cost <= now_cost or rng.random() < math.exp(
+                    (now_cost - new_cost) / heat
+                ):
+                    now, now_cost = new, new_cost
+                    if now_cost < seen_cost:
+                        seen, seen_cost = now, now_cost
+            found += [seen, now]
         self.stiff = 1.0
-        for state in (seen, now):
+        for state in found:
             state, cost, _ = self._improve(state, self.cost(state), keep // 2)
             if cost < best_cost:
                 best, best_cost = state, cost
-        rects, cells, envelope = self.layout(self._tidy(best))
+        self.best = best = self._tidy(best)
+        rects, cells, envelope = self.layout(best)
         self.holes = [c for c in cells[self.n :] if not _on_edge(c, envelope)]
+        rects = self._trued(rects)
         return {room.key: rect for room, rect in zip(self.rooms, rects, strict=True)}
+
+    def _trued(self, rects: list[Rect]) -> list[Rect]:
+        """The rooms with each side of the floor that is all but on a side of
+        its footprint put on it: a room with no width or depth typed is
+        stretched the last few centimetres."""
+        if not self.support:
+            return rects
+        out = [list(rect) for rect in rects]
+        for k in range(4):
+            side = (min if k < 2 else max)(rect[k] for rect in rects)
+            line = min(self.lines[k], key=lambda v: abs(v - side), default=side)
+            if not 0 < abs(line - side) <= TRUE:
+                continue
+            for rect, room in zip(out, self.rooms, strict=True):
+                if abs(rect[k] - side) < TOL and not room.size:
+                    rect[k] = line
+        return [(r[0], r[1], r[2], r[3]) for r in out]
 
     def _tidy(self, state: _State) -> _State:
         """The layout moved the last few centimetres, so an edge that is all
@@ -982,7 +1078,8 @@ def cost_of(floor: Floor, placed: dict[str, Rect]) -> dict[str, float]:
     )
     detail: dict[str, float] = {}
     solver.cost(None, detail)  # type: ignore[arg-type]
-    return {k: v for k, v in detail.items() if k not in ("shape", "voids", "envelope")}
+    left_out = ("shape", "voids", "envelope", "flush", "cover")
+    return {k: v for k, v in detail.items() if k not in left_out}
 
 
 # --- the outline ----------------------------------------------------------
@@ -994,7 +1091,10 @@ def outline_cells(
     """A building outline as rectangles, scaled to a floor area.
 
     The outline is measured round the outside of the walls, and the rooms
-    inside them, so it is shrunk until it is as big as the rooms. Its
+    inside them, so it is shrunk until it is as big as the rooms; but no
+    smaller than ``FILL`` of its own area. Rooms smaller than that leave floor
+    that no room was given (a hallway, the stairs): the outline keeps its
+    size, and the rooms are fitted with a void as big as what is left. Its
     south-west corner goes to 0, 0.
 
     Args:
@@ -1003,16 +1103,23 @@ def outline_cells(
 
     Returns:
         The rectangles that make up the outline, the area of each notch
-        between it and the rectangle round it, and that rectangle's width.
+        between it and the rectangle round it (and then of the floor no room
+        was given, if any), and that rectangle's width.
     """
     if len(points) < 3:
         return [], [], 0.0
 
     def lines(values: list[float]) -> list[float]:
-        out: list[float] = []
+        groups: list[list[float]] = []
         for value in sorted(values):
-            if not out or value - out[-1] > 0.3:  # corners this close share a line
-                out.append(value)
+            if groups and value - groups[-1][0] <= JOG:  # these share a line
+                groups[-1].append(value)
+            else:
+                groups.append([value])
+        # the outline's own sides stay where they are; a line inside it goes
+        # to the middle of its corners
+        out = [(min(group) + max(group)) / 2 for group in groups]
+        out[0], out[-1] = groups[0][0], groups[-1][-1]
         return out
 
     xs, ys = lines([p[0] for p in points]), lines([p[1] for p in points])
@@ -1039,7 +1146,7 @@ def outline_cells(
     own = sum(size(cell) for cell in filled)
     if own <= 0:
         return [], [], 0.0
-    shrink = math.sqrt(area / own)
+    shrink = math.sqrt(max(area, FILL * own) / own)
     rects = [
         (
             (xs[i] - xs[0]) * shrink,
@@ -1064,10 +1171,30 @@ def outline_cells(
                     todo.append(near)
         notches.append(notch)
     notches = [v for v in notches if v > 0.02 * area]
+    spare = own * shrink * shrink - area
+    if spare > 0.02 * area:
+        notches.append(spare)
     return rects, notches, (xs[-1] - xs[0]) * shrink
 
 
 # --- the whole house ------------------------------------------------------
+
+
+def _aim(floor: Floor) -> None:
+    """Start a floor as wide as the rooms it is above (or below) are together,
+    with a void for what its own rooms leave of them, if that is no more than
+    could be halls: floors of a house are most often the same size."""
+    if not floor.stack or floor.fixed or floor.width:
+        return
+    wide = max(r[2] for _, r in floor.stack) - min(r[0] for _, r in floor.stack)
+    deep = max(r[3] for _, r in floor.stack) - min(r[1] for _, r in floor.stack)
+    area = sum(room.area for room in floor.rooms)
+    spare = wide * deep - area
+    if spare > HALLS * area or spare < -0.1 * area:
+        return
+    floor.width = wide
+    if spare > 0.02 * area:
+        floor.voids = [spare]
 
 
 def arrange(
@@ -1081,7 +1208,8 @@ def arrange(
     The biggest floor (or one with rooms already placed) is fitted first, to
     the building outline when there is one. Each other floor, nearest first,
     is then fitted where its rooms sit over (or under) the rooms they are
-    above, and over the first floor's footprint.
+    above, and over the first floor's footprint, its sides on the footprint's
+    where it is big enough.
 
     Args:
         floors: The floors, lowest first. Each floor's ``stack``, ``support``
@@ -1098,6 +1226,7 @@ def arrange(
     for floor in floors:
         placed.update(floor.fixed)
     pinned = bool(placed)
+    footprint: list[Rect] = []  # the first floor, for the others to line up with
     live = [i for i, floor in enumerate(floors) if floor.rooms]
     if not live:
         return placed
@@ -1106,7 +1235,6 @@ def arrange(
         return (bool(floors[i].fixed), sum(r.area for r in floors[i].rooms))
 
     first = max(live, key=weight)
-    support: list[Rect] = []
     for i in sorted(live, key=lambda i: (i != first, abs(i - first), i)):
         floor = floors[i]
         keys = {r.key for r in floor.rooms}
@@ -1122,17 +1250,17 @@ def arrange(
                 area = sum(r.area for r in floor.rooms)
                 cells, notches, width = outline_cells(outline, area)
                 if cells:
-                    support, floor.width, floor.voids = cells, width, notches
-            floor.support = support
+                    floor.support, floor.width, floor.voids = cells, width, notches
         else:
             floor.free = True
-            floor.support = support
+            floor.support = footprint
+            _aim(floor)
         solver = _Fit(floor)
         found = solver.solve(floor)
         if holes is not None and solver.holes:
             for key in (*found, *floor.fixed):
                 holes[key] = solver.holes
         placed.update(found)
-        if i == first and not support:
-            support = [*found.values(), *floor.fixed.values()]
+        if i == first:
+            footprint = [*found.values(), *floor.fixed.values(), *solver.holes]
     return placed

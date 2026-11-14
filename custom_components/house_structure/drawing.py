@@ -167,6 +167,8 @@ class Box:
     depth: float
     height: float
     notes: tuple[str, ...] = ()
+    # the holes in its floor: space with rooms all round that no room was given
+    holes: tuple[tuple[float, float, float, float], ...] = ()
 
 
 class Anchor(NamedTuple):
@@ -679,6 +681,7 @@ def _add_room(
     labelled: bool = False,
     defaults: dict[str, float] | None = None,
     links: list[tuple[str, float, float, str]] | None = None,
+    against: list[tuple[str, float, float]] | None = None,
 ) -> None:
     """Draw one room's floor, walls, windows, doors and outlets (far faces first).
 
@@ -688,7 +691,10 @@ def _add_room(
     ``(face, start, end, kind)`` where ``kind`` is ``open`` or ``implied``. A
     typed internal wall is solid; an open neighbour is dotted; an implied
     neighbour (beside, wall not typed) is dash-dotted; any leftover stretch is
-    dashed as a missing exterior.
+    dashed as a missing exterior. ``against`` are the stretches
+    ``(face, start, end)`` with anything at all against them (a room that is
+    not linked, a hallway no room was given): an outside wall goes clear of
+    those too, when there is room.
     """
     defaults = defaults or {}
     # an upper floor is see-through, so the room below shows through it
@@ -718,9 +724,13 @@ def _add_room(
         open_links = [(s, e) for s, e, kind in linked if kind == "open"]
         implied = [(s, e) for s, e, kind in linked if kind == "implied"]
         # the outside walls go where no room is against the face
-        stretches = _wall_stretches(
-            by_face[face], span, solid + opened + open_links + implied
-        )
+        taken = solid + opened + open_links + implied
+        other = [(s, e) for on, s, e in against or () if on == face]
+        typed = sum(wall.length_m or 0.0 for wall in by_face[face])
+        clear = sum(e - s for s, e in _gaps(taken + other, span))
+        if other and clear > 0.3 and clear >= 0.6 * typed:
+            taken = taken + other
+        stretches = _wall_stretches(by_face[face], span, taken)
         walled = [(s, e) for _, s, e in stretches] + solid
         neighbour = opened + open_links + implied
         for start, end in _gaps(walled + neighbour, span):
@@ -756,6 +766,24 @@ def _add_room(
                 scene.polygons.append(_inside_door(box, item, face, start, end))
     for reg in parts.outlets.get(box.area, []):
         scene.dots.append(Dot(_outlet(box, reg), colours[reg.id], reg.title, "runs"))
+
+
+def _against(here: Box, others: list[Box]) -> list[tuple[str, float, float]]:
+    """The stretches of a room's faces ``(face, start, end)`` that another
+    room (``others``: the rooms on its floor, where they really are), or a
+    hole in its floor (a hallway no room was given), is against."""
+    spaces = [
+        Box("", "", r[0], r[1], here.z, r[2] - r[0], r[3] - r[1], here.height)
+        for r in here.holes
+    ]
+    out = []
+    for there in [*others, *spaces]:
+        if there.area == here.area:
+            continue
+        found = _shared_face(here, there)
+        if found is not None:
+            out.append(found)
+    return out
 
 
 def _inside_parts(
@@ -1136,7 +1164,7 @@ def _fit_house(
         size = (rect[2] - rect[0], rect[3] - rect[1]) if area in shaped else None
         box = _box(room, rect[0], rect[1], levels.get(area, 0.0), unit, size)
         if box is not None:
-            boxes.append(box)
+            boxes.append(replace(box, holes=tuple(holes.get(area, ()))))
     by_area = {b.area: b for b in boxes}
     if loose:
         notes.append(
@@ -1776,6 +1804,8 @@ def room_svg(
     box = replace(where[area_id], x=0.0, y=0.0, z=0.0)
     inside, door_notes = _inside_parts(elements, parts, area_id, where)
     links = _link_stretches(elements, parts, area_id, where)
+    floor_of = _floor_index(elements, set(where), floors)
+    beside = [b for b in placed if floor_of.get(b.area) == floor_of.get(area_id)]
     _add_room(
         scene,
         box,
@@ -1787,6 +1817,7 @@ def room_svg(
         labelled=True,
         defaults=defaults,
         links=links,
+        against=_against(where[area_id], beside),
     )
     _add_roofs(scene, [box], elements, rotation, unit, defaults)
     scene.notes.extend(box.notes)
@@ -1880,6 +1911,7 @@ def house_svg(
     for box in sorted(drawn, key=lambda b: _depth_key(b, view)):
         inside, door_notes = _inside_parts(elements, parts, box.area, where)
         links = _link_stretches(elements, parts, box.area, where)
+        beside = [b for b in boxes if floor_of.get(b.area) == floor_of.get(box.area)]
         _add_room(
             scene,
             box,
@@ -1890,6 +1922,7 @@ def house_svg(
             unit,
             defaults=defaults,
             links=links,
+            against=_against(where[box.area], beside),
         )
         notes.extend(door_notes)
     # the plenum goes with the floor it is on; each run's outlet with its own

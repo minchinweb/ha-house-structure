@@ -124,12 +124,44 @@ def test_the_same_floor_is_always_fitted_the_same():
 
 
 def test_an_outline_is_cut_into_rectangles_as_big_as_the_rooms():
-    # an L, 75 m² of a 10 by 10 square, to hold 48 m² of rooms
+    # an L, 75 m² of a 10 by 10 square, to hold 66 m² of rooms
+    outline = [(0, 0), (5, 0), (5, 5), (10, 5), (10, 10), (0, 10)]
+    cells, notches, width = outline_cells(outline, 66.0)
+    assert sum(_area(c) for c in cells) == pytest.approx(66.0)
+    assert width == pytest.approx(10 * (66 / 75) ** 0.5)  # shrunk to the rooms
+    assert notches == pytest.approx([22.0])  # the missing quarter, shrunk too
+
+
+def test_an_outline_much_bigger_than_the_rooms_keeps_its_size():
+    # the same L for 48 m² of rooms: the rest is floor no room was given
     outline = [(0, 0), (5, 0), (5, 5), (10, 5), (10, 10), (0, 10)]
     cells, notches, width = outline_cells(outline, 48.0)
-    assert sum(_area(c) for c in cells) == pytest.approx(48.0)
-    assert width == pytest.approx(8.0)  # 10 m, shrunk by the square root of 48/75
-    assert notches == pytest.approx([16.0])  # the missing quarter, shrunk too
+    assert sum(_area(c) for c in cells) == pytest.approx(0.85 * 75)
+    assert width == pytest.approx(10 * 0.85**0.5)
+    # the missing quarter, and then what the rooms leave of the outline
+    assert notches == pytest.approx([0.85 * 25, 0.85 * 75 - 48.0])
+
+
+def test_a_smaller_floor_lines_up_with_the_floor_it_is_over():
+    ground = Floor(
+        rooms=[Room("living", 24.0), Room("kitchen", 16.0), Room("den", 16.0)],
+        links=[("living", "kitchen", None), ("kitchen", "den", None)],
+    )
+    upper = Floor(
+        rooms=[Room("bed", 20.0), Room("bath", 8.0), Room("study", 16.0)],
+        links=[("bed", "bath", None), ("bath", "study", None)],
+    )
+    above = [("living", "bed"), ("kitchen", "bath"), ("den", "study")]
+    placed = arrange([ground, upper], above)
+
+    def sides(keys):
+        rects = [placed[k] for k in keys]
+        return [(min if k < 2 else max)(r[k] for r in rects) for k in range(4)]
+
+    # 44 m² over 56: the same rectangle, with a hole for the rest
+    assert sides(["bed", "bath", "study"]) == pytest.approx(
+        sides(["living", "kitchen", "den"]), abs=0.01
+    )
 
 
 def test_no_rooms_is_no_layout():
