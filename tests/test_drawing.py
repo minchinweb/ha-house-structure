@@ -1409,3 +1409,28 @@ def test_inside_walls_are_not_the_colour_of_outside_walls():
     for svg in (room_svg(elements, HOUSE, "kitchen"), house_svg(elements, HOUSE)):
         assert WALL_FILL in svg  # the kitchen's south wall
         assert inside in svg  # the wall it shares with the hall
+
+
+def test_a_room_alone_has_anchors_for_its_walls_and_neighbours():
+    elements = _elements(
+        _room(
+            "rec",
+            width_m=4.0,
+            depth_m=3.0,
+            x_m=0.0,
+            y_m=0.0,
+            level_m=-2.4,
+            height_m=2.4,
+        ),
+        _room("kitchen", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=0.0),
+        _room("living", width_m=4.0, depth_m=3.0, x_m=4.0, y_m=0.0, level_m=0.0),
+        _wall("s", "kitchen", "S"),
+    )
+    svg = room_svg(elements, HOUSE, "kitchen")
+    assert '<g data-layer="anchors" visibility="hidden">' in svg
+    for area in ("kitchen", "living", "rec"):  # the neighbours are placed too
+        assert f'data-room="{area}"' in svg
+    assert 'data-between="kitchen|living"' in svg  # beside
+    assert 'data-between="kitchen|rec"' in svg  # below
+    assert 'data-between="living|rec"' not in svg
+    assert 'data-outside="kitchen|S"' in svg

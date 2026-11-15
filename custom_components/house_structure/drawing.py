@@ -1723,6 +1723,57 @@ def _add_anchors(
         seen.add(key)
 
 
+def _add_room_anchors(
+    scene: Scene,
+    box: Box,
+    here: Box,
+    where: dict[str, Box],
+    parts: Parts,
+    rotation: float,
+) -> None:
+    """The anchors of ``_add_anchors`` for a room drawn alone, so overlays such
+    as the temperature difference can draw on it: its centre, the middle of each
+    outside face, and, for each neighbour, the middle of the wall (or floor, or
+    ceiling) between them with an anchor for the neighbour itself just past it
+    (it is not drawn). ``box`` is the room where it is drawn, ``here`` where it
+    is in the house, ``where`` every room as placed in the house."""
+    area = box.area
+    centre = (box.x + box.width / 2, box.y + box.depth / 2, box.z + box.height / 2)
+    scene.anchors.append(Anchor(centre, {"room": area}))
+    faces = {_face_of(wall, rotation) for wall in parts.walls.get(area, [])}
+    for face in sorted(faces):
+        point = _on_face(box, face, _span(box, face) / 2, box.height / 2)
+        scene.anchors.append(Anchor(point, {"outside": f"{area}|{face}"}))
+    for other, there in where.items():
+        if other == area:
+            continue
+        key = _pair(area, other)
+        side = _shared_face(here, there)
+        if side is not None:
+            face, start, end = side
+            low, high = _overlap(
+                here.z, here.z + here.height, there.z, there.z + there.height
+            )
+            point = _on_face(box, face, (start + end) / 2, (low + high) / 2 - here.z)
+            # the neighbour, as far past the wall as the wall is from the middle
+            beyond = (2 * point[0] - centre[0], 2 * point[1] - centre[1], point[2])
+            scene.anchors.append(Anchor(point, {"between": key}))
+            scene.anchors.append(Anchor(beyond, {"room": other}))
+            continue
+        up = abs(there.z - (here.z + here.height)) < TOUCH
+        down = abs(here.z - (there.z + there.height)) < TOUCH
+        if not (up or down):
+            continue
+        x0, x1 = _overlap(here.x, here.x + here.width, there.x, there.x + there.width)
+        y0, y1 = _overlap(here.y, here.y + here.depth, there.y, there.y + there.depth)
+        if x1 - x0 <= 0.3 or y1 - y0 <= 0.3:
+            continue
+        z = box.z + box.height if up else box.z
+        rise = LINK_RISE if up else -LINK_RISE
+        scene.anchors.append(Anchor((centre[0], centre[1], z), {"between": key}))
+        scene.anchors.append(Anchor((centre[0], centre[1], z + rise), {"room": other}))
+
+
 def _depth_key(box: Box, view: int = 0) -> float:
     """Draw far and low rooms first: the painter's order from the view's corner."""
     x, y = _turn(box.x + box.width / 2, box.y + box.depth / 2, view)
@@ -2130,6 +2181,14 @@ def room_svg(
         wing_inside=_wing_parts(parts, area_id, where),
     )
     _add_roofs(scene, [box], elements, rotation, unit, defaults)
+    _add_room_anchors(
+        scene,
+        box,
+        where[area_id],
+        where,
+        parts,
+        rotation,
+    )
     scene.notes.extend(box.notes)
     scene.notes.extend(door_notes)
     _add_links(scene, box, elements, where, neighbours(elements).get(area_id, []))

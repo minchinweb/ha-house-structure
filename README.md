@@ -211,7 +211,9 @@ in Home Assistant's temperature unit. The arrows are heavier for bigger
 differences. A room's temperature is its area's temperature sensor; the
 outside is the first weather entity that gives a temperature. A wall is left
 out when a room has no sensor, and the outside walls are left out when there
-is no weather entity. The temperatures are read every minute while the layer is
+is no weather entity. The layer works on the whole house, on one floor, and on a single room (where a
+room beside, above or below is not drawn, but the wall, floor or ceiling to it
+has its arrow). The temperatures are read every minute while the layer is
 on, over the page's own connection, so they are not served to anyone else.
 
 ### Where the rooms are drawn
