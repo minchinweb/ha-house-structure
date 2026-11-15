@@ -1294,3 +1294,46 @@ async def test_a_sheet_reads_feet_and_inch_marks(hass: HomeAssistant, house):
     )
     assert room.data["width_m"] == pytest.approx(12.5 * 0.3048, rel=1e-3)
     assert room.data["depth_m"] == pytest.approx(10 * 0.3048, rel=1e-3)
+
+
+async def test_a_window_follows_its_contact(hass: HomeAssistant, house) -> None:
+    hass.states.async_set("binary_sensor.bay_contact", "off")
+    await _add(
+        hass,
+        house["entry_id"],
+        "window",
+        {
+            "host": house["wall"].subentry_id,
+            "name": "Bay window",
+            "width": "1",
+            "height": "1",
+            "sensor": "binary_sensor.bay_contact",
+        },
+    )
+    # a window with no contact gets no sensor
+    await _add(
+        hass,
+        house["entry_id"],
+        "window",
+        {
+            "host": house["wall"].subentry_id,
+            "name": "Fixed",
+            "width": "1",
+            "height": "1",
+        },
+    )
+    window = "binary_sensor.master_bedroom_bay_window_open"
+    assert hass.states.get(window).state == "off"
+    assert hass.states.get(window).attributes["device_class"] == "window"
+    assert hass.states.get(window).attributes["temperature_entity"] == "sensor.master_t"
+    hass.states.async_set("binary_sensor.bay_contact", "on")
+    await hass.async_block_till_done()
+    assert hass.states.get(window).state == "on"
+    assert hass.states.get("binary_sensor.master_bedroom_fixed_open") is None
+
+
+def test_the_window_picker_lists_door_sensors_too() -> None:
+    from custom_components.house_structure.config_flow import _WINDOW_CONTACT
+
+    classes = _WINDOW_CONTACT.config["device_class"]
+    assert {"window", "door", "garage_door", "opening"} <= set(classes)

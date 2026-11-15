@@ -160,8 +160,17 @@ _TEXT = selector.TextSelector()
 _TEXT_LINES = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
 _COVER = selector.EntitySelector(selector.EntitySelectorConfig(domain="cover"))
 _CLIMATE = selector.EntitySelector(selector.EntitySelectorConfig(domain="climate"))
-_CONTACT = selector.EntitySelector(
-    selector.EntitySelectorConfig(domain="binary_sensor")
+# a door's or window's contact sensor: the binary sensors that report open or closed
+_DOOR_CONTACT = selector.EntitySelector(
+    selector.EntitySelectorConfig(
+        domain="binary_sensor", device_class=["door", "garage_door", "opening"]
+    )
+)
+_WINDOW_CONTACT = selector.EntitySelector(
+    selector.EntitySelectorConfig(
+        domain="binary_sensor",
+        device_class=["window", "door", "garage_door", "opening"],
+    )
 )
 _FAN = selector.EntitySelector(
     selector.EntitySelectorConfig(domain=["fan", "switch", "cover"])
@@ -273,7 +282,9 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
     if kind == ROOM:
         fields[vol.Optional("floor")] = _TEXT
     if kind == DOOR:
-        fields[vol.Optional("sensor")] = _CONTACT
+        fields[vol.Optional("sensor")] = _DOOR_CONTACT
+    if kind == WINDOW:
+        fields[vol.Optional("sensor")] = _WINDOW_CONTACT
     if kind == REGISTER:
         fields[vol.Required("climate")] = _CLIMATE
         fields[vol.Optional("fan")] = _FAN

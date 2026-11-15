@@ -373,6 +373,7 @@
             "name": "Name",
             "host": "Wall or roof it is in",
             "area_id": "Room (only for a roof over several rooms)",
+            "sensor": "Contact sensor",
             "width": "Glass width",
             "height": "Glass height",
             "from_left": "Distance from the wall's left end (seen from outside)",
@@ -385,6 +386,7 @@
           "data_description": {
             "name": "Leave empty for a name from the room.",
             "area_id": "For a skylight in a roof over several rooms: the room it lights. Leave empty to use the roof's first room, or the wall's room.",
+            "sensor": "A window, door or opening sensor, on when the window is open. A patio door can be a window here, for its solar gain. Leave empty if the window has none.",
             "transmittance": "About 0.7 for double glazing, 0.5 for low-e.",
             "blind": "A cover entity; its position (0 to 100) says how open it is.",
             "blind_closed": "How much of the sun still gets in with the blind shut.",
@@ -400,6 +402,7 @@
             "name": "Name",
             "host": "Wall or roof it is in",
             "area_id": "Room (only for a roof over several rooms)",
+            "sensor": "Contact sensor",
             "width": "Glass width",
             "height": "Glass height",
             "from_left": "Distance from the wall's left end (seen from outside)",
@@ -412,6 +415,7 @@
           "data_description": {
             "name": "Leave empty for a name from the room.",
             "area_id": "For a skylight in a roof over several rooms: the room it lights. Leave empty to use the roof's first room, or the wall's room.",
+            "sensor": "A window, door or opening sensor, on when the window is open. A patio door can be a window here, for its solar gain. Leave empty if the window has none.",
             "transmittance": "About 0.7 for double glazing, 0.5 for low-e.",
             "blind": "A cover entity; its position (0 to 100) says how open it is.",
             "blind_closed": "How much of the sun still gets in with the blind shut.",
@@ -461,7 +465,9 @@
           "data_description": {
             "name": "Leave empty for a name from the wall.",
             "host": "An outside wall, or an internal wall for a door between two rooms.",
-            "sensor": "A door or opening sensor, on when the door is open. Leave empty if the door has none.",
+            "sensor": "A door, garage door or opening sensor, on when the door is open. Leave empty if the door has none.",
+            "width": "Blank: 28 in wide for a door between two rooms, 32 in for a door to outside.",
+            "height": "Blank: 80 in high.",
             "r_imperial": "The door's insulation as built, such as 5 for a foam-core steel door. Blank uses Manual J's default, when Manual J is set up. Only doors in outside walls are labelled.",
             "from_left": "For a door in an outside wall. Stand outside, facing the wall. Measure along the wall from its left-hand end to the nearest edge of the door. On a south wall the left end is the west end; on an east wall, the south end; on a north wall, the east end; on a west wall, the north end. Blank: the drawing chooses. Only the drawings use this."
           }
@@ -481,7 +487,9 @@
           "data_description": {
             "name": "Leave empty for a name from the wall.",
             "host": "An outside wall, or an internal wall for a door between two rooms.",
-            "sensor": "A door or opening sensor, on when the door is open. Leave empty if the door has none.",
+            "sensor": "A door, garage door or opening sensor, on when the door is open. Leave empty if the door has none.",
+            "width": "Blank: 28 in wide for a door between two rooms, 32 in for a door to outside.",
+            "height": "Blank: 80 in high.",
             "r_imperial": "The door's insulation as built, such as 5 for a foam-core steel door. Blank uses Manual J's default, when Manual J is set up. Only doors in outside walls are labelled.",
             "from_left": "For a door in an outside wall. Stand outside, facing the wall. Measure along the wall from its left-hand end to the nearest edge of the door. On a south wall the left end is the west end; on an east wall, the south end; on a north wall, the east end; on a west wall, the north end. Blank: the drawing chooses. Only the drawings use this."
           }
@@ -856,6 +864,9 @@
         "name": "Heating"
       },
       "door": {
+        "name": "Open"
+      },
+      "window": {
         "name": "Open"
       }
     }

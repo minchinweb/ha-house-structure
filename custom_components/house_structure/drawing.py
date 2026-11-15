@@ -55,7 +55,10 @@ COS30 = math.sqrt(3) / 2
 SIN30 = 0.5
 DEFAULT_CEILING = 2.4  # m, where no ceiling height is given
 DEFAULT_GLASS = (0.9, 1.2)  # m wide and high, where a window has no size
-DEFAULT_DOOR = (0.9, 2.03)  # m wide and high (a 36 by 80 inch door), where untyped
+# m wide and high, where a door has no size: 28 by 80 inches for a door between
+# rooms, 32 by 80 inches for a door to outside
+INSIDE_DOOR = (28 * 0.0254, 80 * 0.0254)
+OUTSIDE_DOOR = (32 * 0.0254, 80 * 0.0254)
 TOUCH = 0.3  # m: two rooms closer than this across a face share a wall
 NORTH_COLUMN = 60  # px kept clear on the right of the drawing for the north arrow
 SILL = 0.9  # m above the floor, for a window's sill
@@ -99,6 +102,8 @@ RUN_COLOURS = (
 )
 FLOOR_FILL, FLOOR_LINE = "#f3efe6", "#8a8170"
 WALL_FILL, WALL_LINE = "#e2d3ae", "#7a6a46"
+# a wall between two rooms is a cooler grey-green, so it reads apart from outside walls
+INSIDE_FILL, INSIDE_LINE = "#cfdcd6", "#51655c"
 WINDOW_FILL, WINDOW_LINE = "#9fd3f0", "#3b7bb0"
 DOOR_FILL, DOOR_LINE = "#a8744a", "#5c3b1e"
 ROOF_FILL, ROOF_LINE = "#9c7b6b", "#4e342e"
@@ -377,7 +382,10 @@ def _span(box: Box, face: str) -> float:
 
 
 def _door_size(door: Element) -> tuple[float, float]:
-    return door.width_m or DEFAULT_DOOR[0], door.height_m or DEFAULT_DOOR[1]
+    """A door's width and height: typed, else the default for a door between
+    rooms (it names the room on the other side) or a door to outside."""
+    width, height = INSIDE_DOOR if door.other_area_id else OUTSIDE_DOOR
+    return door.width_m or width, door.height_m or height
 
 
 def _openings(
@@ -794,7 +802,7 @@ def _add_room(
                     )
                 else:
                     quad = _quad(wing_box, face, start, end, 0.0, wing_box.height)
-                    scene.polygons.append(Poly(quad, WALL_FILL, WALL_LINE, opacity))
+                    scene.polygons.append(Poly(quad, INSIDE_FILL, INSIDE_LINE, opacity))
             for item, start, end in on_face:
                 if item.kind == DOOR:
                     scene.polygons.append(
@@ -862,7 +870,7 @@ def _add_room(
         for item, start, end in shared:  # solid internals first, then their doors
             if item.kind == INTERNAL_WALL and not item.open_link:
                 outline = _quad(box, face, start, end, 0.0, box.height)
-                scene.polygons.append(Poly(outline, WALL_FILL, WALL_LINE, opacity))
+                scene.polygons.append(Poly(outline, INSIDE_FILL, INSIDE_LINE, opacity))
         for item, start, end in shared:
             if item.kind == DOOR:
                 scene.polygons.append(_inside_door(box, item, face, start, end))

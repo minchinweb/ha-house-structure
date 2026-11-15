@@ -29,6 +29,9 @@ Websocket commands, asked over the sidebar page's own connection:
   draw over the House tab's drawing (``{"overlays": [...]}``).
 * ``house_structure/house``: the rooms (with their names and floors), the
   equipment and the buildings, for the House tab.
+* ``house_structure/temperatures``: each room's temperature and the outside
+  temperature now, in degrees Celsius, for the House tab's temperature
+  difference layer.
 * ``house_structure/layout``: the full layout (house settings, each part's
   settings and built attributes, areas with neighbours, the parts as a CSV
   sheet). For agents and the Home Assistant support MCP server.
@@ -47,6 +50,7 @@ from homeassistant.helpers import floor_registry as fr
 import voluptuous as vol
 
 from .constants import DOMAIN, OVERLAYS, OVERLAYS_EVENT, TABS, TABS_EVENT
+from .devices import outside_temperature, room_temperatures
 from .diagnostics import house_layout
 from .tabs import HOUSE_ORDER, ordered, ordered_overlays
 
@@ -77,6 +81,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_tabs)
     websocket_api.async_register_command(hass, ws_overlays)
     websocket_api.async_register_command(hass, ws_house)
+    websocket_api.async_register_command(hass, ws_temperatures)
     websocket_api.async_register_command(hass, ws_layout)
     version = await hass.async_add_executor_job(_version)
     tabs = hass.data.setdefault(TABS, {})
@@ -193,6 +198,26 @@ def ws_house(hass: HomeAssistant, connection, msg: dict) -> None:
         if floor is not None:
             floors[area.id] = (floor.level, floor.name)
     connection.send_result(msg["id"], house_view(hass.data.get(DOMAIN), names, floors))
+
+
+@websocket_api.websocket_command({vol.Required("type"): "house_structure/temperatures"})
+@callback
+def ws_temperatures(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Each room's temperature and the outside temperature now, for the House
+    tab's temperature difference layer.
+
+    Sent in degrees Celsius (``None`` where there is no reading), with the
+    unit Home Assistant is set to show, which the tab shows differences in.
+    """
+    published = hass.data.get(DOMAIN) or {}
+    connection.send_result(
+        msg["id"],
+        {
+            "rooms": room_temperatures(hass, published.get("rooms") or {}),
+            "outside": outside_temperature(hass),
+            "unit": hass.config.units.temperature_unit,
+        },
+    )
 
 
 @websocket_api.websocket_command(

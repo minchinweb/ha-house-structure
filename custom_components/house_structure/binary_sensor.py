@@ -1,6 +1,6 @@
 # Copyright (c) 2026 MinchinWeb
-"""Whether each heating register is delivering heat, and whether each door is
-open.
+"""Whether each heating register is delivering heat, and whether each door and
+window is open.
 
 A register is on while the thermostat it hangs off is heating (its
 ``hvac_action``). Its fan, if it has one, is given in the attributes: the
@@ -9,7 +9,8 @@ register still delivers heat with the fan off, only less of it.
 A door with a contact sensor is on while the contact is (open). It follows the
 contact, and adds the door's place in the house: its wall, the rooms on each
 side and their temperature sensors, so a door's state can be read with the
-rooms it joins.
+rooms it joins. A window with a contact sensor is the same, with its wall and
+its room's temperature sensor.
 """
 
 from __future__ import annotations
@@ -19,15 +20,15 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 
-from .constants import DOOR, REGISTER
+from .constants import DOOR, REGISTER, WINDOW
 from .devices import HouseData, area_temperature
 from .entity import PartEntity, setup_parts
 from .model import Element
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    """A heating sensor for each register, and an open sensor for each door
-    with a contact, now and as they are added."""
+    """A heating sensor for each register, and an open sensor for each door or
+    window with a contact, now and as they are added."""
     setup_parts(hass, entry, async_add_entities, _sensor_for)
 
 
@@ -36,6 +37,8 @@ def _sensor_for(data: HouseData, element: Element) -> PartEntity | None:
         return RegisterHeatingSensor(data, element)
     if element.kind == DOOR and element.sensor:
         return DoorOpenSensor(data, element)
+    if element.kind == WINDOW and element.sensor:
+        return WindowOpenSensor(data, element)
     return None
 
 
@@ -100,4 +103,22 @@ class DoorOpenSensor(PartEntity, BinarySensorEntity):
         out["other_temperature_entity"] = area_temperature(
             self.hass, self.element.other_area_id
         )
+        return out
+
+
+class WindowOpenSensor(DoorOpenSensor):
+    """On while the window's contact sensor is on (open)."""
+
+    _attr_device_class = BinarySensorDeviceClass.WINDOW
+
+    def __init__(self, data: HouseData, element: Element) -> None:
+        PartEntity.__init__(self, data, element, "window")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        out = self.element.attributes()
+        host = self.data.elements.get(self.element.host or "")
+        if host is not None:
+            out["wall"] = host.title
+        out["temperature_entity"] = area_temperature(self.hass, self.element.area_id)
         return out

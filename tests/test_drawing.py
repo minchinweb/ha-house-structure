@@ -26,6 +26,7 @@ from custom_components.house_structure.drawing import (
     SLAB,
     _box,
     _clear_shift,
+    _door_size,
     _floor_index,
     _floor_shifts,
     _footprint,
@@ -52,6 +53,7 @@ from custom_components.house_structure.model import Element, Raw, build
 HOUSE = {"rotation": 0.0, "unit": "m", "shade_below": 0.0}
 FLOOR = 'fill="#f3efe6"'
 WALL_FILL = 'fill="#e2d3ae"'
+INSIDE_FILL = 'fill="#cfdcd6"'  # a wall between two rooms
 DASHED = 'stroke-dasharray="4 3"'
 
 
@@ -843,7 +845,9 @@ def test_several_rooms_share_one_face_with_an_outside_stretch():
     assert min(l1, 1.5) - max(l0, 0.0) <= 1e-6  # clear of the outside wall
     assert min(b1, 1.5) - max(b0, 0.0) <= 1e-6
     svg = room_svg(elements, HOUSE, "kitchen")
-    assert svg.count(WALL_FILL) >= 5  # outside walls + solid wall to bath
+    assert (
+        svg.count(WALL_FILL) + svg.count(INSIDE_FILL) >= 5
+    )  # outside walls + solid wall to bath
     assert f'stroke-dasharray="{OPEN_DASH}"' in svg  # open to the landing
     assert "Dotted faces are open" in svg
 
@@ -1100,7 +1104,7 @@ def test_the_room_view_labels_its_doors_and_windows():
     )
     svg = room_svg(elements, HOUSE, "kitchen")
     assert ">window 1 m x 1.2 m, double glazed<" in svg
-    assert ">door 0.9 m x 2.03 m<tspan" in svg  # footnoted a: size assumed
+    assert ">door 0.813 m x 2.032 m<tspan" in svg  # footnoted a: size assumed
     assert "a: Size assumed" in svg
     assert "(size assumed)" not in svg
     # the house view does not label them
@@ -1167,7 +1171,7 @@ def test_an_internal_wall_is_drawn_from_both_rooms_even_without_a_door():
     for area in ("kitchen", "landing"):
         svg = room_svg(elements, HOUSE, area)
         assert "not drawn" not in svg
-        assert svg.count(WALL_FILL) == 1  # the shared wall
+        assert svg.count(INSIDE_FILL) == 1  # the shared wall
         assert svg.count(DASHED) == 3  # its other three faces
 
 
@@ -1383,3 +1387,25 @@ def test_rooms_whose_wings_touch_are_touching():
     ((_, face, start, end),) = _wing_parts(parts, "a", where)
     assert (face, start, end) == ("E", pytest.approx(0.0), pytest.approx(1.0))
     assert _inside_parts(elements, parts, "a", where) == ([], [])
+
+
+def test_a_door_with_no_size_is_28_inches_inside_and_32_outside():
+    elements = _elements(
+        *_two_rooms(x_m=4.0, y_m=1.0),
+        _wall("s", "kitchen", "S"),
+        Raw("front", DOOR, "Front door", {"host": "s"}),
+        Raw("sized", DOOR, "Sized door", {"host": "s", "width_m": 1.0}),
+    )
+    assert _door_size(elements["door"]) == pytest.approx((28 * 0.0254, 80 * 0.0254))
+    assert _door_size(elements["front"]) == pytest.approx((32 * 0.0254, 80 * 0.0254))
+    # a typed width is kept, the height still defaults
+    assert _door_size(elements["sized"]) == pytest.approx((1.0, 80 * 0.0254))
+
+
+def test_inside_walls_are_not_the_colour_of_outside_walls():
+    elements = _elements(*_two_rooms(x_m=4.0, y_m=1.0), _wall("s", "kitchen", "S"))
+    inside = INSIDE_FILL
+    assert inside != WALL_FILL
+    for svg in (room_svg(elements, HOUSE, "kitchen"), house_svg(elements, HOUSE)):
+        assert WALL_FILL in svg  # the kitchen's south wall
+        assert inside in svg  # the wall it shares with the hall

@@ -123,6 +123,9 @@ const state = {
   roofs: false,          // the roofs layer: off, as it hides the rooms
   dims: false,           // the room and wall sizes
   rvalues: false,        // the R-values of the walls and roofs
+  delta: false,          // the temperature difference across each wall
+  temps: null,           // the last temperatures asked for, for that layer
+  tempsError: null,      // why they could not be loaded
   overlays: [],          // registered overlays
   on: new Set(),         // overlays switched on
   results: {},           // the last answer of each overlay that is on
@@ -233,6 +236,9 @@ function drawControls() {
     chip("R-values", state.rvalues, () => {
       state.rvalues = !state.rvalues; lab.remember("house.rvalues", state.rvalues); drawControls(); showLayers();
     }),
+    // the temperature difference across the walls: needs the rooms' temperature sensors
+    ...(whole ? [chip("Temperature difference", state.delta, toggleDelta,
+      "The temperature difference across each wall, with an arrow for the way heat is expected to flow")] : []),
     // a single room's text is small, so it can be drawn larger (drawing.py LARGE_TEXT)
     ...(state.room ? [chip("Large text", state.bigText, () => {
       state.bigText = !state.bigText; lab.remember("house.bigText", state.bigText); drawControls(); loadDrawing();
@@ -442,12 +448,99 @@ function drawOverlay(svg, key, data) {
   return missed;
 }
 
+/* ---------- temperature difference ---------- */
+
+const DELTA_MIN = 0.05;  // °C: a smaller difference is shown as no flow
+
+/* An arrow across each wall rooms share, and each outside wall, from the warmer side to
+ * the cooler: heat flows down the temperature, so that is the way energy is expected to go.
+ * Weight by the share of the largest difference. Returns how many walls had no reading
+ * or no place on the drawing. */
+function drawDelta(svg, data) {
+  const where = anchors(svg);
+  const g = svgEl("g", { "data-layer": "overlay-delta" });
+  const scale = data.unit === "°F" ? 1.8 : 1;
+  const unitName = data.unit || "°C";
+  const rooms = data.rooms || {};
+  const walls = [];
+  let missed = 0;
+  for (const [key, at] of Object.entries(where.between)) {
+    const [a, b] = key.split("|");
+    const ta = rooms[a], tb = rooms[b];
+    const pa = where.room[a], pb = where.room[b];
+    if (ta == null || tb == null) continue;  // a room with no sensor: nothing to show
+    const dir = pa && pb ? unit(pb[0] - pa[0], pb[1] - pa[1]) : null;
+    if (!dir) { missed++; continue; }
+    const d = ta - tb;  // positive: from a to b
+    walls.push({ at, d, dir: d >= 0 ? dir : [-dir[0], -dir[1]], colour: COLOURS.between });
+  }
+  if (data.outside != null) {
+    for (const [key, at] of Object.entries(where.outside)) {
+      const room = key.split("|")[0];
+      const t = rooms[room], c = where.room[room];
+      if (t == null) continue;
+      const out = c ? unit(at[0] - c[0], at[1] - c[1]) : null;
+      if (!out) { missed++; continue; }
+      const d = t - data.outside;  // positive: out of the room
+      walls.push({ at, d, dir: d >= 0 ? out : [-out[0], -out[1]], colour: d >= 0 ? COLOURS.loss : COLOURS.gain });
+    }
+  }
+  const largest = Math.max(DELTA_MIN, ...walls.map((w) => Math.abs(w.d)));
+  for (const w of walls) {
+    const text = `${fmt(Math.abs(w.d) * scale, 1)} ${unitName}`;
+    if (Math.abs(w.d) < DELTA_MIN) { label(g, w.at[0], w.at[1] + 4, text, "#555555"); continue; }
+    arrow(g, w.at, w.dir, Math.sqrt(Math.abs(w.d) / largest), w.colour, text);
+  }
+  const notes = svg.querySelector('[data-layer="notes"]');
+  svg.insertBefore(g, notes);
+  return { missed, outside: data.outside != null, drawn: walls.length };
+}
+
+async function fetchTemps() {
+  if (!state.delta) return;
+  try {
+    state.temps = await lab.ask({ type: "house_structure/temperatures" });
+    state.tempsError = null;
+  } catch (err) {
+    state.tempsError = "could not load (" + (err && (err.message || err.code) || err) + ")";
+  }
+  drawOverlays();
+}
+
+function startDelta() {
+  clearInterval(state.timers._delta);
+  fetchTemps();
+  state.timers._delta = setInterval(fetchTemps, 60 * 1000);
+}
+
+function toggleDelta() {
+  state.delta = !state.delta;
+  lab.remember("house.delta", state.delta);
+  if (state.delta) startDelta();
+  else { clearInterval(state.timers._delta); delete state.timers._delta; state.temps = null; }
+  drawControls();
+  drawOverlays();
+}
+
 function drawOverlays() {
   const svg = currentSvg();
   const list = document.getElementById("overlay-notes");
   if (!svg) { list.replaceChildren(); return; }
   for (const g of svg.querySelectorAll('[data-layer^="overlay-"]')) g.remove();
   const notes = [...captionNotes];
+  if (!state.room && !state.part && state.delta) {
+    if (state.tempsError) notes.push(`Temperature difference: ${state.tempsError}`);
+    else if (!state.temps) notes.push("Temperature difference: loading…");
+    else {
+      const shown = drawDelta(svg, state.temps);
+      notes.push("Temperature difference: an arrow across each wall from the warmer side to the cooler, "
+        + "the way heat is expected to flow (through a wall between rooms, or to or from outside). "
+        + "A wall is left out when a room has no temperature sensor.");
+      if (!shown.outside) notes.push("Temperature difference: no outside temperature (needs a weather entity), so the outside walls are left out.");
+      if (!shown.drawn) notes.push("Temperature difference: no wall has temperatures on both sides yet.");
+      if (shown.missed) notes.push(`Temperature difference: ${shown.missed} wall${shown.missed === 1 ? "" : "s"} with no place on the drawing.`);
+    }
+  }
   if (!state.room && !state.part) {
     for (const o of state.overlays) {
       if (!state.on.has(o.key)) continue;
@@ -596,9 +689,11 @@ state.runs = lab.recall("house.runs", true) !== false;
 state.roofs = lab.recall("house.roofs", false) === true;
 state.dims = lab.recall("house.dims", false) === true;
 state.rvalues = lab.recall("house.rvalues", false) === true;
+state.delta = lab.recall("house.delta", false) === true;
 state.bigText = lab.recall("house.bigText", true) !== false;
 state.on = new Set(lab.recall("house.overlays", []));
 lab.applyTheme();
+if (state.delta) startDelta();
 load().then(() => lab.subscribe((event) => overlaysChanged(event.overlays), { type: "house_structure/overlays" })
   .catch(() => { /* no overlays without the subscription */ }));
 </script>

@@ -15,10 +15,13 @@ from dataclasses import dataclass
 import logging
 
 from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .constants import (
     AIR_CONDITIONER,
@@ -176,6 +179,53 @@ def area_temperature(hass: HomeAssistant, area_id: str | None) -> str | None:
         return chosen
     found = area_temperature_sensors(hass, area_id)
     return found[0] if len(found) == 1 else None
+
+
+def _celsius(state) -> float | None:
+    """A state's number in degrees Celsius, or None if it has none."""
+    if state is None:
+        return None
+    try:
+        value = float(state.state)
+    except ValueError:
+        return None
+    unit = state.attributes.get("unit_of_measurement")
+    if unit and unit != UnitOfTemperature.CELSIUS:
+        try:
+            value = TemperatureConverter.convert(value, unit, UnitOfTemperature.CELSIUS)
+        except HomeAssistantError:
+            return None
+    return round(value, 2)
+
+
+def room_temperatures(hass: HomeAssistant, area_ids) -> dict[str, float | None]:
+    """Each room's temperature in degrees Celsius (None where it has no sensor
+    or the sensor has no reading)."""
+    return {
+        area_id: _celsius(hass.states.get(area_temperature(hass, area_id) or ""))
+        for area_id in area_ids
+    }
+
+
+def outside_temperature(hass: HomeAssistant) -> float | None:
+    """The temperature outside in degrees Celsius: that of the first weather
+    entity (by entity id) that gives one, else None."""
+    for state in sorted(hass.states.async_all("weather"), key=lambda s: s.entity_id):
+        try:
+            value = float(state.attributes.get("temperature"))
+        except TypeError, ValueError:
+            continue
+        unit = (
+            state.attributes.get("temperature_unit")
+            or hass.config.units.temperature_unit
+        )
+        try:
+            return round(
+                TemperatureConverter.convert(value, unit, UnitOfTemperature.CELSIUS), 2
+            )
+        except HomeAssistantError:
+            continue
+    return None
 
 
 def area_temperature_choices(hass: HomeAssistant, area_id: str | None) -> list[str]:

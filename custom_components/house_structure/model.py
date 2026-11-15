@@ -58,7 +58,8 @@ class Element:
         blind_closed: For a window, the share a closed blind lets through.
         glass_m2: For a wall or roof, the glass of the windows in it.
         door_m2: For an outside or internal wall, the doors in it.
-        sensor: For a door, its contact sensor (a binary sensor, on when open).
+        sensor: For a door or window, its contact sensor (a binary sensor, on
+            when open).
         floor_m2: For a room, its floor area.
         height_m: For a room, its ceiling height.
         volume_m3: For a room, its air volume (given, or floor times height).
@@ -172,6 +173,8 @@ class Element:
         if self.kind == WINDOW:
             out["host"] = self.host
             out["transmittance"] = self.transmittance
+            if self.sensor:
+                out["sensor"] = self.sensor
             if self.blind:
                 out["blind"] = self.blind
                 out["blind_closed"] = self.blind_closed
@@ -404,6 +407,7 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
             blind_closed=float(d.get("blind_closed", BLIND_CLOSED)),
             glazing=d.get("glazing") or None,
             frame=d.get("frame") or None,
+            sensor=d.get("sensor") or None,
             glass_width_m=_optional(d.get("width_m")),
             glass_height_m=_optional(d.get("height_m")),
             from_left_m=_optional(d.get("from_left_m")),

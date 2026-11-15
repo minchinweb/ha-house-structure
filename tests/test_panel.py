@@ -363,3 +363,34 @@ async def test_overlays_are_sent_as_they_change(
             }
         ]
     }
+
+
+async def test_temperatures_are_sent_in_celsius(
+    hass: HomeAssistant, house, hass_ws_client
+) -> None:
+    hass.states.async_set(
+        "sensor.office_t",
+        "68",
+        {"unit_of_measurement": "°F", "device_class": "temperature"},
+    )
+    ar.async_get(hass).async_update(
+        house["office"].id, temperature_entity_id="sensor.office_t"
+    )
+    # the basement has no sensor; a weather entity gives the outside
+    hass.states.async_set(
+        "weather.home", "sunny", {"temperature": 14, "temperature_unit": "°F"}
+    )
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": "house_structure/temperatures"})
+    result = (await client.receive_json())["result"]
+    assert result["rooms"] == {house["office"].id: 20.0, house["basement"].id: None}
+    assert result["outside"] == pytest.approx(-10.0)
+    assert result["unit"] == hass.config.units.temperature_unit
+
+
+async def test_there_is_no_outside_temperature_without_weather(
+    hass: HomeAssistant, house, hass_ws_client
+) -> None:
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": "house_structure/temperatures"})
+    assert (await client.receive_json())["result"]["outside"] is None

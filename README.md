@@ -94,8 +94,8 @@ its room from there: a door in an internal wall joins the rooms on both sides.
 | Room (one per area) | floor area, ceiling height, volume (for a sloped ceiling), below ground, rooms beside it, rooms above it | solar gain through all its windows (W) |
 | Outside wall | face, length, height | solar exposure (W/m²) |
 | Roof | the rooms under it, face, pitch (`45` or `12:12`), floor area under it (or length along the eave and slope length) | solar exposure (W/m²) |
-| Window | the wall or roof it is in (and, in a shared roof, its room), glass size, share let in as heat, blind (a cover) | solar gain (W), less what the blind keeps out |
-| Door | the outside or internal wall it is in, its contact sensor (a binary sensor, on when open), width, height | open (follows the contact; only for a door with one) |
+| Window | the wall or roof it is in (and, in a shared roof, its room), glass size, share let in as heat, blind (a cover), contact sensor (a binary sensor, on when open) | solar gain (W), less what the blind keeps out; open (follows the contact; only for a window with one) |
+| Door | the outside or internal wall it is in, its contact sensor (a binary sensor, on when open), width, height (28 by 80 in between rooms and 32 by 80 in to outside, where not typed) | open (follows the contact; only for a door with one) |
 | Internal wall | the room on the other side, face of this room, length, height | this room minus the other (°C) |
 | Heating register | thermostat, its fan or damper | heating (on while the thermostat heats) |
 | Furnace | its room, input per stage (BTU/h), AFUE (%), blower curve | none |
@@ -200,8 +200,19 @@ Above the drawing:
   one under it. A room less than 3 1/2 ft above a floor's lowest room (a
   split level's half flight) stays on that floor.
 - **Show** switches the layers: the **heating runs** (on to start with), the
-  **roofs** (off, as they hide the rooms), and any overlay another
-  integration adds, such as Home Thermal Lab's heat flow between the rooms.
+  **roofs** (off, as they hide the rooms), the **temperature difference**, and
+  any overlay another integration adds, such as Home Thermal Lab's heat flow
+  between the rooms.
+
+The **temperature difference** layer puts an arrow on each wall that two rooms
+share, and on each outside wall, pointing from the warmer side to the cooler
+(the way heat is expected to flow through it), with the difference beside it
+in Home Assistant's temperature unit. The arrows are heavier for bigger
+differences. A room's temperature is its area's temperature sensor; the
+outside is the first weather entity that gives a temperature. A wall is left
+out when a room has no sensor, and the outside walls are left out when there
+is no weather entity. The temperatures are read every minute while the layer is
+on, over the page's own connection, so they are not served to anyone else.
 
 ### Where the rooms are drawn
 
@@ -267,6 +278,14 @@ ceiling height and 0.3 m up. The caption under the drawing names any linked
 rooms that could not be put against each other, which usually means the
 links and outside walls round them cannot all be true at once. The same house
 is always drawn the same way; it changes when a room, wall or link does.
+
+Outside walls are drawn tan and walls between rooms grey-green, so the two
+read apart. A door with no size typed is drawn 28 by 80 inches between rooms
+and 32 by 80 inches to outside. Eighty inches (6 ft 8 in) is the usual door
+height, and 28 inches is a common width for a bedroom or bathroom door, but an
+outside door is more often 36 inches wide (building codes ask for a 32 inch
+clear opening, which a 36 inch door gives), so type the width of any door
+that differs.
 
 A roof is drawn as a slope rising from its eave at its pitch. A room with roofs
 on opposite faces gets a gable: the two meet half way across, with the gable
