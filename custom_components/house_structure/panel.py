@@ -17,8 +17,9 @@ version is fetched. They include:
   page fetches nothing from the internet.
 * ``icons.js``: the house integrations' icons as a Home Assistant icon set
   (``house-structure:house``, ``house-structure:thermal-lab``,
-  ``house-structure:manual-j``, ``house-structure:sun-sweep``), loaded on every page of Home Assistant's
-  frontend. The sidebar page uses the Thermal Lab one. Drawn by
+  ``house-structure:manual-j``, ``house-structure:sun-sweep``), loaded on every
+  page of Home Assistant's frontend. The sidebar page uses the Thermal Lab one.
+  Drawn by
   ``scripts/brand.py``.
 
 Websocket commands, asked over the sidebar page's own connection:

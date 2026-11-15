@@ -15,6 +15,7 @@ host, rooms), so other integrations can use it without asking again.
 from __future__ import annotations
 
 import logging
+from typing import ClassVar
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -270,7 +271,7 @@ class OutlineSensor(SensorEntity):
     _attr_should_poll = False
     _attr_translation_key = "outline"
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = ["found", "not_found", "failed", "not_loaded"]
+    _attr_options: ClassVar[list[str]] = ["found", "not_found", "failed", "not_loaded"]
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, entry) -> None:

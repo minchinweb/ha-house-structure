@@ -20,8 +20,9 @@ For House Structure it also writes the sidebar icon set: one-colour versions of
 the three marks in ``brand/icons/``, and
 ``custom_components/house_structure/frontend/icons.js``, which registers them
 as ``house-structure:house``, ``house-structure:thermal-lab``,
-``house-structure:manual-j`` and ``house-structure:sun-sweep``. And ``brand/drafting.svg`` (and ``.png``): the
-house with its hidden edges dashed, for large uses such as the README. The
+``house-structure:manual-j`` and ``house-structure:sun-sweep``. And
+``brand/drafting.svg`` (and ``.png``): the house with its hidden edges dashed,
+for large uses such as the README. The
 hidden edges are left out of the brand PNGs, which Home Assistant shows at
 about 40 px.
 
