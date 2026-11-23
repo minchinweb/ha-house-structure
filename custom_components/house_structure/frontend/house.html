@@ -239,10 +239,10 @@ function drawControls() {
     // the temperature difference across the walls: needs the rooms' temperature sensors
     chip("Temperature difference", state.delta, toggleDelta,
       "The temperature difference across each wall, with an arrow for the way heat is expected to flow"),
-    // a single room's text is small, so it can be drawn larger (drawing.py LARGE_TEXT)
-    ...(state.room ? [chip("Large text", state.bigText, () => {
+    // the labels can be drawn larger (drawing.py LARGE_TEXT), for a room, a floor or the house
+    chip("Large text", state.bigText, () => {
       state.bigText = !state.bigText; lab.remember("house.bigText", state.bigText); drawControls(); loadDrawing();
-    }, "Draw the room's sizes and R-values larger")] : [])];
+    }, "Draw the labels (sizes, R-values, temperature differences) larger")];
   if (whole) {
     for (const o of state.overlays) {
       chips.push(chip(o.title, state.on.has(o.key), () => toggleOverlay(o.key)));
@@ -271,12 +271,12 @@ async function loadDrawing() {
       + "The dots are the registers' outlets. "
       + "Arrows point to the rooms it links to: beside, open, above or below.";
   } else if (part) {
-    url = `/api/house_structure/plan.svg?areas=${encodeURIComponent(part.areas.join(","))}&view=${state.view}&v=${stamp}`;
+    url = `/api/house_structure/plan.svg?areas=${encodeURIComponent(part.areas.join(","))}&view=${state.view}&text=${state.bigText ? "large" : "normal"}&v=${stamp}`;
     box.setAttribute("aria-label", `${part.label}, from the ${VIEWS[state.view]}`);
     hint.textContent = `${part.label} alone, its rooms at their places in the house, looking from the ${VIEWS[state.view]}. `
       + "The heating runs go from the plenum to each register in it; they are schematic.";
   } else {
-    url = `/api/house_structure/plan.svg?exploded=${state.exploded ? 1 : 0}&view=${state.view}&v=${stamp}`;
+    url = `/api/house_structure/plan.svg?exploded=${state.exploded ? 1 : 0}&view=${state.view}&text=${state.bigText ? "large" : "normal"}&v=${stamp}`;
     box.setAttribute("aria-label", (state.exploded
       ? "The house, drawn from its rooms with the floors pulled apart"
       : "The house, drawn from its rooms") + `, from the ${VIEWS[state.view]}`);

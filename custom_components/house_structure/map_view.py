@@ -165,6 +165,7 @@ class HousePlanView(HomeAssistantView):
                 floors=saved[2],
                 defaults=_manual_j_defaults(self._hass),
                 only=_only(request),
+                large_text=request.query.get("text") == "large",
                 **_shape(self._hass, saved[1]),
             )
         )

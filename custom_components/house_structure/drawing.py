@@ -2233,6 +2233,7 @@ def house_svg(
     only: set[str] | None = None,
     outline: list[tuple[float, float]] | None = None,
     buildings: list[Any] | None = None,
+    large_text: bool = False,
 ) -> str:
     """The house from its rooms at their positions, with the heating runs on it.
 
@@ -2249,6 +2250,7 @@ def house_svg(
 
     ``only`` draws just those areas' rooms (a floor or a detached building),
     still at their places in the whole house; their registers and runs go too.
+    ``large_text`` draws the labels at ``LARGE_TEXT`` times their size, as for a room.
     """
     rotation = float(house.get("rotation") or 0.0)
     unit = house.get("unit", "m")
@@ -2274,7 +2276,11 @@ def house_svg(
     colours = _colours(elements)
     parts = _parts(elements)
     where = {b.area: b for b in boxes}
-    scene = Scene(north=_north(rotation, view), view=view % 4)
+    scene = Scene(
+        north=_north(rotation, view),
+        view=view % 4,
+        text_scale=LARGE_TEXT if large_text else 1.0,
+    )
     if apart:
         scene.height = SHEET_HEIGHT * len(set(floor_of.values()))
     for box in sorted(drawn, key=lambda b: _depth_key(b, view)):
