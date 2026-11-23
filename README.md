@@ -205,9 +205,10 @@ Above the drawing:
   between the rooms.
 
 The **temperature difference** layer puts an arrow on each wall that two rooms
-share, and on each outside wall, pointing from the warmer side to the cooler
-(the way heat is expected to flow through it), with the difference beside it
-in Home Assistant's temperature unit. The arrows are heavier for bigger
+share, and one on the outside of each room that has outside walls (on its first
+outside wall, as the outside is the same on every wall), pointing from the warmer
+side to the cooler (the way heat is expected to flow through it), with the
+difference beside it in Home Assistant's temperature unit. The arrows are heavier for bigger
 differences. A room's temperature is its area's temperature sensor; the
 outside is the first weather entity that gives a temperature. A wall is left
 out when a room has no sensor, and the outside walls are left out when there

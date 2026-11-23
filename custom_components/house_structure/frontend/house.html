@@ -369,6 +369,13 @@ function unit(dx, dy) {
   return n > 1e-6 ? [dx / n, dy / n] : null;
 }
 
+// the middle of the rooms drawn: the average of their centres (null when there are none)
+function houseCentre(rooms) {
+  const pts = Object.values(rooms);
+  if (!pts.length) return null;
+  return [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length];
+}
+
 function label(g, x, y, text, colour) {
   g.append(svgEl("text", {
     x: x.toFixed(1), y: y.toFixed(1), fill: colour, "font-size": "11", "font-weight": "600",
@@ -475,14 +482,28 @@ function drawDelta(svg, data) {
     walls.push({ at, d, dir: d >= 0 ? dir : [-dir[0], -dir[1]], colour: COLOURS.between });
   }
   if (data.outside != null) {
+    // one arrow per room, not per outside wall: the outside is the same on every wall, so
+    // the room's arrow hangs on the outside wall that faces furthest away from the middle
+    // of the house, and points out through it
+    const centre = houseCentre(where.room);
+    const byRoom = {};
     for (const [key, at] of Object.entries(where.outside)) {
       const room = key.split("|")[0];
-      const t = rooms[room], c = where.room[room];
-      if (t == null) continue;
+      const c = where.room[room];
       const out = c ? unit(at[0] - c[0], at[1] - c[1]) : null;
       if (!out) { missed++; continue; }
+      (byRoom[room] ||= []).push({ at, out });
+    }
+    for (const [room, faces] of Object.entries(byRoom)) {
+      const t = rooms[room];
+      if (t == null) continue;
+      const away = centre && unit(where.room[room][0] - centre[0], where.room[room][1] - centre[1]);
+      const best = away
+        ? faces.reduce((a, b) => (b.out[0] * away[0] + b.out[1] * away[1] > a.out[0] * away[0] + a.out[1] * away[1] ? b : a))
+        : faces[0];
       const d = t - data.outside;  // positive: out of the room
-      walls.push({ at, d, dir: d >= 0 ? out : [-out[0], -out[1]], colour: d >= 0 ? COLOURS.loss : COLOURS.gain });
+      const dir = d >= 0 ? best.out : [-best.out[0], -best.out[1]];
+      walls.push({ at: best.at, d, dir, colour: d >= 0 ? COLOURS.loss : COLOURS.gain });
     }
   }
   const largest = Math.max(DELTA_MIN, ...walls.map((w) => Math.abs(w.d)));
