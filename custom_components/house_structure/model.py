@@ -95,6 +95,8 @@ class Element:
     open_to: tuple[str, ...] = ()
     # For a room: ``room``, ``hallway`` or ``stairs``.
     room_type: str = "room"
+    # For stairs: the room on the floor they reach (the other end of the flight).
+    stairs_to: str | None = None
     # For an internal wall: whether it is an opening, not a wall.
     open_link: bool = False
     climate: str | None = None
@@ -197,6 +199,8 @@ class Element:
             out["above"] = list(self.above)
             out["open"] = list(self.open_to)
             out["room_type"] = self.room_type
+            if self.stairs_to:
+                out["stairs_to"] = self.stairs_to
         if self.kind == REGISTER:
             out["climate"] = self.climate
             if self.fan:
@@ -317,6 +321,7 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 above=_others(d.get("above"), area),
                 open_to=_others(d.get("open"), area),
                 room_type=d.get("room_type") or "room",
+                stairs_to=d.get("stairs_to") or None,
                 width_m=_optional(d.get("width_m")),
                 depth_m=_optional(d.get("depth_m")),
                 x_m=_optional(d.get("x_m")),

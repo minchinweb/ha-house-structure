@@ -155,7 +155,8 @@ def house_view(
         floors: Each area's floor as ``(level, name)``, where it has one.
 
     Returns:
-        ``{"rooms": [{"area_id", "name", "floor"}], "equipment", "buildings"}``,
+        ``{"rooms": [{"area_id", "name", "floor", "level"}], "equipment",
+        "buildings"}``,
         the rooms by floor (lowest first), then name.
     """
     published = published or {}
@@ -167,6 +168,7 @@ def house_view(
                 "area_id": area_id,
                 "name": names.get(area_id, area_id),
                 "floor": floor,
+                "level": level,
                 "_level": level if level is not None else 0,
             }
         )

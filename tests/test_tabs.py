@@ -60,6 +60,7 @@ def test_the_house_tab_lists_rooms_by_floor():
         "area_id": "rec",
         "name": "Rec room",
         "floor": "Basement",
+        "level": -1,
     }
     assert view["equipment"]["furnaces"] == [{"id": "f1"}]
     assert view["buildings"][0]["rooms"] == ["Garage"]

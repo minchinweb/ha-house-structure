@@ -317,6 +317,7 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
         fields[vol.Optional("wing_floor")] = _TEXT
         fields[vol.Optional("wing_face")] = _faces(float(house.get("rotation") or 0.0))
         fields[vol.Optional("room_type", default="room")] = _choice(ROOM_TYPES)
+        fields[vol.Optional("stairs_to")] = _AREA
         fields[vol.Optional("volume")] = _TEXT
         fields[vol.Optional("below_ground", default=False)] = selector.BooleanSelector()
         fields[vol.Optional("beside")] = _AREAS
@@ -411,6 +412,12 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
             raise FieldError("room_type", f"not a room type: {room_type!r}")
         data["room_type"] = room_type
         own = form.get("area_id")
+        if form.get("stairs_to"):
+            if room_type != "stairs":
+                raise FieldError("stairs_to", "only stairs go to another floor")
+            if form["stairs_to"] == own:
+                raise FieldError("stairs_to", "stairs cannot go to their own room")
+            data["stairs_to"] = form["stairs_to"]
         for key in ("beside", "above", "open"):
             data[key] = [a for a in dict.fromkeys(form.get(key) or []) if a != own]
         for key, other in (("above", "beside"), ("open", "beside"), ("open", "above")):

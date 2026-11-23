@@ -119,6 +119,7 @@
             "y": "North of the house's south-west corner",
             "level": "Floor height above the ground",
             "room_type": "Room type",
+            "stairs_to": "Room on the floor the stairs go to",
             "open": "Open to (no wall between)"
           },
           "data_description": {
@@ -134,6 +135,7 @@
             "y": "Where the room's south-west corner sits on the plan, north of the house's south-west corner (a minus sign for south).",
             "level": "The floor's height above the ground: 0 for the ground floor, about 2.7 m for the one above it, and a minus sign for a basement. Blank: the ground.",
             "room_type": "A hallway or stairs opens onto the rooms beside it: a link to one is an opening with no wall, unless the lists say otherwise.",
+            "stairs_to": "Stairs only: a room on the other floor they reach. The stairs are drawn as a flight on the lower floor and an opening on the upper one, in the same place. For stacked stairs, give both flights the same x and y.",
             "open": "Rooms beside this one with no wall between, such as an open-plan kitchen. Enter each link once, from either room.",
             "wing_width": "Only for an L-shaped room. Think of the L as two rectangles: the main one (the width and depth above, or shaped to fit) and a smaller wing against one of its sides. Give the side the wing is on, and either the wing's floor area or its width and depth. This is the wing's own length east to west.",
             "wing_depth": "The wing's own length south to north.",
@@ -164,6 +166,7 @@
             "y": "North of the house's south-west corner",
             "level": "Floor height above the ground",
             "room_type": "Room type",
+            "stairs_to": "Room on the floor the stairs go to",
             "open": "Open to (no wall between)"
           },
           "data_description": {
@@ -179,6 +182,7 @@
             "y": "Where the room's south-west corner sits on the plan, north of the house's south-west corner (a minus sign for south).",
             "level": "The floor's height above the ground: 0 for the ground floor, about 2.7 m for the one above it, and a minus sign for a basement. Blank: the ground.",
             "room_type": "A hallway or stairs opens onto the rooms beside it: a link to one is an opening with no wall, unless the lists say otherwise.",
+            "stairs_to": "Stairs only: a room on the other floor they reach. The stairs are drawn as a flight on the lower floor and an opening on the upper one, in the same place. For stacked stairs, give both flights the same x and y.",
             "open": "Rooms beside this one with no wall between, such as an open-plan kitchen. Enter each link once, from either room.",
             "wing_width": "Only for an L-shaped room. Think of the L as two rectangles: the main one (the width and depth above, or shaped to fit) and a smaller wing against one of its sides. Give the side the wing is on, and either the wing's floor area or its width and depth. This is the wing's own length east to west.",
             "wing_depth": "The wing's own length south to north.",

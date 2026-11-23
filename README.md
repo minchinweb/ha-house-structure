@@ -133,6 +133,11 @@ it can.
 A room's **type** is a room, a **hallway** or **stairs**. A link to a hallway or
 stairs is open unless the sheet says otherwise.
 
+Stairs that reach another floor take a **stairs to** room on that floor. Their
+flight is drawn on the lower floor, and an opening where it comes up on the floor
+above, in the same place. A floor drawn alone shows only its part. Stacked stairs
+(one flight above another) line up when both flights are given the same x and y.
+
 ## Parts as a sheet
 
 The Reconfigure form shows every part as a sheet (CSV, with a header row).

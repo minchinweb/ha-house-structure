@@ -222,3 +222,20 @@ def test_two_rooms_whose_wings_touch_are_against_each_other():
 def test_no_rooms_is_no_layout():
     assert fit(Floor(rooms=[])) == {}
     assert arrange([], []) == {}
+
+
+def test_a_mirror_takes_the_rectangle_of_its_partner_on_another_floor():
+    # stairs on the lower floor, and their opening on the upper, where the
+    # kitchen is fitted round it
+    lower = Floor(rooms=[Room("stairs", 2.0, (1.0, 2.0))])
+    upper = Floor(
+        rooms=[Room("kitchen", 12.0, (4.0, 3.0)), Room("stairs#up", 2.0, (1.0, 2.0))]
+    )
+    mirror = [("stairs", "stairs#up")]
+    placed = arrange([lower, upper], [], mirror=mirror)
+    assert placed["stairs#up"] == placed["stairs"]
+    assert _area(placed["stairs"]) == pytest.approx(2.0)
+    k, s = placed["kitchen"], placed["stairs#up"]
+    across = min(k[2], s[2]) - max(k[0], s[0])
+    up = min(k[3], s[3]) - max(k[1], s[1])
+    assert across <= 1e-9 or up <= 1e-9  # the kitchen does not overlap the opening

@@ -1236,6 +1236,7 @@ def arrange(
     outline: list[tuple[float, float]] | None = None,
     holes: dict[str, list[Rect]] | None = None,
     grid: float | None = None,
+    mirror: list[tuple[str, ...]] | None = None,
 ) -> dict[str, Rect]:
     """Fit every floor, and the floors over each other.
 
@@ -1257,14 +1258,34 @@ def arrange(
             so each is a whole number of steps wide and deep: a house is
             built 12 feet 6 wide, not 12 feet 6.3. A room with a width and
             depth keeps them, with its south-west corner on a step.
+        mirror: Groups of keys that take the same rectangle, such as a flight
+            of stairs and its opening on the floor above. Whichever of a group
+            is placed first, the others are fixed where it is.
 
     Returns:
         Every room's rectangle by its key, the already placed rooms included.
     """
+    group_of: dict[str, tuple[str, ...]] = {}
+    for group in mirror or ():
+        for key in group:
+            group_of[key] = group
     placed: dict[str, Rect] = {}
     for floor in floors:
         placed.update(floor.fixed)
     pinned = bool(placed)
+    copies: dict[str, str] = {}  # a mirrored key: the key it takes its place from
+
+    def take_mirrors(floor: Floor) -> None:
+        for room in list(floor.rooms):
+            done = [k for k in group_of.get(room.key, ()) if k in placed]
+            if done:
+                floor.rooms.remove(room)
+                floor.fixed[room.key] = placed[done[0]]
+                placed[room.key] = placed[done[0]]
+                copies[room.key] = done[0]
+
+    for floor in floors:
+        take_mirrors(floor)
     footprint: list[Rect] = []  # the first floor, for the others to line up with
     live = [i for i, floor in enumerate(floors) if floor.rooms]
     if not live:
@@ -1276,6 +1297,11 @@ def arrange(
     first = max(live, key=weight)
     for i in sorted(live, key=lambda i: (i != first, abs(i - first), i)):
         floor = floors[i]
+        take_mirrors(floor)
+        if not floor.rooms:  # every room on it takes its place from another floor
+            if i == first:
+                footprint = [*floor.fixed.values()]
+            continue
         keys = {r.key for r in floor.rooms}
         floor.stack = [
             (key, placed[other])
@@ -1310,6 +1336,8 @@ def arrange(
         if holes is not None:
             for key, rects in holes.items():
                 holes[key] = [_on_grid(rect, grid) for rect in rects]
+    for key, partner in copies.items():  # a mirror is the same rectangle as its partner
+        placed[key] = placed[partner]
     return placed
 
 

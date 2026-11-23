@@ -80,6 +80,14 @@ def _only(request: web.Request) -> set[str] | None:
     return {a for a in areas.split(",") if a}
 
 
+def _level(request: web.Request) -> int | None:
+    """The floor to draw alone, from ``?level=`` (its floor's level); None for all."""
+    try:
+        return int(request.query["level"])
+    except KeyError, ValueError:
+        return None
+
+
 def _view(request: web.Request) -> int:
     """The quarter turns of the view, from ``?view=`` (0 to 3; 0 if not given)."""
     try:
@@ -166,6 +174,7 @@ class HousePlanView(HomeAssistantView):
                 defaults=_manual_j_defaults(self._hass),
                 only=_only(request),
                 large_text=request.query.get("text") == "large",
+                level=_level(request),
                 **_shape(self._hass, saved[1]),
             )
         )

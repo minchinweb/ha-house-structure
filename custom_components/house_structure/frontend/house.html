@@ -192,12 +192,12 @@ function houseParts() {
   const byFloor = new Map();
   for (const r of state.house.rooms) {
     const name = r.floor || "";
-    if (!byFloor.has(name)) byFloor.set(name, []);
-    byFloor.get(name).push(r.area_id);
+    if (!byFloor.has(name)) byFloor.set(name, { areas: [], level: r.level });
+    byFloor.get(name).areas.push(r.area_id);
   }
   const parts = [];
-  for (const [name, areas] of byFloor) {
-    if (name) parts.push({ key: `floor:${name}`, label: name, areas, title: "A floor" });
+  for (const [name, { areas, level }] of byFloor) {
+    if (name) parts.push({ key: `floor:${name}`, label: name, areas, level, title: "A floor" });
   }
   for (const b of state.house.buildings || []) {
     parts.push({ key: `building:${b.id}`, label: b.title, areas: b.area_ids || [], title: "A detached building" });
@@ -270,6 +270,13 @@ async function loadDrawing() {
       + "neighbour with no internal wall typed yet; dashed have no wall part yet. "
       + "The dots are the registers' outlets. "
       + "Arrows point to the rooms it links to: beside, open, above or below.";
+  } else if (part && part.level != null) {
+    // a floor: its rooms, and the stairs that reach it (drawn by the server)
+    url = `/api/house_structure/plan.svg?level=${part.level}&view=${state.view}&text=${state.bigText ? "large" : "normal"}&v=${stamp}`;
+    box.setAttribute("aria-label", `${part.label}, from the ${VIEWS[state.view]}`);
+    hint.textContent = `${part.label} alone, its rooms at their places in the house, looking from the ${VIEWS[state.view]}. `
+      + "Stairs to another floor show their flight here, or their opening where they come up to this floor. "
+      + "The heating runs go from the plenum to each register in it; they are schematic.";
   } else if (part) {
     url = `/api/house_structure/plan.svg?areas=${encodeURIComponent(part.areas.join(","))}&view=${state.view}&text=${state.bigText ? "large" : "normal"}&v=${stamp}`;
     box.setAttribute("aria-label", `${part.label}, from the ${VIEWS[state.view]}`);
@@ -356,7 +363,8 @@ function anchors(svg) {
     const point = [Number(c.getAttribute("cx")), Number(c.getAttribute("cy"))];
     const d = c.dataset;
     if (d.register) out.register[d.register] = { point, room: d.room };
-    else if (d.room) out.room[d.room] = point;
+    // a stairs room has a point on each floor it occupies: the first (its flight) is its centre
+    else if (d.room && !(d.room in out.room)) out.room[d.room] = point;
     if (d.between) out.between[d.between] = point;
     if (d.outside) out.outside[d.outside] = point;
   }
@@ -459,7 +467,7 @@ function drawOverlay(svg, key, data) {
 
 const DELTA_MIN = 0.05;  // °C: a smaller difference is shown as no flow
 
-/* An arrow across each wall rooms share, and each outside wall, from the warmer side to
+/* An arrow across each wall rooms share, and one for each room's outside, from the warmer side to
  * the cooler: heat flows down the temperature, so that is the way energy is expected to go.
  * Weight by the share of the largest difference. Returns how many walls had no reading
  * or no place on the drawing. */

@@ -39,7 +39,7 @@ import textwrap
 from typing import Any, NamedTuple
 
 from . import layout
-from .constants import DOOR, INTERNAL_WALL, REGISTER, ROOF, ROOM, WALL, WINDOW
+from .constants import DOOR, INTERNAL_WALL, REGISTER, ROOF, ROOM, STAIRS, WALL, WINDOW
 from .ducts import R_IMPERIAL_TO_SI
 from .geometry import (
     FACE_NAMES,
@@ -101,6 +101,7 @@ RUN_COLOURS = (
     "#6d4c41",
 )
 FLOOR_FILL, FLOOR_LINE = "#f3efe6", "#8a8170"
+OPENING_FILL, OPENING_LINE = "#e6dcc4", "#5c5446"  # stairs' opening on the floor above
 WALL_FILL, WALL_LINE = "#e2d3ae", "#7a6a46"
 # a wall between two rooms is a cooler grey-green, so it reads apart from outside walls
 INSIDE_FILL, INSIDE_LINE = "#cfdcd6", "#51655c"
@@ -187,6 +188,12 @@ class Box:
     # an L-shaped room's wing: east and north of the room's south-west
     # corner, then its width and depth
     wing: tuple[float, float, float, float] | None = None
+    # stairs that reach another floor: the area whose floor this box is on (the
+    # flight is on the lower floor, so its box is that floor's), the area on the
+    # upper floor, and the height of that floor, where the opening is drawn
+    floor_area: str | None = None
+    top_area: str | None = None
+    top_z: float | None = None
 
 
 class Anchor(NamedTuple):
@@ -257,6 +264,8 @@ def _turn_gap(a: float, b: float) -> float:
 
 
 WING = "#wing"  # after a room's area: its wing's name among the rooms fitted
+# after stairs' area: its opening's name among the rooms fitted on the floor above
+MIRROR = "#up"
 
 
 def _wing(room: Element) -> tuple[float, float, str, bool] | None:
@@ -1347,9 +1356,43 @@ def _fit_house(
     shaped: set[str] = set()
     loose: set[str] = set()
     winged: dict[str, str] = {}  # each L-shaped room's wing's face
+    # stairs that reach another floor: each one's floor above (or below) it
+    reach = {
+        r.area_id or "": r.stairs_to
+        for r in rooms
+        if r.room_type == STAIRS and r.stairs_to and r.stairs_to != r.area_id
+    }
+    paired: dict[
+        str, str
+    ] = {}  # stairs placed with their other end on the same structure
     for number, members in enumerate(structures):
         lines = _floor_lines(members, floors)
         levels.update(_levels(lines, floors))
+        # the keys that take one rectangle: each flight with its copy on its other
+        # floor, and a stacked flight with the one it stacks on
+        here = {r.area_id or "" for r in members}
+        stacked = {
+            low: high
+            for low, high in above
+            if low in reach
+            and high in here
+            and high != reach[low]
+            and (floors is None or floors.get(high) == floors.get(reach[low]))
+        }
+        same: list[set[str]] = []
+        for area, target in reach.items():
+            if area in here and target in here:
+                paired[area] = target
+                if area in stacked:
+                    _join(same, area, stacked[area])
+                else:
+                    copy = area + MIRROR
+                    element = next(r for r in members if r.area_id == area)
+                    for line in lines:
+                        if any(r.area_id == target for r in line):
+                            line.append(replace(element, area_id=copy))
+                    _join(same, area, copy)
+        mirror = [tuple(sorted(group)) for group in same]
         plan: list[layout.Floor] = []
         for line in lines:
             floor = layout.Floor(rooms=[])
@@ -1381,7 +1424,8 @@ def _fit_house(
                             None if wing[3] else wing[:2],
                         )
                     )
-                loose.add(area)
+                if not area.endswith(MIRROR):  # a copy takes its flight's place
+                    loose.add(area)
                 square = any("square" in note for note in why)
                 if square:
                     shaped.add(area)
@@ -1412,6 +1456,7 @@ def _fit_house(
             outline if number == 0 else None,
             holes,
             BUILT_TO.get(unit, BUILT_TO["m"]),
+            mirror,
         )
         if number and found and not any(floor.fixed for floor in plan):
             # a detached building with no position typed
@@ -1448,6 +1493,22 @@ def _fit_house(
         if box is None:
             continue
         box = replace(box, holes=tuple(holes.get(area, ())))
+        if area in paired:
+            # the flight is on the lower floor, its opening on the upper one
+            own, up = levels.get(area, 0.0), levels.get(paired[area], 0.0)
+            if abs(up - own) > 1e-6:
+                low, high = min(own, up), max(own, up)
+                lower, upper = (
+                    (area, paired[area]) if up > own else (paired[area], area)
+                )
+                box = replace(
+                    box,
+                    z=low,
+                    height=high - low,
+                    floor_area=lower,
+                    top_area=upper,
+                    top_z=high,
+                )
         wing = placed.get(area + WING)
         if wing is not None:
             box = replace(
@@ -1508,6 +1569,15 @@ def _fit_house(
     for box in boxes:
         notes.extend(box.notes)
     return boxes, notes
+
+
+def _join(same: list[set[str]], *keys: str) -> None:
+    """Merge the groups of keys (each a set that takes one rectangle) with ``keys``."""
+    merged = set(keys)
+    for group in [g for g in same if g & merged]:
+        merged |= group
+        same.remove(group)
+    same.append(merged)
 
 
 def _floor_shifts(
@@ -1668,7 +1738,9 @@ def _add_anchors(
     moved, when the floors are apart).
 
     Which rooms touch is found where they really are (``real``), so drawing
-    the floors apart doesn't lose a room above another. Each anchor is:
+    the floors apart doesn't lose a room above another. ``real`` and ``drawn``
+    are the same boxes in order (a stairs room is two boxes, its flight and its
+    opening, one on each floor it occupies). Each anchor is:
 
     * ``data-room``: the room's centre, half way up;
     * ``data-between="a|b"`` (the two areas, sorted): the middle of the wall
@@ -1679,7 +1751,6 @@ def _add_anchors(
       wall part, half way up;
     * ``data-register`` (its part id), with ``data-room``: each outlet.
     """
-    lifted = {box.area: box for box in drawn}
     for box in drawn:
         centre = (box.x + box.width / 2, box.y + box.depth / 2, box.z + box.height / 2)
         scene.anchors.append(Anchor(centre, {"room": box.area}))
@@ -1692,11 +1763,11 @@ def _add_anchors(
                 Anchor(_outlet(box, reg), {"register": reg.id, "room": box.area})
             )
     seen: set[str] = set()
-    for a, b in itertools.combinations(real, 2):
+    for (i, a), (j, b) in itertools.combinations(enumerate(real), 2):
         key = _pair(a.area, b.area)
         if a.area == b.area or key in seen:
             continue
-        la = lifted[a.area]  # a side anchor follows the first room's floor
+        la = drawn[i]  # a side anchor follows the first room's floor
         side = _shared_face(a, b)
         if side is not None:
             face, start, end = side
@@ -1712,7 +1783,7 @@ def _add_anchors(
         y0, y1 = _overlap(a.y, a.y + a.depth, b.y, b.y + b.depth)
         if x1 - x0 <= 0.3 or y1 - y0 <= 0.3:
             continue
-        lo, up = lifted[lower.area], lifted[upper.area]
+        lo, up = (drawn[i], drawn[j]) if a.z <= b.z else (drawn[j], drawn[i])
         z = (lo.z + lo.height + up.z) / 2
         # half way between where the two rooms are drawn
         dx = (lo.x - lower.x + up.x - upper.x) / 2
@@ -2234,6 +2305,7 @@ def house_svg(
     outline: list[tuple[float, float]] | None = None,
     buildings: list[Any] | None = None,
     large_text: bool = False,
+    level: int | None = None,
 ) -> str:
     """The house from its rooms at their positions, with the heating runs on it.
 
@@ -2251,10 +2323,26 @@ def house_svg(
     ``only`` draws just those areas' rooms (a floor or a detached building),
     still at their places in the whole house; their registers and runs go too.
     ``large_text`` draws the labels at ``LARGE_TEXT`` times their size, as for a room.
+
+    ``level`` draws just one floor (its rooms, by ``floors``). Stairs that reach
+    it show their part of it: the flight, if it is the lower floor, else the
+    opening in its upper floor. Stairs are drawn as a flight on the lower floor
+    and an opening on the one above, in the same place.
     """
     rotation = float(house.get("rotation") or 0.0)
     unit = house.get("unit", "m")
     boxes, notes = _place(elements, unit, floors, rotation, outline, buildings)
+    if level is not None and floors is not None:
+
+        def on_level(area: str) -> bool:
+            return floors.get(area) == level
+
+        only = {
+            b.area
+            for b in boxes
+            if on_level(b.floor_area or b.area)
+            or (b.top_area is not None and on_level(b.top_area))
+        }
     if only is not None:
         notes = _notes_for(notes, elements, only)
         boxes = [b for b in boxes if b.area in only]
@@ -2268,11 +2356,24 @@ def house_svg(
     drawn = [
         replace(
             b,
-            x=b.x + shifts.get(b.area, (0.0, 0.0))[0],
-            y=b.y + shifts.get(b.area, (0.0, 0.0))[1],
+            x=b.x + shifts.get(b.floor_area or b.area, (0.0, 0.0))[0],
+            y=b.y + shifts.get(b.floor_area or b.area, (0.0, 0.0))[1],
         )
         for b in boxes
     ]
+
+    def flight_here(box: Box) -> bool:
+        return (
+            level is None
+            or floors is None
+            or floors.get(box.floor_area or box.area) == level
+        )
+
+    def opening_here(box: Box) -> bool:
+        return box.top_z is not None and (
+            level is None or floors is None or floors.get(box.top_area or "") == level
+        )
+
     colours = _colours(elements)
     parts = _parts(elements)
     where = {b.area: b for b in boxes}
@@ -2283,7 +2384,20 @@ def house_svg(
     )
     if apart:
         scene.height = SHEET_HEIGHT * len(set(floor_of.values()))
+    # the boxes overlays point at: a stairs room is its flight and its opening
+    real: list[Box] = []
+    layers: list[Box] = []
+    for box, moved in zip(boxes, drawn, strict=True):
+        if flight_here(box):
+            real.append(box)
+            layers.append(moved)
+        if opening_here(box):
+            dx, dy = shifts.get(box.top_area or "", (0.0, 0.0))
+            real.append(replace(box, z=box.top_z))
+            layers.append(replace(box, x=box.x + dx, y=box.y + dy, z=box.top_z))
     for box in sorted(drawn, key=lambda b: _depth_key(b, view)):
+        if not flight_here(box):
+            continue
         inside, door_notes = _inside_parts(elements, parts, box.area, where)
         links = _link_stretches(elements, parts, box.area, where)
         beside = [b for b in boxes if floor_of.get(b.area) == floor_of.get(box.area)]
@@ -2301,10 +2415,16 @@ def house_svg(
             wing_inside=_wing_parts(parts, box.area, where),
         )
         notes.extend(door_notes)
+    # stairs' openings on the floor above, where their flights come up to it
+    for box in boxes:
+        if box.top_z is not None and opening_here(box):
+            dx, dy = shifts.get(box.top_area or "", (0.0, 0.0))
+            top = replace(box, x=box.x + dx, y=box.y + dy, z=box.top_z)
+            scene.polygons.append(Poly(_floor(top), OPENING_FILL, OPENING_LINE, 1.0))
     # the plenum goes with the floor it is on; each run's outlet with its own
     _add_runs(scene, boxes, elements, house, colours, shifts)
     _add_roofs(scene, drawn, elements, rotation, unit, defaults)
-    _add_anchors(scene, boxes, drawn, parts, rotation)
+    _add_anchors(scene, real, layers, parts, rotation)
     if not boxes:
         notes.append("No rooms are drawn yet.")
     key = f"Looking from the {VIEWS[view % 4]}."

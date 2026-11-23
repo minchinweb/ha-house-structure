@@ -22,6 +22,7 @@ from custom_components.house_structure.drawing import (
     IMPLIED_DASH,
     LARGE_TEXT,
     OPEN_DASH,
+    OPENING_FILL,
     OPENING_GAP,
     SLAB,
     _box,
@@ -1434,3 +1435,110 @@ def test_a_room_alone_has_anchors_for_its_walls_and_neighbours():
     assert 'data-between="kitchen|rec"' in svg  # below
     assert 'data-between="living|rec"' not in svg
     assert 'data-outside="kitchen|S"' in svg
+
+
+def _stairs(area: str, to: str, **data) -> Raw:
+    return _room(area, room_type="stairs", stairs_to=to, **data)
+
+
+def test_stairs_to_another_floor_are_a_flight_below_and_an_opening_above():
+    elements = _elements(
+        _room("hall", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=0.0),
+        _room("upstairs", width_m=5.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=2.7),
+        _stairs("stairs", "upstairs", width_m=1.0, depth_m=2.0, x_m=4.0, y_m=0.0),
+    )
+    floors = {"hall": 0, "stairs": 0, "upstairs": 1}
+    boxes, _ = _place(elements, "m", floors)
+    stairs = next(b for b in boxes if b.area == "stairs")
+    assert stairs.floor_area == "stairs"  # the flight is on its own (lower) floor
+    assert stairs.top_area == "upstairs"
+    assert stairs.z == 0.0
+    assert stairs.top_z - stairs.z == pytest.approx(
+        stairs.height
+    )  # flight to the floor above
+    below = house_svg(elements, HOUSE, floors=floors, level=0)
+    above = house_svg(elements, HOUSE, floors=floors, level=1)
+    assert OPENING_FILL not in below  # the lower floor shows only the flight
+    assert (
+        OPENING_FILL in above
+    )  # the upper floor shows the opening, and nothing else of it
+
+
+def test_stairs_from_the_floor_above_are_a_flight_on_the_lower_floor():
+    # the stairs sit on the upper floor, and go down to the hall
+    elements = _elements(
+        _room("hall", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=0.0),
+        _room("upstairs", width_m=5.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=2.7),
+        _stairs("upstairs_stairs", "hall", width_m=1.0, depth_m=2.0, x_m=4.0, y_m=0.0),
+    )
+    floors = {"hall": 0, "upstairs_stairs": 1, "upstairs": 1}
+    boxes, _ = _place(elements, "m", floors)
+    stairs = next(b for b in boxes if b.area == "upstairs_stairs")
+    assert stairs.floor_area == "hall"  # the flight is on the hall's floor
+    assert stairs.top_area == "upstairs_stairs"
+    assert stairs.z == 0.0
+
+
+def test_stacked_stairs_line_up_on_every_floor():
+    # basement to main, and main to the upper floor, in the same place
+    elements = _elements(
+        _room("cellar", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=-2.7),
+        _room("hall", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=0.0),
+        _room("upstairs", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=2.7),
+        _stairs("down", "hall", width_m=1.0, depth_m=2.0, x_m=4.0, y_m=0.0),
+        _stairs("up", "upstairs", width_m=1.0, depth_m=2.0, x_m=4.0, y_m=0.0),
+    )
+    floors = {"cellar": -1, "hall": 0, "upstairs": 1, "down": -1, "up": 0}
+    boxes, _ = _place(elements, "m", floors)
+    down = next(b for b in boxes if b.area == "down")
+    up = next(b for b in boxes if b.area == "up")
+    assert (down.x, down.y) == (up.x, up.y)
+    assert down.top_area == "hall" and up.top_area == "upstairs"
+    assert down.top_z == pytest.approx(
+        up.z
+    )  # the upper flight starts where the lower one comes up
+    svg = house_svg(elements, HOUSE, floors=floors, level=0)
+    assert OPENING_FILL in svg  # the basement flight's opening, on the hall floor
+    assert svg.count(OPENING_FILL) == 1
+
+
+def test_stairs_to_a_room_on_the_same_floor_are_an_ordinary_room():
+    elements = _elements(
+        _room("hall", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=0.0),
+        _stairs("stairs", "hall", width_m=1.0, depth_m=2.0, x_m=4.0, y_m=0.0),
+    )
+    boxes, _ = _place(elements, "m", {"hall": 0, "stairs": 0})
+    stairs = next(b for b in boxes if b.area == "stairs")
+    assert stairs.top_area is None and stairs.top_z is None
+
+
+def test_stairs_listed_as_above_others_stack_without_positions():
+    elements = _elements(
+        _room("cellar", width_m=4.0, depth_m=3.0, level_m=-2.7),
+        _room("hall", width_m=4.0, depth_m=3.0, level_m=0.0),
+        _room("upstairs", width_m=4.0, depth_m=3.0, level_m=2.7),
+        _stairs("down", "hall", width_m=1.0, depth_m=2.0, above=["up"]),
+        _stairs("up", "upstairs", width_m=1.0, depth_m=2.0),
+    )
+    floors = {"cellar": -1, "hall": 0, "upstairs": 1, "down": -1, "up": 0}
+    boxes, _ = _place(elements, "m", floors)
+    down = next(b for b in boxes if b.area == "down")
+    up = next(b for b in boxes if b.area == "up")
+    assert (down.x, down.y) == pytest.approx((up.x, up.y))  # one stack, not two stairs
+    assert down.top_z == pytest.approx(up.z)
+
+
+def test_stairs_get_temperature_anchors_on_each_floor_they_occupy():
+    elements = _elements(
+        _room("hall", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=0.0),
+        _room("landing", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, level_m=2.7),
+        _stairs("stairs", "landing", width_m=1.0, depth_m=2.0, x_m=4.0, y_m=0.0),
+    )
+    floors = {"hall": 0, "landing": 1, "stairs": 0}
+    below = house_svg(elements, HOUSE, floors=floors, level=0)
+    above = house_svg(elements, HOUSE, floors=floors, level=1)
+    assert 'data-between="hall|stairs"' in below  # its flight, on the hall's floor
+    assert 'data-between="hall|stairs"' not in above
+    assert 'data-between="landing|stairs"' in above  # its opening, on the landing's
+    assert 'data-between="landing|stairs"' not in below
+    assert 'data-room="stairs"' in above and 'data-room="stairs"' in below
