@@ -406,7 +406,7 @@ class Lettering:
         scale = size / self.upem
         commands = []
         for info, pos in zip(buffer.glyph_infos, buffer.glyph_positions, strict=True):
-            pen = SVGPathPen(self.glyphs, ntos=lambda v: f"{v:.2f}".rstrip("0"))
+            pen = SVGPathPen(self.glyphs, ntos=lambda v: f"{v:.2f}".rstrip("0").rstrip("."))
             at = (
                 scale, 0, 0, -scale,
                 x + pos.x_offset * scale, baseline - pos.y_offset * scale,
