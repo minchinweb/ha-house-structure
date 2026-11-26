@@ -19,8 +19,11 @@ that look. For each integration it writes:
 For House Structure it also writes the sidebar icon set: one-colour versions of
 the three marks in ``brand/icons/``, and
 ``custom_components/house_structure/frontend/icons.js``, which registers them
-as ``house-structure:house``, ``house-structure:thermal-lab``,
-``house-structure:manual-j`` and ``house-structure:sun-sweep``. And
+as ``minchinweb:house``, ``minchinweb:thermal-lab``,
+``minchinweb:manual-j`` and ``minchinweb:sun-sweep``, plus
+``minchinweb:room-hallway``, ``minchinweb:double-sinks``,
+``minchinweb:room-bedroom`` and the bedrooms labelled with a direction, a
+number or a letter (``minchinweb:room-bedroom-ne`` and so on). And
 ``brand/drafting.svg`` (and ``.png``): the house with its hidden edges dashed,
 for large uses such as the README. The
 hidden edges are left out of the brand PNGs, which Home Assistant shows at
@@ -51,6 +54,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import textwrap
 
 from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.pens.transformPen import TransformPen
@@ -64,7 +68,7 @@ CANVAS = 512  # the marks are drawn on a 512 square
 ICON_SIZE = 256  # icon.png; icon@2x.png is twice this
 LOGO_HEIGHT = 128  # logo.png; logo@2x.png is twice this
 FONT_WEIGHT = 600
-ICON_PREFIX = "house-structure"
+ICON_PREFIX = "minchinweb"
 
 # The house drawings' colours (drawing.py), with brown ink. The forecast curves
 # keep heat, solar and cold colours in every scheme, because the colours say
@@ -314,7 +318,59 @@ MONO = {
         f'<path transform="{_BOOK_AT} {_BOOK_COVER_PLANE}" d="{_BOOK_J}" {_LINE} '
         'stroke-width="34"/>'
     ),
+    # A hallway in one-point perspective: the far wall with a door, the four
+    # corners running out to the viewer, and a runner leading to the door.
+    "room-hallway": (
+        f'<rect x="150" y="140" width="212" height="210" {_LINE} stroke-width="26"/>'
+        f'<path d="M150 140 L60 50 M362 140 L452 50 M150 350 L60 440 '
+        f'M362 350 L452 440" {_LINE} stroke-width="26"/>'
+        f'<path d="M210 350 V196 H302 V350" {_LINE} stroke-width="26"/>'
+        f'<path d="M210 350 L178 440 M302 350 L334 440" {_LINE} stroke-width="26"/>'
+        '<circle cx="282" cy="278" r="13" fill="#000"/>'
+    ),
+    # A double vanity: two mirrors over a counter, two basins set into it,
+    # each with a gooseneck faucet arching over it.
+    "double-sinks": (
+        f'<rect x="92" y="50" width="140" height="130" rx="18" {_LINE} '
+        'stroke-width="26"/>'
+        f'<rect x="280" y="50" width="140" height="130" rx="18" {_LINE} '
+        'stroke-width="26"/>'
+        f'<path d="M48 330 H464" {_LINE} stroke-width="26"/>'
+        f'<path d="M86 330 C86 385 116 412 162 412 C208 412 238 385 238 330" '
+        f'{_LINE} stroke-width="26"/>'
+        f'<path d="M274 330 C274 385 304 412 350 412 C396 412 426 385 426 330" '
+        f'{_LINE} stroke-width="26"/>'
+        f'<path d="M112 330 V264 A32 32 0 0 1 176 264 V282" {_LINE} '
+        'stroke-width="26"/>'
+        f'<path d="M300 330 V264 A32 32 0 0 1 364 264 V282" {_LINE} '
+        'stroke-width="26"/>'
+    ),
+    # A bed from the side, solid: a tall headboard, the frame and the foot leg,
+    # the sleeper's head and the blanket over them.
+    "room-bedroom": (
+        '<path d="M50 90 V400 M462 320 V400" fill="none" stroke="#000" '
+        'stroke-width="36" stroke-linecap="round"/>'
+        '<rect x="32" y="290" width="448" height="56" fill="#000"/>'
+        '<circle cx="128" cy="212" r="46" fill="#000"/>'
+        '<path d="M200 270 V170 Q200 150 220 150 H430 A50 50 0 0 1 480 200 V270 Z" '
+        'fill="#000"/>'
+    ),
 }
+# Icons in the set that are not an integration's mark.
+EXTRA_ICONS = ("room-hallway", "double-sinks", "room-bedroom")
+
+# The bedroom icons: the bed with a black disc over its foot, and a label cut
+# out of the disc, as ``room-bedroom-<label>`` (in lower case).
+BEDROOM_LABELS = (
+    *("N", "NE", "E", "SE", "S", "SW", "W", "NW"),
+    *"123456789",
+    *("A", "D", "L", "J", "H"),
+)
+_BADGE = (396, 360, 116)  # centre x, centre y, radius
+_BADGE_GAP = 22  # cleared around the disc
+_BADGE_MARGIN = 14  # kept between a label's corners and the disc's edge
+_BADGE_CAP = 128  # the tallest a label's capitals may be
+ICON_FONT_WEIGHT = 800
 
 
 # --- tools -------------------------------------------------------------------
@@ -386,9 +442,9 @@ def png(source: Path, target: Path, *, width: int = 0, height: int = 0) -> None:
 class Lettering:
     """Outlines of text in the logo's typeface, kerned by HarfBuzz."""
 
-    def __init__(self, font: Path) -> None:
+    def __init__(self, font: Path, weight: int = FONT_WEIGHT) -> None:
         variable = TTFont(font)
-        self.font = instancer.instantiateVariableFont(variable, {"wght": FONT_WEIGHT})
+        self.font = instancer.instantiateVariableFont(variable, {"wght": weight})
         data = io.BytesIO()
         self.font.save(data)
         self.shaper = hb.Font(hb.Face(hb.Blob(data.getvalue())))
@@ -482,15 +538,26 @@ def write_drafting(scheme: dict, repo: Path, work: Path) -> list[Path]:
 
 def mono(name: str, work: Path) -> tuple[str, str]:
     """One mark as a single filled path: its path data and a square viewBox."""
+    data = one_path(
+        name,
+        MONO[name],
+        "select-all:all;object-stroke-to-path;select-all:all;path-union",
+        work,
+    )
+    return data, square(bbox(f'<path d="{data}"/>', work))
+
+
+def one_path(name: str, body: str, actions: str, work: Path) -> str:
+    """The path data Inkscape's ``actions`` leave of ``body``, which must be one."""
     source = work / f"{name}-strokes.svg"
     joined = work / f"{name}-joined.svg"
     source.write_text(
-        svg(f"0 0 {CANVAS} {CANVAS}", MONO[name], CANVAS, CANVAS), encoding="utf-8"
+        svg(f"0 0 {CANVAS} {CANVAS}", body, CANVAS, CANVAS), encoding="utf-8"
     )
     _run(
         _tool("inkscape"),
         source,
-        "--actions=select-all:all;object-stroke-to-path;select-all:all;path-union;"
+        f"--actions={actions};"
         f"export-plain-svg;export-filename:{joined.as_posix()};export-do",
     )
     text = joined.read_text(encoding="utf-8")
@@ -506,8 +573,40 @@ def mono(name: str, work: Path) -> tuple[str, str]:
         if shift is None:
             raise SystemExit(f"{name}: Inkscape left a transform: {moved[1]}")
         data = translated(data, float(shift[1]), float(shift[2]))
-    data = " ".join(data.split())
-    return data, square(bbox(f'<path d="{data}"/>', work))
+    return " ".join(data.split())
+
+
+def bedrooms(font: Path, work: Path) -> dict[str, tuple[str, str]]:
+    """The bedroom icons by name: each one's path data and square viewBox.
+
+    The disc is wound against the font's outer contours, so
+    the label cuts through the disc and the letters' counters stay filled.
+    """
+    cx, cy, radius = _BADGE
+    bed, _ = mono("room-bedroom", work)
+    clear = circle_at(cx, cy, radius + _BADGE_GAP)
+    cut = one_path(
+        "bed-cut",
+        f'<path d="{bed}"/><path d="{clear}"/>',
+        "select-all:all;path-difference",
+        work,
+    )
+    disc = (  # anticlockwise, against the letters
+        f"M {cx:.2f} {cy - radius:.2f} "
+        f"A {radius:.2f} {radius:.2f} 0 1 0 {cx:.2f} {cy + radius:.2f} "
+        f"A {radius:.2f} {radius:.2f} 0 1 0 {cx:.2f} {cy - radius:.2f} Z"
+    )
+    view_box = square(bbox(f'<path d="{cut}"/><path d="{disc}"/>', work))
+    letters = Lettering(font, ICON_FONT_WEIGHT)
+    icons = {}
+    for label in BEDROOM_LABELS:
+        # As large as the label fits: its box's corners inside the disc
+        width = letters.path(label, 1 / letters.cap, 0, 0)[1]  # per unit of cap
+        cap = min(_BADGE_CAP, 2 * (radius - _BADGE_MARGIN) / math.hypot(width, 1))
+        left = cx - width * cap / 2
+        text, _ = letters.path(label, cap / letters.cap, left, cy + cap / 2)
+        icons[f"room-bedroom-{label.lower()}"] = (f"{cut} {disc} {text}", view_box)
+    return icons
 
 
 _ARGS = {"M": 2, "L": 2, "T": 2, "H": 1, "V": 1, "C": 6, "S": 4, "Q": 4, "A": 7}
@@ -615,32 +714,36 @@ def circle_at(cx: float, cy: float, radius: float) -> str:
     )
 
 
-def write_icon_set(repo: Path, work: Path) -> list[Path]:
+def write_icon_set(repo: Path, work: Path, font: Path) -> list[Path]:
     """The one-colour sidebar icons, as SVGs and as a Home Assistant icon set."""
     folder = repo / "brand" / "icons"
     folder.mkdir(parents=True, exist_ok=True)
+    drawn = {
+        name: mono(name, work)
+        for name in (*(item.icon for item in INTEGRATIONS), *EXTRA_ICONS)
+    }
+    drawn["sun-sweep"] = _sun_sweep_icon()
+    drawn |= bedrooms(font, work)
     icons = {}
     written = []
-    for item in INTEGRATIONS:
-        data, view_box = mono(item.icon, work)
-        icons[item.icon] = {"path": data, "viewBox": view_box}
-        target = folder / f"{item.icon}.svg"
+    for name, (data, view_box) in drawn.items():
+        icons[name] = {"path": data, "viewBox": view_box}
+        target = folder / f"{name}.svg"
         target.write_text(
             svg(view_box, f'<path d="{data}"/>', 24, 24), encoding="utf-8"
         )
         written.append(target)
-    data, view_box = _sun_sweep_icon()
-    icons["sun-sweep"] = {"path": data, "viewBox": view_box}
-    target = folder / "sun-sweep.svg"
-    target.write_text(svg(view_box, f'<path d="{data}"/>', 24, 24), encoding="utf-8")
-    written.append(target)
+    names = textwrap.wrap(
+        ", ".join(f'"{ICON_PREFIX}:{name}"' for name in icons),
+        76,
+        break_on_hyphens=False,
+    )
     script = repo / "custom_components" / "house_structure" / "frontend" / "icons.js"
     script.write_text(
         "// Generated by scripts/brand.py: do not edit by hand.\n"
         "// The house integrations' icons, as a Home Assistant icon set: use\n"
-        f'// "{ICON_PREFIX}:house", "{ICON_PREFIX}:thermal-lab", '
-        f'"{ICON_PREFIX}:manual-j" or "{ICON_PREFIX}:sun-sweep"\n'
-        "// wherever an icon name goes (the sidebar, a dashboard card).\n"
+        + "".join(f"//   {line}\n" for line in names)
+        + "// wherever an icon name goes (the sidebar, a dashboard card).\n"
         f"const ICONS = {json.dumps(icons, indent=2)};\n\n"
         "window.customIcons = window.customIcons || {};\n"
         f'window.customIcons["{ICON_PREFIX}"] = {{\n'
@@ -689,7 +792,7 @@ def main() -> None:
             written += write_brand(item, scheme, lettering, repo, work)
             if item.domain == "house_structure":
                 written += write_drafting(scheme, repo, work)
-                written += write_icon_set(repo, work)
+                written += write_icon_set(repo, work, args.font)
     for path in written:
         print(path)
 

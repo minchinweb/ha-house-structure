@@ -16,8 +16,8 @@ version is fetched. They include:
   ``frontend/vendor.json``, refreshed with ``invoke vendor``), so opening the
   page fetches nothing from the internet.
 * ``icons.js``: the house integrations' icons as a Home Assistant icon set
-  (``house-structure:house``, ``house-structure:thermal-lab``,
-  ``house-structure:manual-j``, ``house-structure:sun-sweep``), loaded on every
+  (``minchinweb:house``, ``minchinweb:thermal-lab``,
+  ``minchinweb:manual-j``, ``minchinweb:sun-sweep``), loaded on every
   page of Home Assistant's frontend. The sidebar page uses the Thermal Lab one.
   Drawn by
   ``scripts/brand.py``.
@@ -59,7 +59,7 @@ STATIC_URL = "/house_structure_static"
 PANEL_PATH = "thermal-lab"
 FRONTEND = Path(__file__).parent / "frontend"
 _HASHED = ("frame.html", "house.html", "tab.js", "chart.umd.min.js", "icons.js")
-SIDEBAR_ICON = "house-structure:thermal-lab"
+SIDEBAR_ICON = "minchinweb:thermal-lab"
 _STARTED = f"{DOMAIN}_panel"
 
 
