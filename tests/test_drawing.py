@@ -34,6 +34,7 @@ from custom_components.house_structure.drawing import (
     Poly,
     Scene,
     _add_connections,
+    _add_positions,
     _add_wall_fill,
     _box,
     _clear_shift,
@@ -738,6 +739,17 @@ def test_the_positions_layer_draws_the_building_outline():
     assert ">outline 6 m by 3 m<" in shown
     assert ">origin<" in shown
     assert OUTLINE_COLOUR not in house_svg(elements, {"unit": "m"})
+
+
+def test_the_origin_is_on_the_outline_corner_when_rooms_start_inside_it():
+    # the rooms start a wall's width in from the house's south-west corner
+    box = Box("A", "a", 0.2, 0.2, 0.0, 3.0, 3.0, 2.4)
+    outline = [(0.0, 0.0, 0.0), (3.4, 0.0, 0.0), (3.4, 3.4, 0.0), (0.0, 3.4, 0.0)]
+    scene = Scene()
+    _add_positions(scene, [(box, box)], "m")
+    assert not scene.dots  # 0,0 is not on a room
+    _add_positions(scene, [(box, box)], "m", outline)
+    assert [d.point for d in scene.dots] == [(0.0, 0.0, 0.0)]
 
 
 def test_the_space_left_for_walls_is_filled_as_wall():

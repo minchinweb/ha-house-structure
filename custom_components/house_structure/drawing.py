@@ -2351,32 +2351,44 @@ def _position_text(x: float, y: float, unit: str) -> str:
     return f"{east}, {north}"
 
 
-def _add_positions(scene: Scene, pinned: list[tuple[Box, Box]], unit: str) -> None:
+def _add_positions(
+    scene: Scene,
+    pinned: list[tuple[Box, Box]],
+    unit: str,
+    outline: list[Point] | None = None,
+) -> None:
     """The ``positions`` layer of a plan.
 
-    The origin (the house's south-west corner) is a dot on the lowest floor
-    drawn, when it is among the rooms drawn. Each room with a typed position
-    has a pin on its floor's south-west corner, labelled with that position.
-    ``pinned`` are each room's box where it is, and where it is drawn (moved
-    up the page when the floors are drawn apart). A room fitted to the others
-    has no pin.
+    The origin (the house's south-west corner) is a dot: on the building
+    outline's south-west corner when there is one (see ``_outline_at``), else
+    on the lowest floor drawn, when it is among the rooms drawn. Each room
+    with a typed position has a pin on its floor's south-west corner, labelled
+    with that position. ``pinned`` are each room's box where it is, and where
+    it is drawn (moved up the page when the floors are drawn apart). A room
+    fitted to the others has no pin.
     """
     drawn = [moved for _, moved in pinned]
-    if drawn:
+    origin: Point | None = None
+    if outline:
+        xs = [p[0] for p in outline]
+        ys = [p[1] for p in outline]
+        origin = (min(xs), min(ys), outline[0][2])
+    elif drawn:
         east = min(b.x for b in drawn), max(b.x + b.width for b in drawn)
         north = min(b.y for b in drawn), max(b.y + b.depth for b in drawn)
         if east[0] <= 0.0 <= east[1] and north[0] <= 0.0 <= north[1]:
             origin = (0.0, 0.0, min(b.z for b in drawn))
-            scene.dots.append(
-                Dot(
-                    origin,
-                    ORIGIN_COLOUR,
-                    "Origin: the house's south-west corner, where positions "
-                    "are measured from",
-                    "positions",
-                )
+    if origin is not None:
+        scene.dots.append(
+            Dot(
+                origin,
+                ORIGIN_COLOUR,
+                "Origin: the house's south-west corner, where positions "
+                "are measured from",
+                "positions",
             )
-            scene.labels.append(Label(origin, "origin", "positions"))
+        )
+        scene.labels.append(Label(origin, "origin", "positions"))
     for box, moved in pinned:
         if not box.fixed:
             continue
@@ -2833,7 +2845,7 @@ def house_svg(
     _add_roofs(scene, drawn, elements, rotation, unit, defaults)
     _add_anchors(scene, real, layers, parts, rotation)
     _add_connections(scene, layers, elements)
-    _add_positions(scene, here, unit)
+    _add_positions(scene, here, unit, shape)
     _add_outline(scene, shape, unit)
     if not boxes:
         notes.append("No rooms are drawn yet.")
