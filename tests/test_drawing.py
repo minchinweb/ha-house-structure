@@ -557,6 +557,37 @@ def test_links_are_drawn_as_arrows_to_the_rooms_beside_above_and_below():
     assert "below: Hall" in room_svg(elements, HOUSE, "bed")
 
 
+def test_the_plan_draws_its_connections_and_the_rooms_names():
+    elements = _elements(
+        _room(
+            "hall",
+            width_m=4.0,
+            depth_m=3.0,
+            x_m=0.0,
+            y_m=0.0,
+            beside=["den"],
+            open=["kitchen"],
+        ),
+        _room("den", width_m=4.0, depth_m=3.0, x_m=4.0, y_m=0.0),
+        _room("kitchen", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=3.0),
+        _room("study", width_m=4.0, depth_m=3.0, x_m=4.0, y_m=3.0),
+    )
+    svg = house_svg(elements, HOUSE)
+    links = re.search(r'<g data-layer="connections">(.*?)</g>', svg).group(1)
+    lines = re.findall(r"<polyline [^>]*/>", links)
+    # hall-den and hall-kitchen; the study is linked to nothing
+    assert len(lines) == 2
+    # the open link is dashed, the other not
+    assert sum("stroke-dasharray" in line for line in lines) == 1
+    names = re.search(r'<g data-layer="names">(.*?)</g>', svg).group(1)
+    for title in ("Hall", "Den", "Kitchen", "Study"):
+        assert f">{title}</text>" in names
+    # a floor drawn alone leaves out a link to a room not on it
+    only = house_svg(elements, HOUSE, only={"hall", "den"})
+    links = re.search(r'<g data-layer="connections">(.*?)</g>', only).group(1)
+    assert len(re.findall(r"<polyline ", links)) == 1
+
+
 def test_large_text_draws_the_labels_bigger():
     elements = _elements(_room("hall", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0))
     normal = room_svg(elements, HOUSE, "hall")

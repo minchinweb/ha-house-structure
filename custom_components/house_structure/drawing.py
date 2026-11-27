@@ -75,6 +75,10 @@ LINK_REACH = 0.8  # m
 LINK_RISE = 1.0  # m
 LINK_HEAD = 0.18  # m
 LINK_COLOUR = "#37474f"
+# the plan's connections layer (see ``_add_connections``): a line between the
+# middles of each two rooms that are linked, dashed when they are open to each other
+CONNECTION_COLOUR = "#6a1b9a"
+CONNECTION_DASH = "6 4"
 LARGE_TEXT = 1.6  # the text scale of a single room drawn with large text
 BUILDING_GAP = 2.0  # m between the house and a detached building with no position
 SLAB = 0.3  # m from a ceiling to the floor above, where no floor height is typed
@@ -146,6 +150,7 @@ class Run(NamedTuple):
     colour: str
     width: float = 2.6
     layer: str = "runs"
+    dasharray: str = ""
 
 
 class Dot(NamedTuple):
@@ -2005,9 +2010,10 @@ def render(scene: Scene, width: int = 900) -> str:
             f'stroke="{poly.stroke}" stroke-width="1.2"{dash}/>'
         )
     for run in scene.lines:
+        dash = f' stroke-dasharray="{run.dasharray}"' if run.dasharray else ""
         layers.setdefault(run.layer, []).append(
             f'<polyline points="{" ".join(at(p) for p in run.points)}" fill="none" '
-            f'stroke="{run.colour}" stroke-width="{run.width}" '
+            f'stroke="{run.colour}" stroke-width="{run.width}"{dash} '
             'stroke-linejoin="round" stroke-linecap="round"/>'
         )
     taken: list[Rect] = []  # where the dots and labels already are, on the page
@@ -2115,6 +2121,47 @@ def render(scene: Scene, width: int = 900) -> str:
         f'font-family="sans-serif" font-size="12">{body}'
         f'<g data-layer="notes">{"".join(captions)}</g></svg>'
     )
+
+
+def _add_connections(
+    scene: Scene, drawn: list[Box], elements: dict[str, Element]
+) -> None:
+    """The ``connections`` and ``names`` layers of a plan.
+
+    Each link a room is given (beside, above or below, or an internal wall)
+    is a line between the middles of the two rooms, half way up, dashed when
+    they are open to each other; a link to a room not drawn is left out. Each
+    room's name is on the middle of its floor. ``drawn`` are the rooms as drawn
+    (a stairs room's first box is its flight). The names go after every other
+    label, so they move out of the way rather than move the others.
+    """
+    first: dict[str, Box] = {}
+    for box in drawn:
+        first.setdefault(box.area, box)
+
+    def middle(box: Box) -> Point:
+        return (box.x + box.width / 2, box.y + box.depth / 2, box.z + box.height / 2)
+
+    seen: set[str] = set()
+    for area, items in neighbours(elements).items():
+        for link in items:
+            other = link["area_id"]
+            key = _pair(area, other)
+            if key in seen or area not in first or other not in first:
+                continue
+            seen.add(key)
+            scene.lines.append(
+                Run(
+                    [middle(first[area]), middle(first[other])],
+                    CONNECTION_COLOUR,
+                    2.0,
+                    "connections",
+                    CONNECTION_DASH if link["open"] else "",
+                )
+            )
+    for box in first.values():
+        floor = (box.x + box.width / 2, box.y + box.depth / 2, box.z)
+        scene.labels.append(Label(floor, box.title, "names"))
 
 
 def _head(start: Point, end: Point) -> list[Point]:
@@ -2425,6 +2472,7 @@ def house_svg(
     _add_runs(scene, boxes, elements, house, colours, shifts)
     _add_roofs(scene, drawn, elements, rotation, unit, defaults)
     _add_anchors(scene, real, layers, parts, rotation)
+    _add_connections(scene, layers, elements)
     if not boxes:
         notes.append("No rooms are drawn yet.")
     key = f"Looking from the {VIEWS[view % 4]}."

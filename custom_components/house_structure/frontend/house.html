@@ -123,6 +123,8 @@ const state = {
   roofs: false,          // the roofs layer: off, as it hides the rooms
   dims: false,           // the room and wall sizes
   rvalues: false,        // the R-values of the walls and roofs
+  links: false,          // the lines between rooms that are linked (a plan's connections layer)
+  names: false,          // the rooms' names, on a plan
   delta: false,          // the temperature difference across each wall
   temps: null,           // the last temperatures asked for, for that layer
   tempsError: null,      // why they could not be loaded
@@ -236,6 +238,13 @@ function drawControls() {
     chip("R-values", state.rvalues, () => {
       state.rvalues = !state.rvalues; lab.remember("house.rvalues", state.rvalues); drawControls(); showLayers();
     }),
+    // a room drawn alone has its own arrows to the rooms it links to, and its name on its chip
+    state.room ? null : chip("Connections", state.links, () => {
+      state.links = !state.links; lab.remember("house.links", state.links); drawControls(); showLayers();
+    }, "A line between each two rooms given as next to, above or below each other (dashed: open to each other)"),
+    state.room ? null : chip("Room names", state.names, () => {
+      state.names = !state.names; lab.remember("house.names", state.names); drawControls(); showLayers();
+    }),
     // the temperature difference across the walls: needs the rooms' temperature sensors
     chip("Temperature difference", state.delta, toggleDelta,
       "The temperature difference across each wall, with an arrow for the way heat is expected to flow"),
@@ -248,7 +257,7 @@ function drawControls() {
       chips.push(chip(o.title, state.on.has(o.key), () => toggleOverlay(o.key)));
     }
   }
-  document.getElementById("layers").replaceChildren(...chips);
+  document.getElementById("layers").replaceChildren(...chips.filter(Boolean));
 }
 
 /* ---------- the drawing ---------- */
@@ -349,6 +358,12 @@ function showLayers() {
   for (const g of svg.querySelectorAll('[data-layer="rvalues"]')) {
     g.style.display = state.rvalues ? "" : "none";
   }
+  for (const g of svg.querySelectorAll('[data-layer="connections"]')) {
+    g.style.display = state.links ? "" : "none";
+  }
+  for (const g of svg.querySelectorAll('[data-layer="names"]')) {
+    g.style.display = state.names ? "" : "none";
+  }
   // a roof's R-value goes with the roofs as well as with the R-values
   for (const g of svg.querySelectorAll('[data-layer="roofvalues"]')) {
     g.style.display = state.roofs && state.rvalues ? "" : "none";
@@ -384,15 +399,34 @@ function houseCentre(rooms) {
   return [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length];
 }
 
+const LABEL_SIZE = 11;  // px
 function label(g, x, y, text, colour) {
   g.append(svgEl("text", {
-    x: x.toFixed(1), y: y.toFixed(1), fill: colour, "font-size": "11", "font-weight": "600",
+    x: x.toFixed(1), y: y.toFixed(1), fill: colour, "font-size": String(LABEL_SIZE), "font-weight": "600",
     "text-anchor": "middle", stroke: "#ffffff", "stroke-width": "3", "paint-order": "stroke",
   }, text));
 }
 
-/* An arrow centred on (x, y) pointing along (dx, dy), its weight by its share of the largest flow. */
-function arrow(g, [x, y], [dx, dy], share, colour, text) {
+/* The drawing's edges run at 30°, 90° and 150° on the page (drawing.py project), and an
+ * arrow through the middle of a wall points along one of them, so it would lie on the
+ * room's lines. One that near an edge's angle is turned to half way to the next edge's
+ * (30° off), whichever way points more up the page. */
+const EDGE_ANGLES = [30, 90, 150];
+const EDGE_NEAR = 12;  // degrees
+function offEdges([dx, dy]) {
+  const angle = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 180;
+  if (!EDGE_ANGLES.some((e) => Math.abs(angle - e) < EDGE_NEAR)) return [dx, dy];
+  const turned = [30, -30].map((deg) => {
+    const r = deg * Math.PI / 180;
+    return [dx * Math.cos(r) - dy * Math.sin(r), dx * Math.sin(r) + dy * Math.cos(r)];
+  });
+  return turned[0][1] <= turned[1][1] ? turned[0] : turned[1];
+}
+
+/* An arrow centred on (x, y) pointing along (dx, dy), its weight by its share of the largest flow,
+ * its label just past its tip. */
+function arrow(g, [x, y], dir, share, colour, text) {
+  const [dx, dy] = offEdges(dir);
   const length = 16 + 14 * share;
   const width = 1.5 + 4 * share;
   const head = 5 + 3 * share;
@@ -408,8 +442,10 @@ function arrow(g, [x, y], [dx, dy], share, colour, text) {
     points: [[x1, y1], [bx + px, by + py], [bx - px, by - py]].map((p) => p.map((v) => v.toFixed(1)).join(",")).join(" "),
     fill: colour,
   }));
-  // the label beside the arrow, away from its line
-  label(g, x + px * 2.2 + (Math.abs(dy) > 0.9 ? 18 : 0), y + py * 2.2 + 4, text, colour);
+  // the label just past the tip, its box clear of it whichever way the arrow points
+  const halfW = 0.62 * LABEL_SIZE * text.length / 2, halfH = 0.6 * LABEL_SIZE;
+  const past = 4 + Math.abs(dx) * halfW + Math.abs(dy) * halfH;
+  label(g, x1 + dx * past, y1 + dy * past + 0.35 * LABEL_SIZE, text, colour);
 }
 
 function glyph(g, [x, y], symbol, text, colour) {
@@ -719,6 +755,8 @@ state.runs = lab.recall("house.runs", true) !== false;
 state.roofs = lab.recall("house.roofs", false) === true;
 state.dims = lab.recall("house.dims", false) === true;
 state.rvalues = lab.recall("house.rvalues", false) === true;
+state.links = lab.recall("house.links", false) === true;
+state.names = lab.recall("house.names", false) === true;
 state.delta = lab.recall("house.delta", false) === true;
 state.bigText = lab.recall("house.bigText", true) !== false;
 state.on = new Set(lab.recall("house.overlays", []));
