@@ -54,9 +54,16 @@
     border-radius: 16px; padding: 4px 12px; font: inherit; cursor: pointer;
   }
   button.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .drawing { text-align: center; }
+  .drawing { text-align: center; position: relative; min-height: 120px; }
   /* the drawings are dark lines on white, so they keep a white sheet in dark mode */
   .drawing svg { width: 100%; max-width: 100%; height: auto; background: #fff; border-radius: 8px; }
+  /* while a new drawing is being made: the old one fades, and a message says so */
+  .drawing.busy svg { opacity: 0.35; transition: opacity 0.15s; }
+  .drawing.busy::before {
+    content: "Generating drawing…"; position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text); font-weight: 500;
+  }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 16px; }
   .part { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
   .row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
@@ -302,6 +309,8 @@ async function loadDrawing() {
       + "The heating runs go from the plenum to each register; they are schematic.";
   }
   const ticket = ++drawingTicket;
+  box.classList.add("busy");
+  box.setAttribute("aria-busy", "true");
   let text;
   try {
     const response = await fetch(url, { cache: "no-store" });
@@ -309,11 +318,15 @@ async function loadDrawing() {
     text = await response.text();
   } catch (err) {
     if (ticket !== drawingTicket) return;
+    box.classList.remove("busy");
+    box.removeAttribute("aria-busy");
     box.replaceChildren();
     hint.textContent = "Nothing to draw yet: give the rooms their sizes.";
     return;
   }
   if (ticket !== drawingTicket) return;  // a newer choice was made meanwhile
+  box.classList.remove("busy");
+  box.removeAttribute("aria-busy");
   // our own server's drawing, with every name escaped (drawing.py)
   const doc = new DOMParser().parseFromString(text, "image/svg+xml");
   const svg = doc.documentElement;
