@@ -29,10 +29,12 @@ from custom_components.house_structure.drawing import (
     OPENING_GAP,
     OUTLINE_COLOUR,
     SLAB,
+    Box,
     Label,
     Poly,
     Scene,
     _add_connections,
+    _add_wall_fill,
     _box,
     _clear_shift,
     _door_size,
@@ -57,6 +59,9 @@ from custom_components.house_structure.drawing import (
     project,
     render,
     room_svg,
+)
+from custom_components.house_structure.drawing import (
+    INSIDE_FILL as GAP_FILL,
 )
 from custom_components.house_structure.geometry import FEET_INCHES, FOOT
 from custom_components.house_structure.model import Element, Raw, build
@@ -723,15 +728,38 @@ def _two_rooms(**hall):
     )
 
 
-def test_the_dimensions_layer_draws_the_building_outline():
+def test_the_positions_layer_draws_the_building_outline():
     # the outline in the house's grid; positions are from its south-west corner
     elements = _elements(*_two_rooms(x_m=4.0, y_m=0.0))
     outline = [(10.0, 20.0), (16.0, 20.0), (16.0, 23.0), (10.0, 23.0)]
     svg = house_svg(elements, {"unit": "m"}, outline=outline)
-    dims = re.search(r'<g data-layer="dims">(.*?)</g>', svg).group(1)
-    assert dims.count(OUTLINE_COLOUR) == 1  # one dashed line, round the rooms
-    assert ">outline 6 m by 3 m<" in dims
+    shown = re.search(r'<g data-layer="positions">(.*?)</g>', svg).group(1)
+    assert shown.count(OUTLINE_COLOUR) == 1  # one dashed line, round the rooms
+    assert ">outline 6 m by 3 m<" in shown
+    assert ">origin<" in shown
     assert OUTLINE_COLOUR not in house_svg(elements, {"unit": "m"})
+
+
+def test_the_space_left_for_walls_is_filled_as_wall():
+    # two rooms a wall apart, in an outline a little bigger than them
+    boxes = [
+        Box("A", "a", 0.0, 0.0, 0.0, 3.0, 3.0, 2.4),
+        Box("B", "b", 3.0 + INNER_WALL, 0.0, 0.0, 3.0, 3.0, 2.4),
+    ]
+    outline = [(-0.2, -0.2, 0.0), (6.3, -0.2, 0.0), (6.3, 3.2, 0.0), (-0.2, 3.2, 0.0)]
+    scene = Scene()
+    _add_wall_fill(scene, boxes, outline)
+    fills = [p.points for p in scene.polygons if p.fill == GAP_FILL]
+
+    def covered(x: float, y: float) -> bool:
+        return any(
+            min(p[0] for p in pts) <= x <= max(p[0] for p in pts)
+            and min(p[1] for p in pts) <= y <= max(p[1] for p in pts)
+            for pts in fills[1:]  # the rooms', not the outline's
+        )
+
+    assert fills[0] == outline  # the outline, first, under everything
+    assert covered(3.0 + INNER_WALL / 2, 1.5)  # the wall between them
 
 
 def test_an_inside_door_is_drawn_on_the_shared_face():
