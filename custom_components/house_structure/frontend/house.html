@@ -208,7 +208,10 @@ function houseParts() {
   for (const [name, { areas, level }] of byFloor) {
     if (name) parts.push({ key: `floor:${name}`, label: name, areas, level, title: "A floor" });
   }
+  // a building whose rooms are a floor's (a Garage floor, say) already has its button
+  const same = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
   for (const b of state.house.buildings || []) {
+    if (parts.some((p) => same(p.areas, b.area_ids || []))) continue;
     parts.push({ key: `building:${b.id}`, label: b.title, areas: b.area_ids || [], title: "A detached building" });
   }
   return parts;
