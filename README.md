@@ -291,6 +291,13 @@ more rooms have both sizes, the closer the drawing comes to the house.
   wings touch are against each other too). An internal wall, or a door in
   one, to a room against the wing is drawn on the wing. Outside walls,
   windows and registers are drawn on the main rectangle.
+- A room can have a **second wing** (`wing2_face`, `wing2_floor`,
+  `wing2_width` and `wing2_depth`), given the same way. On another side of
+  the main rectangle it makes a T, or an L with a second arm. On the first
+  wing's side it steps out again from the first wing, so a room in three
+  pieces in a row (a basement room across the house, say) is the biggest
+  piece with the next as its wing and the last as the second wing. The
+  room's floor area is of all three.
 - Floor that **no room was given**, such as a hallway with no area of its
   own, may be left as an empty space in the middle of a floor. Rooms that
   both open on to it count as linked, though they are not drawn touching.

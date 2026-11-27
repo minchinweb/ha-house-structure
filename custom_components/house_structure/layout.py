@@ -166,7 +166,10 @@ class Floor:
         voids: The areas of the voids to start with.
         wings: For an L-shaped room, its second rectangle (among ``rooms`` or
             ``fixed``) by key, with the key of the room it is part of. A room
-            against a wing is against its room.
+            against a wing is against its room. A room may have two; the
+            link with a face that puts a wing against its room (or against
+            the room's other wing, for a room stepping out twice) says where
+            it goes.
     """
 
     rooms: list[Room]
@@ -396,6 +399,20 @@ class _Fit:
             if wing in index and room in index:
                 self.whole.setdefault(index[room], [index[room]]).append(index[wing])
                 self.main[index[wing]] = index[room]
+        # the part of its room each wing is against: the room, or (a room
+        # stepping out twice) its other wing, by the link that puts it there
+        self.base: dict[int, int] = dict(self.main)
+        for a, b, face in floor.links:
+            room = floor.wings.get(b)
+            if (
+                face
+                and a != b
+                and room is not None
+                and floor.wings.get(a) == room
+                and a in index
+                and b in index
+            ):
+                self.base[index[b]] = index[a]
         self.has_links = {i for pair in self.linked for i in pair}
         self.has_links |= {w for w, room in self.main.items() if room in self.has_links}
         self.walls: list[dict[int, float]] = []
@@ -626,7 +643,7 @@ class _Fit:
             else:
                 apart = _apart(a, b)
             # a wing apart from its room is no L, and costs the more
-            wing = self.main.get(j) == i or self.main.get(i) == j
+            wing = self.base.get(j) == i or self.base.get(i) == j
             weight = WING_LINK if wing else 1.0
             if got is not None and got[1] >= need:
                 if want is not None and got[0] != want:
@@ -1222,8 +1239,8 @@ class _Fit:
                     linked = len(self.against[i])
                 return (linked + walls, self.rooms[i].area)
 
-            ready = [i for i in todo if self.main.get(i) not in todo]
-            wings = [i for i in ready if i in self.main]  # its room is down
+            ready = [i for i in todo if self.base.get(i) not in todo]
+            wings = [i for i in ready if i in self.base]  # what it is on is down
             i = wings[0] if wings else max(ready or todo, key=weight)
             order.append(i)
             down.add(i)
@@ -1276,9 +1293,9 @@ class _Fit:
         for rect in (*others, *self.support, *(r for _, r in self.stack)):
             xs |= {rect[0], rect[2]}
             ys |= {rect[1], rect[3]}
-        own = every[self.main[i]] if i in self.main else None
-        if own is not None:  # a wing, its room down
-            mine = [(own, f) for j, f in self.against[i] if j == self.main[i]]
+        own = every[self.base[i]] if i in self.base else None
+        if own is not None:  # a wing, what it is on down
+            mine = [(own, f) for j, f in self.against[i] if j == self.base[i]]
             tiers: list = [(mine, True), (mine, False)]
         else:
             partners = [
@@ -1740,7 +1757,15 @@ def arrange(
     near: dict[str, int] = {}  # each wing's side against its room
     if half:
         for floor in floors:
-            faces = {b: f for a, b, f in floor.links if f and floor.wings.get(b) == a}
+            # a wing's face against its room (or its room's other wing)
+            faces = {
+                b: f
+                for a, b, f in floor.links
+                if f
+                and a != b
+                and b in floor.wings
+                and floor.wings[b] in (a, floor.wings.get(a))
+            }
             near.update({k: _OPPOSITE[FACE_INDEX[f]] for k, f in faces.items()})
             floor.rooms = [_grown_room(r, wall, faces.get(r.key)) for r in floor.rooms]
             floor.fixed = {

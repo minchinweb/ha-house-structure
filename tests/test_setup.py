@@ -822,6 +822,26 @@ async def test_rooms_beside_and_above(hass: HomeAssistant, house) -> None:
     saved = entry.subentries[master.subentry_id].data
     assert saved["wing_face"] == "N"
     assert saved["wing_width_m"] == pytest.approx(60 * 0.0254)
+    # a second wing takes the same, and the wings together are smaller than
+    # the room's floor area
+    links = {"beside": [hall.id], "above": [loft.id]}
+    result = await edit({**form, **wing, **links, "wing2_width": "36"})
+    assert result["errors"] == {"wing2_face": "invalid_wing2_face"}
+    result = await edit(
+        {**form, **wing, **links, "wing2_floor": "15200", "wing2_face": "E"}
+    )
+    assert result["errors"] == {"wing2_floor": "invalid_wing2_floor"}
+    wing2 = {"wing2_width": "36", "wing2_depth": "48", "wing2_face": "E"}
+    result = await edit({**form, **wing, **wing2, **links})
+    assert result["type"] is FlowResultType.ABORT
+    await hass.async_block_till_done()
+    saved = (
+        hass.config_entries.async_get_entry(entry_id)
+        .subentries[master.subentry_id]
+        .data
+    )
+    assert (saved["wing_face"], saved["wing2_face"]) == ("N", "E")
+    assert saved["wing2_width_m"] == pytest.approx(36 * 0.0254)
     # "No wing" takes the wing away, though its sizes are still in the form
     result = await edit(
         {

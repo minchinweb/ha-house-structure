@@ -115,6 +115,10 @@
             "wing_depth": "L-shaped room: wing depth (south to north)",
             "wing_floor": "L-shaped room: wing floor area",
             "wing_face": "L-shaped room: side the wing is on",
+            "wing2_width": "Second wing: width (east to west)",
+            "wing2_depth": "Second wing: depth (south to north)",
+            "wing2_floor": "Second wing: floor area",
+            "wing2_face": "Second wing: side it is on",
             "x": "East of the house's south-west corner",
             "y": "North of the house's south-west corner",
             "level": "Floor height above the ground",
@@ -140,7 +144,11 @@
             "wing_width": "Only for an L-shaped room. Think of the L as two rectangles: the main one (the width and depth above, or shaped to fit) and a smaller wing against one of its sides. Give the side the wing is on, and either the wing's floor area or its width and depth. This is the wing's own length east to west.",
             "wing_depth": "The wing's own length south to north.",
             "wing_face": "The side of the main rectangle the wing is against. The drawing sets the wing where it fits best along that side (at the west or south end, for a room with a position typed). A room against the wing is against this room. Walls, windows and registers are drawn on the main rectangle.",
-            "wing_floor": "The wing's own floor area: part of the room's floor area above, not added to it. With no wing width or depth, the drawing shapes the wing to fit, at this area; with one of them, the other is worked out."
+            "wing_floor": "The wing's own floor area: part of the room's floor area above, not added to it. With no wing width or depth, the drawing shapes the wing to fit, at this area; with one of them, the other is worked out.",
+            "wing2_width": "Only for a room with two wings: the second wing, given as you give the first. On another side of the main rectangle, it makes a T or an L with a second arm; on the first wing's side, it steps out again from the first wing, for a room in three pieces in a row. This is its own length east to west.",
+            "wing2_depth": "The second wing's own length south to north.",
+            "wing2_floor": "The second wing's own floor area: part of the room's floor area above, like the first wing's. The two wings together are smaller than the room's floor area.",
+            "wing2_face": "The side the second wing is on: a side of the main rectangle, or the first wing's side, to set it against the first wing's far face."
           }
         },
         "reconfigure": {
@@ -162,6 +170,10 @@
             "wing_depth": "L-shaped room: wing depth (south to north)",
             "wing_floor": "L-shaped room: wing floor area",
             "wing_face": "L-shaped room: side the wing is on",
+            "wing2_width": "Second wing: width (east to west)",
+            "wing2_depth": "Second wing: depth (south to north)",
+            "wing2_floor": "Second wing: floor area",
+            "wing2_face": "Second wing: side it is on",
             "x": "East of the house's south-west corner",
             "y": "North of the house's south-west corner",
             "level": "Floor height above the ground",
@@ -187,7 +199,11 @@
             "wing_width": "Only for an L-shaped room. Think of the L as two rectangles: the main one (the width and depth above, or shaped to fit) and a smaller wing against one of its sides. Give the side the wing is on, and either the wing's floor area or its width and depth. This is the wing's own length east to west.",
             "wing_depth": "The wing's own length south to north.",
             "wing_face": "The side of the main rectangle the wing is against. The drawing sets the wing where it fits best along that side (at the west or south end, for a room with a position typed). A room against the wing is against this room. Walls, windows and registers are drawn on the main rectangle.",
-            "wing_floor": "The wing's own floor area: part of the room's floor area above, not added to it. With no wing width or depth, the drawing shapes the wing to fit, at this area; with one of them, the other is worked out."
+            "wing_floor": "The wing's own floor area: part of the room's floor area above, not added to it. With no wing width or depth, the drawing shapes the wing to fit, at this area; with one of them, the other is worked out.",
+            "wing2_width": "Only for a room with two wings: the second wing, given as you give the first. On another side of the main rectangle, it makes a T or an L with a second arm; on the first wing's side, it steps out again from the first wing, for a room in three pieces in a row. This is its own length east to west.",
+            "wing2_depth": "The second wing's own length south to north.",
+            "wing2_floor": "The second wing's own floor area: part of the room's floor area above, like the first wing's. The two wings together are smaller than the room's floor area.",
+            "wing2_face": "The side the second wing is on: a side of the main rectangle, or the first wing's side, to set it against the first wing's far face."
           }
         }
       },
@@ -213,7 +229,11 @@
         "invalid_wing_width": "Give the wing's width and depth together (or its floor area), as sizes more than 0, with the wing smaller than the room's floor area.",
         "invalid_wing_depth": "Give the wing's width and depth together (or its floor area), as sizes more than 0.",
         "invalid_wing_face": "Choose the side of the room the wing is on.",
-        "invalid_wing_floor": "Give the wing's floor area (or its width and depth), more than 0 and smaller than the room's floor area."
+        "invalid_wing_floor": "Give the wing's floor area (or its width and depth), more than 0 and smaller than the room's floor area.",
+        "invalid_wing2_width": "Give the second wing's width and depth together (or its floor area), as sizes more than 0, with the wings smaller than the room's floor area.",
+        "invalid_wing2_depth": "Give the second wing's width and depth together (or its floor area), as sizes more than 0.",
+        "invalid_wing2_face": "Choose the side of the room the second wing is on.",
+        "invalid_wing2_floor": "Give the second wing's floor area (or its width and depth), more than 0, with the wings smaller than the room's floor area."
       }
     },
     "wall": {

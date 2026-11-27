@@ -208,9 +208,9 @@ class Box:
     notes: tuple[str, ...] = ()
     # the holes in its floor: space with rooms all round that no room was given
     holes: tuple[tuple[float, float, float, float], ...] = ()
-    # an L-shaped room's wing: east and north of the room's south-west
-    # corner, then its width and depth
-    wing: tuple[float, float, float, float] | None = None
+    # an L-shaped room's wing (or a room's two wings): each east and north of
+    # the room's south-west corner, then its width and depth
+    wings: tuple[tuple[float, float, float, float], ...] = ()
     # stairs that reach another floor: the area whose floor this box is on (the
     # flight is on the lower floor, so its box is that floor's), the area on the
     # upper floor, and the height of that floor, where the opening is drawn
@@ -296,37 +296,52 @@ def _turn_gap(a: float, b: float) -> float:
 
 
 WING = "#wing"  # after a room's area: its wing's name among the rooms fitted
+WINGS = (WING, "#wing2")  # its first wing's, and its second's
 # after stairs' area: its opening's name among the rooms fitted on the floor above
 MIRROR = "#up"
 
 
-def _wing(room: Element) -> tuple[float, float, str, bool] | None:
-    """An L-shaped room's wing: its width, depth, the face of the room's main
-    rectangle it is against, and whether it is to be shaped to fit (it has a
-    floor area, but no width or depth: it is square until then). None for a
-    room with no wing."""
-    width, depth, area = room.wing_width_m, room.wing_depth_m, room.wing_floor_m2
-    if room.wing_face not in FACES:
-        return None
-    if width and depth:
-        return width, depth, room.wing_face, False
-    if area and width:
-        return width, area / width, room.wing_face, False
-    if area and depth:
-        return area / depth, depth, room.wing_face, False
-    if area:
-        return math.sqrt(area), math.sqrt(area), room.wing_face, True
-    return None
+def _wings(room: Element) -> list[tuple[str, tuple[float, float, str, bool]]]:
+    """A room's wings (an L-shaped room has one; a T or U, two), each after
+    its name's ending among the rooms fitted (``WINGS``): its width, depth,
+    the face of the room's main rectangle it is against, and whether it is to
+    be shaped to fit (it has a floor area, but no width or depth: it is
+    square until then). Empty for a room with no wing."""
+    out = []
+    for suffix, (width, depth, area, face) in zip(
+        WINGS,
+        (
+            (room.wing_width_m, room.wing_depth_m, room.wing_floor_m2, room.wing_face),
+            (
+                room.wing2_width_m,
+                room.wing2_depth_m,
+                room.wing2_floor_m2,
+                room.wing2_face,
+            ),
+        ),
+        strict=True,
+    ):
+        if face not in FACES:
+            continue
+        if width and depth:
+            out.append((suffix, (width, depth, face, False)))
+        elif area and width:
+            out.append((suffix, (width, area / width, face, False)))
+        elif area and depth:
+            out.append((suffix, (area / depth, depth, face, False)))
+        elif area:
+            out.append((suffix, (math.sqrt(area), math.sqrt(area), face, True)))
+    return out
 
 
 def _footprint(room: Element) -> tuple[float, float, list[str]] | None:
-    """The width and depth in metres of a room (of its main rectangle, for an
-    L-shaped room: the floor area is of that and the wing): as typed, or
+    """The width and depth in metres of a room (of its main rectangle, for a
+    room with wings: the floor area is of that and the wings): as typed, or
     worked out."""
     width, depth, floor = room.width_m, room.depth_m, room.floor_m2
-    wing = _wing(room)
-    if floor and wing and floor > wing[0] * wing[1]:
-        floor -= wing[0] * wing[1]
+    winged = sum(wing[0] * wing[1] for _, wing in _wings(room))
+    if floor and winged and floor > winged:
+        floor -= winged
     if width and depth:
         return width, depth, []
     if floor and width:
@@ -815,12 +830,13 @@ def _add_room(
     defaults: dict[str, float] | None = None,
     links: list[tuple[str, float, float, str]] | None = None,
     against: list[tuple[str, float, float]] | None = None,
-    wing_inside: list[tuple[Element, str, float, float]] | None = None,
+    wing_inside: list[tuple[Element, int, str, float, float]] | None = None,
 ) -> None:
     """Draw one room's floor, walls, windows, doors and outlets (far faces first).
 
     ``wing_inside`` is like ``inside``, for the internal walls and doors on the
-    faces of an L-shaped room's wing (see ``_wing_parts``).
+    faces of a room's wings, each with its wing's number (1 for the first; see
+    ``_wing_parts``).
 
     ``inside`` is the room's internal walls and the doors in them, each with the
     face and the stretch of it to draw on (see ``_shared_face``). ``links`` are
@@ -838,19 +854,27 @@ def _add_room(
     floor_opacity = 0.7 if box.z > 0 else 1.0
     scene.polygons.append(Poly(_floor(box), FLOOR_FILL, FLOOR_LINE, floor_opacity))
     scene.labels.extend(_room_dims(box, unit))
-    wing_box, wing_on = _wing_box(box)
-    if wing_box is not None:
+    wing_boxes = _wing_boxes(box)
+    for number, (wing_box, _, wing_on) in enumerate(wing_boxes, start=1):
         scene.polygons.append(
             Poly(_floor(wing_box), FLOOR_FILL, FLOOR_LINE, floor_opacity)
         )
+        # no line where it runs on into what it is against, or into a wing
+        # that steps out from it
+        stepped = [on for _, base, on in wing_boxes if base == number and on]
         for face in face_order(scene.view):
             if wing_on is None or face != OPPOSITE[wing_on[0]]:
-                span = _span(wing_box, face)
-                scene.polygons.append(
-                    _outline(wing_box, face, 0.0, span, WALL_LINE, "none")
-                )
+                joined = [(on[1], on[2]) for on in stepped if on[0] == face]
+                for start, end in _gaps(joined, _span(wing_box, face)):
+                    scene.polygons.append(
+                        _outline(wing_box, face, start, end, WALL_LINE, "none")
+                    )
             opacity = 0.6 if face in near_faces(scene.view) else 0.9
-            on_face = [(i, s, e) for i, on, s, e in wing_inside or () if on == face]
+            on_face = [
+                (i, s, e)
+                for i, at, on, s, e in wing_inside or ()
+                if at == number and on == face
+            ]
             for item, start, end in on_face:  # the walls, then the doors in them
                 if item.kind != INTERNAL_WALL:
                     continue
@@ -888,9 +912,12 @@ def _add_room(
         linked = [(s, e, kind) for on, s, e, kind in links or () if on == face]
         open_links = [(s, e) for s, e, kind in linked if kind == "open"]
         implied = [(s, e) for s, e, kind in linked if kind == "implied"]
-        # the room runs on into its wing: no wall there, and nothing missing
-        if wing_on is not None and wing_on[0] == face:
-            opened = [*opened, (wing_on[1], wing_on[2])]
+        # the room runs on into its wings: no wall there, and nothing missing
+        opened = opened + [
+            (on[1], on[2])
+            for _, base, on in wing_boxes
+            if not base and on is not None and on[0] == face
+        ]
         # the outside walls go where no room is against the face
         taken = solid + opened + open_links + implied
         other = [(s, e) for on, s, e in against or () if on == face]
@@ -936,25 +963,33 @@ def _add_room(
         scene.dots.append(Dot(_outlet(box, reg), colours[reg.id], reg.title, "runs"))
 
 
-def _wing_box(box: Box) -> tuple[Box | None, tuple[str, float, float] | None]:
-    """An L-shaped room's wing as a box of its own, and the face of the room
-    it is against with the stretch they share (None when they do not touch)."""
-    if box.wing is None:
-        return None, None
-    dx, dy, width, depth = box.wing
-    wing = Box("", "", box.x + dx, box.y + dy, box.z, width, depth, box.height)
-    return wing, _shared_face(box, wing)
+def _wing_boxes(
+    box: Box,
+) -> list[tuple[Box, int, tuple[str, float, float] | None]]:
+    """A room's wings, each as a box of its own, with the part it is against
+    (0 for the room's main rectangle; 1 for its first wing, which a second
+    can step out from), and the face of that part and the stretch they share
+    (None when it touches neither)."""
+    out: list[tuple[Box, int, tuple[str, float, float] | None]] = []
+    for dx, dy, width, depth in box.wings:
+        wing = Box("", "", box.x + dx, box.y + dy, box.z, width, depth, box.height)
+        on, base = _shared_face(box, wing), 0
+        for number, (other, _, _) in enumerate(out, start=1):
+            if on is None:
+                on, base = _shared_face(other, wing), number
+        out.append((wing, base if on is not None else 0, on))
+    return out
+
+
+def _parts_of(box: Box) -> list[Box]:
+    """A room's main rectangle and its wings."""
+    return [box, *(wing for wing, _, _ in _wing_boxes(box))]
 
 
 def _touching(a: Box, b: Box) -> bool:
-    """Whether two rooms share a wall: a room's wing is part of the room."""
-    mine = [a, _wing_box(a)[0]]
-    yours = [b, _wing_box(b)[0]]
+    """Whether two rooms share a wall: a room's wings are part of the room."""
     return any(
-        _shared_face(p, q) is not None
-        for p in mine
-        for q in yours
-        if p is not None and q is not None
+        _shared_face(p, q) is not None for p in _parts_of(a) for q in _parts_of(b)
     )
 
 
@@ -976,19 +1011,17 @@ def _against(here: Box, others: list[Box]) -> list[tuple[str, float, float]]:
     return out
 
 
-def _meeting(here: Box, there: Box) -> tuple[bool, str, float, float] | None:
-    """Where a room meets another: whether it is the room's wing that does
-    (not its main rectangle), then the face of that part and the stretch of it
-    they share. The other room's wing is part of it. None if they do not
-    touch."""
-    others = [box for box in (there, _wing_box(there)[0]) if box is not None]
-    for on_wing, part in ((False, here), (True, _wing_box(here)[0])):
-        if part is None:
-            continue
+def _meeting(here: Box, there: Box) -> tuple[int, str, float, float] | None:
+    """Where a room meets another: which part of the room does (0 for its
+    main rectangle, else its wing's number, 1 for the first), then the face of
+    that part and the stretch of it they share. The other room's wings are
+    part of it. None if they do not touch."""
+    others = _parts_of(there)
+    for number, part in enumerate(_parts_of(here)):
         for other in others:
             found = _shared_face(part, other)
             if found is not None:
-                return (on_wing, *found)
+                return (number, *found)
     return None
 
 
@@ -1003,12 +1036,13 @@ def _inside_items(parts: Parts, area_id: str) -> list[Element]:
 
 def _wing_parts(
     parts: Parts, area_id: str, boxes: dict[str, Box]
-) -> list[tuple[Element, str, float, float]]:
-    """The internal walls, and the doors in them, that are on an L-shaped
-    room's wing: each with the wing's face and the stretch of it shared with
-    the room on the other side (like ``_inside_parts``)."""
+) -> list[tuple[Element, int, str, float, float]]:
+    """The internal walls, and the doors in them, that are on a room's wings:
+    each with its wing's number (1 for the first), the wing's face and the
+    stretch of it shared with the room on the other side (like
+    ``_inside_parts``)."""
     here = boxes.get(area_id)
-    if here is None or here.wing is None:
+    if here is None or not here.wings:
         return []
     out = []
     for item in _inside_items(parts, area_id):
@@ -1016,7 +1050,7 @@ def _wing_parts(
         there = boxes.get(other_id or "")
         found = _meeting(here, there) if there else None
         if found is not None and found[0]:
-            out.append((item, *found[1:]))
+            out.append((item, *found))
     return out
 
 
@@ -1028,7 +1062,7 @@ def _inside_parts(
 ) -> tuple[list[tuple[Element, str, float, float]], list[str]]:
     """A room's internal walls, and the doors in them, each on the face it shares
     with the room on the other side (``boxes``: where each room is placed), and a
-    note for each that cannot be placed. The ones on the room's wing are left
+    note for each that cannot be placed. The ones on the room's wings are left
     to ``_wing_parts``."""
     here = boxes.get(area_id)
     placed, notes = [], []
@@ -1043,7 +1077,7 @@ def _inside_parts(
         there = boxes.get(other_id or "")
         met = _meeting(here, there) if here and there else None
         if met is not None and met[0]:
-            continue  # on the room's wing
+            continue  # on one of the room's wings
         found = None if met is None else met[1:]
         if found is None:
             why = (
@@ -1404,7 +1438,9 @@ def _fit_house(
     levels: dict[str, float] = {}
     shaped: set[str] = set()
     loose: set[str] = set()
-    winged: dict[str, str] = {}  # each L-shaped room's wing's face
+    # by each wing's key: its room, what it is against (the room, or the
+    # room's first wing) and the face of that
+    winged: dict[str, tuple[str, str, str]] = {}
     # stairs that reach another floor: each one's floor above (or below) it
     reach = {
         r.area_id or "": r.stairs_to
@@ -1450,9 +1486,15 @@ def _fit_house(
             for room in line:
                 area = room.area_id or ""
                 width, depth, why = _footprint(room)
-                wing = _wing(room)
-                if wing:
-                    winged[area] = wing[2]
+                wings = _wings(room)
+                # what each wing is against: the room, or (a second wing on
+                # the first's side) the first wing, so the room steps out twice
+                first = dict(wings).get(WINGS[0])
+                on: dict[str, str] = {}
+                for suffix, wing in wings:
+                    stepped = suffix != WINGS[0] and first and first[2] == wing[2]
+                    on[suffix] = area + WINGS[0] if stepped else area
+                    winged[area + suffix] = (area, on[suffix], wing[2])
                 if room.x_m is not None and room.y_m is not None:
                     floor.fixed[area] = (
                         room.x_m,
@@ -1460,17 +1502,18 @@ def _fit_house(
                         room.x_m + width,
                         room.y_m + depth,
                     )
-                    if wing:  # at the west or south end of its face
-                        x = room.x_m + {"E": width, "W": -wing[0]}.get(wing[2], 0.0)
-                        y = room.y_m + {"N": depth, "S": -wing[1]}.get(wing[2], 0.0)
-                        floor.fixed[area + WING] = (x, y, x + wing[0], y + wing[1])
-                        floor.wings[area + WING] = area
+                    for suffix, wing in wings:  # at the west or south end of its face
+                        x0, y0, x1, y1 = floor.fixed[on[suffix]]
+                        x = {"E": x1, "W": x0 - wing[0]}.get(wing[2], x0)
+                        y = {"N": y1, "S": y0 - wing[1]}.get(wing[2], y0)
+                        floor.fixed[area + suffix] = (x, y, x + wing[0], y + wing[1])
+                        floor.wings[area + suffix] = area
                     continue
-                if wing:
-                    floor.wings[area + WING] = area
+                for suffix, wing in wings:
+                    floor.wings[area + suffix] = area
                     floor.rooms.append(
                         layout.Room(
-                            area + WING,
+                            area + suffix,
                             wing[0] * wing[1],
                             None if wing[3] else wing[:2],
                         )
@@ -1507,10 +1550,11 @@ def _fit_house(
                     for a, b in pairs
                     if b == flight and a in here
                 ]
-            # an L-shaped room's wing is against the face it names
+            # a room's wing is against the face it names (of the room, or of
+            # the wing it steps out from)
             floor.links += [
-                (area, area + WING, face)
-                for area, face in winged.items()
+                (base, key, face)
+                for key, (area, base, face) in winged.items()
                 if area in here
             ]
             plan.append(floor)
@@ -1576,29 +1620,33 @@ def _fit_house(
                     top_z=high,
                     typed=box.typed - {"height"},  # from the floor heights
                 )
-        wing = placed.get(area + WING)
-        if wing is not None:
+        wings = [
+            (placed[area + suffix], winged[area + suffix][2])
+            for suffix in WINGS
+            if area + suffix in placed
+        ]
+        if wings:
+            said = " and ".join(
+                f"{format_size(w[2] - w[0], unit)} by "
+                f"{format_size(w[3] - w[1], unit)} on its {FACE_NAMES[face]} side"
+                for w, face in wings
+            )
             box = replace(
                 box,
-                wing=(
-                    wing[0] - rect[0],
-                    wing[1] - rect[1],
-                    wing[2] - wing[0],
-                    wing[3] - wing[1],
+                wings=tuple(
+                    (w[0] - rect[0], w[1] - rect[1], w[2] - w[0], w[3] - w[1])
+                    for w, _ in wings
                 ),
                 notes=(
                     *box.notes,
-                    (
-                        f"{room.title}: L-shaped, with a wing "
-                        f"{format_size(wing[2] - wing[0], unit)} by "
-                        f"{format_size(wing[3] - wing[1], unit)} on its "
-                        f"{FACE_NAMES[winged[area]]} side"
-                    ),
+                    f"{room.title}: L-shaped, with a wing {said}"
+                    if len(wings) == 1
+                    else f"{room.title}: with wings {said}",
                 ),
             )
-            if _wing_box(box)[1] is None:
+            if any(on is None for _, _, on in _wing_boxes(box)):
                 notes.append(
-                    f"{room.title}: its wing could not be placed against it: "
+                    f"{room.title}: a wing could not be placed against it: "
                     "check the rooms round it."
                 )
         boxes.append(box)

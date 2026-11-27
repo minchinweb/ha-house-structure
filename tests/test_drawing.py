@@ -1462,7 +1462,7 @@ def test_an_l_shaped_room_has_a_wing_against_the_face_it_names():
     living = next(b for b in boxes if b.area == "living")
     # the floor area is of the room and its wing together
     assert living.width * living.depth == pytest.approx(20.0, rel=0.01)
-    dx, dy, width, depth = living.wing
+    ((dx, dy, width, depth),) = living.wings
     assert (width, depth) == pytest.approx((2.0, 3.0))
     assert dy == pytest.approx(living.depth, abs=0.02)  # on its north face
     assert -0.02 <= dx <= living.width - width + 0.02  # and within it
@@ -1485,9 +1485,95 @@ def test_a_placed_rooms_wing_is_at_the_south_end_of_its_face():
         ),
     )
     (den,), _ = _place(elements, "m")
-    assert den.wing == pytest.approx((4.0, 0.0, 1.5, 1.0))
+    assert den.wings == (pytest.approx((4.0, 0.0, 1.5, 1.0)),)
     svg = house_svg(elements, {"unit": "m"})
     assert svg.startswith("<svg")
+
+
+def test_a_second_wing_on_the_first_wings_side_steps_out_from_it():
+    # a room in three pieces in a row: the second wing is against the first
+    elements = _elements(
+        _room(
+            "den",
+            width_m=4.0,
+            depth_m=3.0,
+            x_m=1.0,
+            y_m=2.0,
+            wing_width_m=1.5,
+            wing_depth_m=1.0,
+            wing_face="E",
+            wing2_width_m=1.0,
+            wing2_depth_m=0.5,
+            wing2_face="E",
+        ),
+    )
+    (den,), notes = _place(elements, "m")
+    assert den.wings == (
+        pytest.approx((4.0, 0.0, 1.5, 1.0)),
+        pytest.approx((5.5, 0.0, 1.0, 0.5)),
+    )
+    assert any("with wings" in note for note in notes)
+    assert not any("could not be placed" in note for note in notes)
+
+
+def test_a_fitted_room_in_three_pieces_steps_out_twice():
+    # a theatre: the big piece on the east, a narrower one west of it, and a
+    # smaller one west of that; a den is against the smallest
+    elements = _elements(
+        _room(
+            "theatre",
+            width_m=3.3,
+            depth_m=4.9,
+            beside=["den"],
+            wing_width_m=1.7,
+            wing_depth_m=4.5,
+            wing_face="W",
+            wing2_width_m=1.4,
+            wing2_depth_m=1.9,
+            wing2_face="W",
+        ),
+        _room("den", width_m=2.0, depth_m=2.0),
+    )
+    boxes, notes = _place(elements, "m")
+    where = {b.area: b for b in boxes}
+    theatre = where["theatre"]
+    first, second = theatre.wings
+    assert first[0] + first[2] == pytest.approx(0.0, abs=0.02)  # west of the room
+    assert second[0] + second[2] == pytest.approx(first[0], abs=0.02)  # of the wing
+    assert first[1] - 0.02 <= second[1] <= first[1] + first[3] - second[3] + 0.02
+    assert _touching(theatre, where["den"])
+    assert not any("could not be placed" in note for note in notes)
+    assert house_svg(elements, {"unit": "m"}).startswith("<svg")
+
+
+def test_a_room_with_two_wings_has_each_against_the_face_it_names():
+    # a T: the main rectangle with a wing on its north face and one on its
+    # east, and the floor area of all three
+    elements = _elements(
+        _room(
+            "living",
+            floor_m2=26.0,
+            beside=["kitchen"],
+            wing_width_m=2.0,
+            wing_depth_m=1.5,
+            wing_face="N",
+            wing2_width_m=1.0,
+            wing2_depth_m=3.0,
+            wing2_face="E",
+        ),
+        _room("kitchen", floor_m2=12.0),
+    )
+    boxes, notes = _place(elements, "m")
+    living = next(b for b in boxes if b.area == "living")
+    assert living.width * living.depth == pytest.approx(20.0, rel=0.01)
+    north, east = living.wings
+    assert north[1] == pytest.approx(living.depth, abs=0.02)
+    assert north[2:] == pytest.approx((2.0, 1.5))
+    assert east[0] == pytest.approx(living.width, abs=0.02)
+    assert east[2:] == pytest.approx((1.0, 3.0))
+    assert not any("could not be placed" in note for note in notes)
+    assert len(boxes) == 2  # the wings are part of their room
+    assert house_svg(elements, {"unit": "m"}).startswith("<svg")
 
 
 def test_a_wing_with_only_a_floor_area_is_shaped_to_fit():
@@ -1504,7 +1590,7 @@ def test_a_wing_with_only_a_floor_area_is_shaped_to_fit():
     boxes, notes = _place(elements, "m")
     living = next(b for b in boxes if b.area == "living")
     assert living.width * living.depth == pytest.approx(20.0, rel=0.01)
-    dx, _, width, depth = living.wing
+    ((dx, _, width, depth),) = living.wings
     assert width * depth == pytest.approx(6.0, rel=0.02)
     assert dx == pytest.approx(living.width, abs=0.02)  # on its east face
     assert not any("could not be placed" in note for note in notes)
@@ -1536,8 +1622,8 @@ def test_an_internal_wall_against_a_wing_is_drawn_on_the_wing():
     parts = _parts(elements)
     inside, notes = _inside_parts(elements, parts, "living", where)
     assert (inside, notes) == ([], [])  # not on the main rectangle; no complaint
-    ((wall, face, start, end),) = _wing_parts(parts, "living", where)
-    assert (wall.id, face) == ("wall", "E")
+    ((wall, number, face, start, end),) = _wing_parts(parts, "living", where)
+    assert (wall.id, number, face) == ("wall", 1, "E")
     assert (start, end) == pytest.approx((1.0, 3.0))  # along the wing's face
     # from the den, the same wall is on its own west face
     ((_, den_face, _, _),), den_notes = _inside_parts(elements, parts, "den", where)
@@ -1575,7 +1661,7 @@ def test_rooms_whose_wings_touch_are_touching():
     assert _touching(where["a"], where["b"])
     # the wall between them is on each room's wing
     parts = _parts(elements)
-    ((_, face, start, end),) = _wing_parts(parts, "a", where)
+    ((_, _, face, start, end),) = _wing_parts(parts, "a", where)
     assert (face, start, end) == ("E", pytest.approx(0.0), pytest.approx(1.0))
     assert _inside_parts(elements, parts, "a", where) == ([], [])
 

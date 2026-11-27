@@ -328,8 +328,8 @@ def plan_sheet(hass, entry: ConfigEntry, text: str) -> SheetPlan:
                     raise ValueError(f"the host must be a {' or '.join(wanted)}")
             form = dict(base)
             for key in cleared:
-                if kind == ROOM and key == "wing_face":  # no wing, nor its sizes
-                    form[key] = NO_WING
+                if kind == ROOM and key in ("wing_face", "wing2_face"):
+                    form[key] = NO_WING  # no wing, nor its sizes
                 else:
                     form.pop(key, None)
             for key, value in row.items():
