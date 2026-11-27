@@ -29,6 +29,8 @@ from custom_components.house_structure.drawing import (
     OPENING_GAP,
     OUTLINE_COLOUR,
     SLAB,
+    Label,
+    Poly,
     Scene,
     _add_connections,
     _box,
@@ -53,6 +55,7 @@ from custom_components.house_structure.drawing import (
     house_svg,
     near_faces,
     project,
+    render,
     room_svg,
 )
 from custom_components.house_structure.geometry import FEET_INCHES, FOOT
@@ -622,6 +625,26 @@ def test_a_connection_runs_between_the_middles_of_the_rooms_floors():
     (line,) = [run for run in scene.lines if run.layer == "connections"]
     floors = sorted((b.x + b.width / 2, b.y + b.depth / 2, b.z) for b in boxes)
     assert sorted(line.points) == pytest.approx(floors)
+
+
+def test_many_labels_at_one_edge_do_not_squeeze_the_drawing():
+    # labels sticking out on one side make room for the one that sticks out
+    # most, not for all of them added up (which pushed a plan to one side,
+    # or turned the scale over and drew it millions of pixels tall)
+    floor = [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (10.0, 10.0, 0.0), (0.0, 10.0, 0.0)]
+    scene = Scene(top_down=True, text_scale=LARGE_TEXT)
+    scene.polygons.append(Poly(floor, "#eeeeee", "#333333"))
+    scene.labels.extend(
+        Label((10.0, y, 0.0), "a long label on the east side") for y in range(11)
+    )
+    svg = render(scene)
+    height = float(re.search(r'data-drawing-height="(\d+)"', svg).group(1))
+    assert height <= scene.height
+    xs = [
+        float(x)
+        for x in re.findall(r"([\d.]+),[\d.]+", re.search(r"<polygon[^>]*>", svg)[0])
+    ]
+    assert max(xs) - min(xs) > 300  # of the 900 px, less the labels' room
 
 
 def test_large_text_draws_the_labels_bigger():

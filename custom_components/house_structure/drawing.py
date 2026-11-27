@@ -2136,25 +2136,38 @@ def render(scene: Scene, width: int = 900) -> str:
     # label's text is inside the picture, so no label is cut off at its edge
     pads = [MARGIN, MARGIN, MARGIN, MARGIN]
     text_size = 11 * scene.text_scale
-    right_edge = width - NORTH_COLUMN - MARGIN
-    for _ in range(6):
-        scale = min(
-            (width - NORTH_COLUMN - pads[0] - pads[2]) / span_x,
-            (scene.height - pads[1] - pads[3]) / span_y,
+
+    def fit() -> float:
+        # never below a tenth of the width's scale, so labels cannot squeeze
+        # the drawing to nothing
+        floor = 0.1 * (width - NORTH_COLUMN - 2 * MARGIN) / span_x
+        return max(
+            floor,
+            min(
+                (width - NORTH_COLUMN - pads[0] - pads[2]) / span_x,
+                (scene.height - pads[1] - pads[3]) / span_y,
+            ),
         )
+
+    for _ in range(6):
+        scale = fit()
+        # each margin is MARGIN plus the most any label's text sticks out of
+        # the drawing on that side, at this scale
+        out = [0.0, 0.0, 0.0, 0.0]
         for label in scene.labels:
             if not label.text:
                 continue
             px, py = on_page(label.point)
-            x = pads[0] + (px - left) * scale
-            y = pads[1] + (py - top) * scale
+            x, y = (px - left) * scale, (py - top) * scale
             box_l, box_r, box_t, box_b = _text_box(
                 x, y, label.text, label.note, text_size
             )
-            pads[0] += max(0.0, MARGIN - box_l)
-            pads[1] += max(0.0, MARGIN - box_t)
-            pads[2] += max(0.0, box_r - right_edge)
-            pads[3] = max(pads[3], box_b - (pads[1] + span_y * scale) + MARGIN)
+            out[0] = max(out[0], -box_l)
+            out[1] = max(out[1], -box_t)
+            out[2] = max(out[2], box_r - span_x * scale)
+            out[3] = max(out[3], box_b - span_y * scale)
+        pads = [MARGIN + o for o in out]
+    scale = fit()
     draw_h = pads[1] + span_y * scale + pads[3]
 
     def at(point: Point) -> str:
