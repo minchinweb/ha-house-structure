@@ -819,9 +819,7 @@ def test_floors_from_above_go_up_the_page_clear_of_each_other(view):
     )
     floors = {"ground": 0, "upstairs": 1}
     boxes, _ = _place(elements, "m", floors)
-    shifts = _top_down_shifts(
-        boxes, _floor_index(elements, set(floors), floors), view
-    )
+    shifts = _top_down_shifts(boxes, _floor_index(elements, set(floors), floors), view)
     assert shifts["ground"] == (0.0, 0.0)
     dx, dy = shifts["upstairs"]
     here = next(b for b in boxes if b.area == "upstairs")
