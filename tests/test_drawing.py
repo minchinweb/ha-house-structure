@@ -41,6 +41,7 @@ from custom_components.house_structure.drawing import (
     _parts,
     _place,
     _shared_face,
+    _top_down_shifts,
     _touching,
     _wall_stretches,
     _wing_parts,
@@ -790,6 +791,78 @@ def test_floors_drawn_apart_keep_the_real_run_lengths():
     assert "Floors drawn apart" in apart
     assert "Floors drawn apart" not in together
     assert apart != together
+
+
+@pytest.mark.parametrize(("view", "up"), [(0, "N"), (1, "E"), (2, "S"), (3, "W")])
+def test_from_above_each_quarter_turn_puts_the_next_side_at_the_top(view, up):
+    sides = {"N": (0.0, 1.0), "E": (1.0, 0.0), "S": (0.0, -1.0), "W": (-1.0, 0.0)}
+    # the height of a point is lost from above
+    assert project((1.0, 2.0, 5.0), view, top_down=True) == project(
+        (1.0, 2.0, 0.0), view, top_down=True
+    )
+    tops = {
+        side: project((x, y, 0.0), view, top_down=True)[1]
+        for side, (x, y) in sides.items()
+    }
+    assert min(tops, key=tops.get) == up
+
+
+def test_true_north_points_up_from_above_at_zero_rotation():
+    assert _north(0.0, 0, top_down=True) == pytest.approx((0.0, -1.0))
+
+
+@pytest.mark.parametrize("view", [0, 1, 2, 3])
+def test_floors_from_above_go_up_the_page_clear_of_each_other(view):
+    elements = _elements(
+        _room("ground", width_m=3.0, depth_m=3.0),
+        _room("upstairs", width_m=3.0, depth_m=3.0),
+    )
+    floors = {"ground": 0, "upstairs": 1}
+    boxes, _ = _place(elements, "m", floors)
+    shifts = _top_down_shifts(
+        boxes, _floor_index(elements, set(floors), floors), view
+    )
+    assert shifts["ground"] == (0.0, 0.0)
+    dx, dy = shifts["upstairs"]
+    here = next(b for b in boxes if b.area == "upstairs")
+    ground = next(b for b in boxes if b.area == "ground")
+
+    def page(box, sx=0.0, sy=0.0):
+        return [
+            project((box.x + sx + x, box.y + sy + y, box.z), view, top_down=True)
+            for x in (0.0, 3.0)
+            for y in (0.0, 3.0)
+        ]
+
+    before, after = page(here), page(here, dx, dy)
+    assert after[0][0] == pytest.approx(before[0][0])  # straight up the page
+    assert max(y for _, y in after) < min(y for _, y in page(ground))
+
+
+def test_the_house_from_above_draws_its_floors_apart_and_says_so():
+    elements = _elements(
+        _room("ground", width_m=3.0, depth_m=3.0),
+        _room("upstairs", width_m=3.0, depth_m=3.0),
+    )
+    floors = {"ground": 0, "upstairs": 1}
+    above = house_svg(elements, HOUSE, floors=floors, top_down=True)
+    assert "From above, north at the top." in above
+    assert "Floors drawn apart" in above
+    assert above != house_svg(elements, HOUSE, floors=floors)
+    # one floor alone from above is not spread out
+    one = house_svg(elements, HOUSE, floors=floors, level=0, top_down=True)
+    assert "Floors drawn apart" not in one
+
+
+def test_a_room_from_above_draws_its_walls_over_its_floor():
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0),
+        _wall("w-south", "kitchen", "S"),
+    )
+    svg = room_svg(elements, HOUSE, "kitchen", view=1, top_down=True)
+    assert "From above, east at the top." in svg
+    assert svg.index(FLOOR) < svg.index(WALL_FILL)
+    assert 'stroke-width="3"' in svg  # the wall, a thick line from above
 
 
 def test_one_floor_draws_the_same_apart_or_together():

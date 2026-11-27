@@ -135,6 +135,10 @@ NEAR_FACES = ("S", "W")
 # The corner the drawing looks from, by quarter turns of the view (``view``):
 # 0 is the south-west, then each turn goes a corner clockwise round the house.
 VIEWS = ("south-west", "north-west", "north-east", "south-east")
+# From above (``top_down``), the side at the top of the page, by the same quarter
+# turns: the way the view at that turn looks, squared to a side.
+UP_BY_VIEW = ("north", "east", "south", "west")
+TOP_WALL_WIDTH = 3.0  # px: a wall seen from above is a line, drawn this thick
 _NEAR_BY_VIEW = (("S", "W"), ("N", "W"), ("N", "E"), ("S", "E"))
 
 Point = tuple[float, float, float]  # metres in the house grid
@@ -243,6 +247,7 @@ class Scene:
     north: tuple[float, float] | None = None  # the direction of true north, on the page
     anchors: list[Anchor] = field(default_factory=list)
     view: int = 0  # quarter turns of the view (see ``VIEWS``)
+    top_down: bool = False  # drawn from straight above (see ``project``)
     text_scale: float = 1.0  # the size of the labels' text, 1 for normal
     height: int = SHEET_HEIGHT  # px the drawing may take, before the captions
 
@@ -252,12 +257,16 @@ def _turn(x: float, y: float, view: int) -> tuple[float, float]:
     return ((x, y), (-y, x), (-x, -y), (y, -x))[view % 4]
 
 
-def project(point: Point, view: int = 0) -> tuple[float, float]:
+def project(point: Point, view: int = 0, top_down: bool = False) -> tuple[float, float]:
     """Where a point of the house grid sits on the page (y grows downwards).
 
-    ``view`` is the quarter turns of the view (see ``VIEWS``).
+    ``view`` is the quarter turns of the view (see ``VIEWS``). ``top_down``
+    draws it from straight above, a plan: its height is lost, and the side
+    ``UP_BY_VIEW`` names is at the top of the page.
     """
     x, y = _turn(point[0], point[1], view)
+    if top_down:
+        return x, -y
     z = point[2]
     return (x - y) * COS30, -(x + y) * SIN30 - z
 
@@ -1661,6 +1670,40 @@ def _floor_shifts(
     return out
 
 
+def _top_down_shifts(
+    boxes: list[Box], floor_of: dict[str, int], view: int
+) -> dict[str, tuple[float, float]]:
+    """How far to move each room (east, north) to draw the floors apart from above.
+
+    As ``_floor_shifts``, but for a plan: the lowest floor stays put, and each
+    one above goes up the page until it is ``EXPLODE_GAP`` clear of the one before.
+    """
+    back = (4 - view % 4) % 4  # the turn that undoes the view's
+
+    def reach(box: Box) -> tuple[float, float]:
+        ups = [
+            _turn(box.x + dx, box.y + dy, view)[1]
+            for dx in (0.0, box.width)
+            for dy in (0.0, box.depth)
+        ]
+        return min(ups), max(ups)
+
+    out: dict[str, tuple[float, float]] = {}
+    edge: float | None = None
+    for number in sorted(set(floor_of.values())):
+        members = [b for b in boxes if floor_of.get(b.area) == number]
+        if not members:
+            continue
+        low = min(reach(b)[0] for b in members)
+        high = max(reach(b)[1] for b in members)
+        step = 0.0 if edge is None else edge + EXPLODE_GAP - low
+        edge = high + step
+        shift = _turn(0.0, step, back)
+        for box in members:
+            out[box.area] = shift
+    return out
+
+
 def _moved(point: Point, shift: tuple[float, float]) -> Point:
     return point[0] + shift[0], point[1] + shift[1], point[2]
 
@@ -1950,10 +1993,12 @@ def _add_runs(
         scene.notes.append(f"{reg.title}: run {drawn:.0f} ft drawn, {stated}")
 
 
-def _north(rotation: float, view: int = 0) -> tuple[float, float]:
+def _north(
+    rotation: float, view: int = 0, top_down: bool = False
+) -> tuple[float, float]:
     """True north on the page: the house's y axis turned back by its rotation."""
     turn = math.radians(rotation)
-    dx, dy = project((-math.sin(turn), math.cos(turn), 0.0), view)
+    dx, dy = project((-math.sin(turn), math.cos(turn), 0.0), view, top_down)
     length = math.hypot(dx, dy) or 1.0
     return dx / length, dy / length
 
@@ -1994,10 +2039,23 @@ def _meet(a: Rect, b: Rect) -> bool:
 
 def render(scene: Scene, width: int = 900) -> str:
     """The scene as an SVG, the captions under the drawing."""
-    view = scene.view
-    corners = [project(p, view) for poly in scene.polygons for p in poly.points]
-    corners += [project(p, view) for run in scene.lines for p in run.points]
-    corners += [project(dot.point, view) for dot in scene.dots]
+    view, top_down = scene.view, scene.top_down
+
+    def on_page(point: Point) -> tuple[float, float]:
+        return project(point, view, top_down)
+
+    def upright(poly: Poly) -> bool:
+        """A wall, window or door: not all at one height, a line from above."""
+        return len({round(p[2], 6) for p in poly.points}) > 1
+
+    polygons = scene.polygons
+    if top_down:
+        # from above, the floors first, then every wall over them (floors cover
+        # the walls drawn before them otherwise)
+        polygons = sorted(polygons, key=upright)
+    corners = [on_page(p) for poly in polygons for p in poly.points]
+    corners += [on_page(p) for run in scene.lines for p in run.points]
+    corners += [on_page(dot.point) for dot in scene.dots]
     xs = [x for x, _ in corners] or [0.0]
     ys = [y for _, y in corners] or [0.0]
     left, top = min(xs), min(ys)
@@ -2016,7 +2074,7 @@ def render(scene: Scene, width: int = 900) -> str:
         for label in scene.labels:
             if not label.text:
                 continue
-            px, py = project(label.point, view)
+            px, py = on_page(label.point)
             x = pads[0] + (px - left) * scale
             y = pads[1] + (py - top) * scale
             box_l, box_r, box_t, box_b = _text_box(
@@ -2029,17 +2087,18 @@ def render(scene: Scene, width: int = 900) -> str:
     draw_h = pads[1] + span_y * scale + pads[3]
 
     def at(point: Point) -> str:
-        x, y = project(point, view)
+        x, y = on_page(point)
         return f"{pads[0] + (x - left) * scale:.1f},{pads[1] + (y - top) * scale:.1f}"
 
     # the order the layers are drawn in: the roofs over the rooms and runs
     layers: dict[str, list[str]] = {"rooms": [], "runs": [], "roofs": []}
-    for poly in scene.polygons:
+    for poly in polygons:
         dash = f' stroke-dasharray="{poly.dasharray}"' if poly.dashed else ""
+        stroke = TOP_WALL_WIDTH if top_down and upright(poly) else 1.2
         layers.setdefault(poly.layer, []).append(
             f'<polygon points="{" ".join(at(p) for p in poly.points)}" '
             f'fill="{poly.fill}" fill-opacity="{poly.opacity}" '
-            f'stroke="{poly.stroke}" stroke-width="1.2"{dash}/>'
+            f'stroke="{poly.stroke}" stroke-width="{stroke:g}"{dash}/>'
         )
     for run in scene.lines:
         dash = f' stroke-dasharray="{run.dasharray}"' if run.dasharray else ""
@@ -2326,10 +2385,12 @@ def room_svg(
     floors: dict[str, int] | None = None,
     outline: list[tuple[float, float]] | None = None,
     buildings: list[Any] | None = None,
+    top_down: bool = False,
 ) -> str | None:
     """One room's isometric drawing, or None when the area has no room part.
 
-    ``view`` turns the view by quarter turns (see ``VIEWS``). ``large_text``
+    ``view`` turns the view by quarter turns (see ``VIEWS``); ``top_down``
+    draws it from straight above instead (see ``project``). ``large_text``
     draws the labels (sizes, R-values) at ``LARGE_TEXT`` times their size.
     Arrows show the rooms it links to (see ``_add_links``). ``floors``,
     ``outline`` and ``buildings`` are as for ``house_svg``: the room is drawn
@@ -2344,8 +2405,9 @@ def room_svg(
     rotation = float(house.get("rotation") or 0.0)
     unit = house.get("unit", "m")
     scene = Scene(
-        north=_north(rotation, view),
+        north=_north(rotation, view, top_down),
         view=view % 4,
+        top_down=top_down,
         text_scale=LARGE_TEXT if large_text else 1.0,
     )
     if _footprint(room) is None:
@@ -2402,10 +2464,17 @@ def room_svg(
             "Dash-dotted faces share a neighbour with no internal wall typed yet."
         )
     scene.notes.append(
-        f"Looking from the {VIEWS[view % 4]}. Windows and doors (brown) sit centred, "
+        f"{_looking(view, top_down)} Windows and doors (brown) sit centred, "
         f"window sills at {SILL:g} m."
     )
     return render(scene)
+
+
+def _looking(view: int, top_down: bool) -> str:
+    """The caption that says where the drawing is seen from."""
+    if top_down:
+        return f"From above, {UP_BY_VIEW[view % 4]} at the top."
+    return f"Looking from the {VIEWS[view % 4]}."
 
 
 def _notes_for(
@@ -2431,8 +2500,13 @@ def house_svg(
     buildings: list[Any] | None = None,
     large_text: bool = False,
     level: int | None = None,
+    top_down: bool = False,
 ) -> str:
     """The house from its rooms at their positions, with the heating runs on it.
+
+    ``top_down`` draws it from straight above (see ``project``). Floors seen
+    from above would lie over each other, so with more than one they are
+    always drawn apart, one above the other up the page.
 
     The floors are drawn stacked, each room over the ones below it.
     ``exploded`` draws them apart instead, one above the other up the page
@@ -2481,8 +2555,9 @@ def house_svg(
         }
     # each floor (by its floor, or its height) goes up the page from the one below
     floor_of = _floor_index(elements, {b.area for b in boxes}, floors)
-    apart = exploded and len(set(floor_of.values())) > 1
-    shifts = _floor_shifts(boxes, floor_of, view) if apart else {}
+    apart = (exploded or top_down) and len(set(floor_of.values())) > 1
+    spread = _top_down_shifts if top_down else _floor_shifts
+    shifts = spread(boxes, floor_of, view) if apart else {}
     drawn = [
         replace(
             b,
@@ -2508,8 +2583,9 @@ def house_svg(
     parts = _parts(elements)
     where = {b.area: b for b in boxes}
     scene = Scene(
-        north=_north(rotation, view),
+        north=_north(rotation, view, top_down),
         view=view % 4,
+        top_down=top_down,
         text_scale=LARGE_TEXT if large_text else 1.0,
     )
     if apart:
@@ -2563,7 +2639,7 @@ def house_svg(
     )
     if not boxes:
         notes.append("No rooms are drawn yet.")
-    key = f"Looking from the {VIEWS[view % 4]}."
+    key = _looking(view, top_down)
     if apart:
         key += (
             " Floors drawn apart: one above the other up the page, the lowest "

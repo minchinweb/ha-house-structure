@@ -88,6 +88,7 @@
       <span class="label">View</span>
       <button class="chip" type="button" data-turn="-1" title="Turn the view a quarter anticlockwise" aria-label="Turn anticlockwise">⟲</button>
       <button class="chip" type="button" data-turn="1" title="Turn the view a quarter clockwise" aria-label="Turn clockwise">⟳</button>
+      <button class="chip" type="button" id="top-down" aria-pressed="false" title="Draw it from straight above, as a plan (more than one floor: drawn apart)">From above</button>
       <span id="view-name" class="label" aria-live="polite"></span>
     </div>
     <div class="bar" id="floors" role="group" aria-label="Floors">
@@ -124,8 +125,11 @@ const INWC = 249.089;  // Pa
 const COLOURS = { between: "#ef6c00", gain: "#d32f2f", loss: "#1e6fd9", heat: "#d84315", sun: "#f9a825" };
 // the corner the drawing looks from, by quarter turns (drawing.py VIEWS)
 const VIEWS = ["south-west", "north-west", "north-east", "south-east"];
+// from above, the side at the top of the page, by the same quarter turns (drawing.py UP_BY_VIEW)
+const UP_BY_VIEW = ["north", "east", "south", "west"];
 const state = {
   house: null, room: null, part: null, exploded: false, view: 0,  // part: a floor or building key
+  topDown: false,        // drawn from straight above, a plan
   runs: true,            // the heating runs layer
   roofs: false,          // the roofs layer: off, as it hides the rooms
   dims: false,           // the room and wall sizes
@@ -228,11 +232,19 @@ function drawParts() {
   }));
 }
 
+// where the drawing is seen from, as words, and as the drawing's query
+const seenFrom = () => state.topDown
+  ? `from above, ${UP_BY_VIEW[state.view]} at the top`
+  : `from the ${VIEWS[state.view]}`;
+const viewQuery = () => `view=${state.view}&top=${state.topDown ? 1 : 0}`;
+
 function drawControls() {
   const whole = !state.room && !state.part;
-  document.getElementById("view-name").textContent = `from the ${VIEWS[state.view]}`;
-  // floors and overlays only mean something for the whole house
-  document.getElementById("floors").classList.toggle("hidden", !whole);
+  document.getElementById("view-name").textContent = seenFrom();
+  document.getElementById("top-down").setAttribute("aria-pressed", String(state.topDown));
+  // floors and overlays only mean something for the whole house; from above,
+  // the floors are always drawn apart
+  document.getElementById("floors").classList.toggle("hidden", !whole || state.topDown);
   for (const b of document.querySelectorAll("#floors button")) {
     b.setAttribute("aria-pressed", String(b.dataset.exploded === String(state.exploded)));
   }
@@ -286,9 +298,9 @@ async function loadDrawing() {
   if (state.room) {
     const room = state.house.rooms.find((r) => r.area_id === state.room);
     const text = state.bigText ? "large" : "normal";
-    url = `/api/house_structure/room.svg?area=${encodeURIComponent(state.room)}&view=${state.view}&text=${text}&v=${stamp}`;
-    box.setAttribute("aria-label", `${room ? room.name : "The room"}, from the ${VIEWS[state.view]}`);
-    hint.textContent = `The room from its size and its parts, looking from the ${VIEWS[state.view]}. `
+    url = `/api/house_structure/room.svg?area=${encodeURIComponent(state.room)}&${viewQuery()}&text=${text}&v=${stamp}`;
+    box.setAttribute("aria-label", `${room ? room.name : "The room"}, ${seenFrom()}`);
+    hint.textContent = `The room from its size and its parts, seen ${seenFrom()}. `
       + "Solid faces are typed walls; dotted are open to a neighbour; dash-dotted share a "
       + "neighbour with no internal wall typed yet; dashed have no wall part yet. "
       + "The dots are the registers' outlets. "
@@ -296,22 +308,24 @@ async function loadDrawing() {
   } else if (part && part.level != null) {
     // a floor: its rooms, and the stairs that reach it (drawn by the server)
     // its rooms too: another floor (a garage, say) can share its level
-    url = `/api/house_structure/plan.svg?level=${part.level}&areas=${encodeURIComponent(part.areas.join(","))}&view=${state.view}&text=${state.bigText ? "large" : "normal"}&v=${stamp}`;
-    box.setAttribute("aria-label", `${part.label}, from the ${VIEWS[state.view]}`);
-    hint.textContent = `${part.label} alone, its rooms at their places in the house, looking from the ${VIEWS[state.view]}. `
+    url = `/api/house_structure/plan.svg?level=${part.level}&areas=${encodeURIComponent(part.areas.join(","))}&${viewQuery()}&text=${state.bigText ? "large" : "normal"}&v=${stamp}`;
+    box.setAttribute("aria-label", `${part.label}, ${seenFrom()}`);
+    hint.textContent = `${part.label} alone, its rooms at their places in the house, seen ${seenFrom()}. `
       + "Stairs to another floor show their flight here, or their opening where they come up to this floor. "
       + "The heating runs go from the plenum to each register in it; they are schematic.";
   } else if (part) {
-    url = `/api/house_structure/plan.svg?areas=${encodeURIComponent(part.areas.join(","))}&view=${state.view}&text=${state.bigText ? "large" : "normal"}&v=${stamp}`;
-    box.setAttribute("aria-label", `${part.label}, from the ${VIEWS[state.view]}`);
-    hint.textContent = `${part.label} alone, its rooms at their places in the house, looking from the ${VIEWS[state.view]}. `
+    url = `/api/house_structure/plan.svg?areas=${encodeURIComponent(part.areas.join(","))}&${viewQuery()}&text=${state.bigText ? "large" : "normal"}&v=${stamp}`;
+    box.setAttribute("aria-label", `${part.label}, ${seenFrom()}`);
+    hint.textContent = `${part.label} alone, its rooms at their places in the house, seen ${seenFrom()}. `
       + "The heating runs go from the plenum to each register in it; they are schematic.";
   } else {
-    url = `/api/house_structure/plan.svg?exploded=${state.exploded ? 1 : 0}&view=${state.view}&text=${state.bigText ? "large" : "normal"}&v=${stamp}`;
-    box.setAttribute("aria-label", (state.exploded
+    // from above, the floors are always apart (the server draws them so)
+    const apart = state.exploded || state.topDown;
+    url = `/api/house_structure/plan.svg?exploded=${state.exploded ? 1 : 0}&${viewQuery()}&text=${state.bigText ? "large" : "normal"}&v=${stamp}`;
+    box.setAttribute("aria-label", (apart
       ? "The house, drawn from its rooms with the floors pulled apart"
-      : "The house, drawn from its rooms") + `, from the ${VIEWS[state.view]}`);
-    hint.textContent = (state.exploded
+      : "The house, drawn from its rooms") + `, ${seenFrom()}`);
+    hint.textContent = (apart
       ? "The floors apart, one above the other up the page, so each can be seen. "
       : "The rooms fitted together, each floor over the one below. ")
       + "The heating runs go from the plenum to each register; they are schematic.";
@@ -765,7 +779,7 @@ for (const b of document.querySelectorAll("#floors button")) {
     loadDrawing();
   });
 }
-for (const b of document.querySelectorAll("#turn button")) {
+for (const b of document.querySelectorAll("#turn button[data-turn]")) {
   b.addEventListener("click", () => {
     state.view = (state.view + Number(b.dataset.turn) + 4) % 4;
     lab.remember("house.view", state.view);
@@ -773,6 +787,13 @@ for (const b of document.querySelectorAll("#turn button")) {
     loadDrawing();
   });
 }
+document.getElementById("top-down").addEventListener("click", () => {
+  state.topDown = !state.topDown;
+  lab.remember("house.topDown", state.topDown);
+  drawControls();
+  loadDrawing();
+});
+state.topDown = lab.recall("house.topDown", false) === true;
 state.exploded = lab.recall("house.exploded", false) === true;
 state.view = [0, 1, 2, 3].includes(lab.recall("house.view", 0)) ? lab.recall("house.view", 0) : 0;
 state.runs = lab.recall("house.runs", true) !== false;

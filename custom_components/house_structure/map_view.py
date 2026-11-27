@@ -96,6 +96,11 @@ def _view(request: web.Request) -> int:
         return 0
 
 
+def _top_down(request: web.Request) -> bool:
+    """Whether to draw from straight above, from ``?top=1``."""
+    return request.query.get("top", "") in ("1", "true", "yes")
+
+
 # what Manual J publishes: its R-values for a part with none typed (m² K/W)
 DEFAULTS = "house_structure_defaults"
 
@@ -131,6 +136,7 @@ class RoomDrawingView(HomeAssistantView):
                 saved[1],
                 area,
                 view=_view(request),
+                top_down=_top_down(request),
                 defaults=_manual_j_defaults(self._hass),
                 large_text=request.query.get("text") == "large",
                 floors=saved[2],
@@ -170,6 +176,7 @@ class HousePlanView(HomeAssistantView):
                 saved[1],
                 exploded=exploded,
                 view=_view(request),
+                top_down=_top_down(request),
                 floors=saved[2],
                 defaults=_manual_j_defaults(self._hass),
                 only=_only(request),
