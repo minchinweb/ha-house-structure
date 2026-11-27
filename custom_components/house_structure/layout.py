@@ -194,6 +194,13 @@ class Floor:
         under: The walls the roofs of its rooms' ridges come down to: the
             rectangle round the rooms of the floor it is fitted to that have
             no roof of their own (see ``Room.ridge``).
+        sunk: Rooms with their floor too low for a room of the floor below
+            to be under them, such as a kitchen a few steps down: the floors
+            below are fitted under the rest of this one.
+        reach: Pairs of rooms that were both measured to take in the same
+            floor (the space in front of a door set across a corner, say), by
+            how far their sizes reach into each other: they may overlap that
+            much, at no cost, and are still against each other.
     """
 
     rooms: list[Room]
@@ -207,6 +214,8 @@ class Floor:
     wings: dict[str, str] = field(default_factory=dict)
     step_in: float = 0.0
     under: Rect | None = None
+    sunk: set[str] = field(default_factory=set)
+    reach: dict[tuple[str, str], float] = field(default_factory=dict)
 
 
 @dataclass
@@ -266,12 +275,18 @@ def linked_across(a: Rect, b: Rect, holes: list[Rect], tol: float = TOL) -> bool
     return False
 
 
-def _contacts(rects: list, tol: float = TOL, into: float | None = None):
+def _contacts(
+    rects: list,
+    tol: float = TOL,
+    into: float | None = None,
+    reach: dict[tuple[int, int], float] | None = None,
+):
     """Which rectangles are side by side: for each one, the stretches of its
     faces that others cover (from up to ``NEAR`` away, so a sliver of a gap
     does not make an outside wall), and for each pair that touches (no more
     than ``tol`` apart, or overlapping by no more than ``into``, which is
-    ``tol`` unless given), the face of the first and the length they share."""
+    ``tol`` unless given, and for a pair in ``reach`` that much more), the
+    face of the first and the length they share."""
     into = tol if into is None else into
     faces = [([], [], [], []) for _ in rects]
     pairs: dict[tuple[int, int], tuple[int, float]] = {}
@@ -283,14 +298,15 @@ def _contacts(rects: list, tol: float = TOL, into: float | None = None):
             if rects[j] is None:
                 continue
             bx0, by0, bx1, by1 = rects[j]
+            allow = into + (reach or {}).get((i, j), 0.0)
             lo, hi = max(ay0, by0), min(ay1, by1)
             # side by side east and west only if they share more than a
             # sliver north and south: rooms one over the other that overlap
             # by a hair are still one over the other
-            if hi - lo > into:
+            if hi - lo > allow:
                 gap = bx0 - ax1
                 side = E
-                if gap < -into:
+                if gap < -allow:
                     gap, side = ax0 - bx1, W
             else:
                 lo, hi = max(ax0, bx0), min(ax1, bx1)
@@ -298,9 +314,9 @@ def _contacts(rects: list, tol: float = TOL, into: float | None = None):
                     continue
                 gap = by0 - ay1
                 side = N
-                if gap < -into:
+                if gap < -allow:
                     gap, side = ay0 - by1, S
-            if gap < -into or gap > NEAR:
+            if gap < -allow or gap > NEAR:
                 continue
             faces[i][side].append((lo, hi))
             faces[j][_OPPOSITE[side]].append((lo, hi))
@@ -441,6 +457,13 @@ class _Fit:
                 self.base[index[b]] = index[a]
         self.has_links = {i for pair in self.linked for i in pair}
         self.has_links |= {w for w, room in self.main.items() if room in self.has_links}
+        # how far each pair of parts of rooms measured into each other may overlap
+        self.reach: dict[tuple[int, int], float] = {}
+        for (a, b), far in floor.reach.items():
+            if a in index and b in index and a != b and far > 0:
+                for p in self.whole.get(index[a], [index[a]]):
+                    for q in self.whole.get(index[b], [index[b]]):
+                        self.reach[(min(p, q), max(p, q))] = far
         self.walls: list[dict[int, float]] = []
         self.eaves: list[set[int]] = []
         self.mins: list[tuple[float, float]] = []
@@ -630,7 +653,7 @@ class _Fit:
         # rooms put down in places of their own touch though they overlap a
         # little, as sizes typed a little big make them
         faces, pairs = _contacts(
-            every, TOL, SLACK if isinstance(state, _Spots) else TOL
+            every, TOL, SLACK if isinstance(state, _Spots) else TOL, self.reach
         )
         parts = dict.fromkeys(
             (
@@ -781,16 +804,22 @@ class _Fit:
         if aspect > 2.0:
             parts["envelope"] += W_ENVELOPE * (aspect - 2.0) ** 2
         placed = [rect for rect in rects if rect is not None]
-        for other in self.fixed:
-            for rect in placed:
-                parts["overlap"] += W_OVERLAP * _overlap(rect, other) / total
+        for j, other in enumerate(self.fixed, n):
+            for i, rect in enumerate(rects):
+                if rect is not None:
+                    beyond = self._beyond(i, j, rect, other)
+                    parts["overlap"] += W_OVERLAP * beyond / total
         if isinstance(state, _Spots):  # rooms put down may overlap a little
-            for k, rect in enumerate(placed):
-                for other in placed[k + 1 :]:
-                    parts["overlap"] += W_OVERLAP * _overlap(rect, other) / total
+            for i, rect in enumerate(rects):
+                for j in range(i + 1, n):
+                    other = rects[j]
+                    if rect is None or other is None:
+                        continue
+                    beyond = self._beyond(i, j, rect, other)
+                    parts["overlap"] += W_OVERLAP * beyond / total
                     # more is one room in another: as bad as a link not met,
                     # and up to three, the further in it is
-                    into = _into(rect, other) - SLACK
+                    into = _into(rect, other) - SLACK - self._reach(i, j)
                     if into > 0:
                         parts["overlap"] += W_LINK * min(3.0, into / SLACK)
         for i, other in self.stack:
@@ -1338,12 +1367,18 @@ class _Fit:
         its room's face: at either end of it, so the two make an L, else
         lined up along it, else at the ends whatever is there."""
         every = [*rects, *self.fixed]
-        others = [r for k, r in enumerate(every) if r is not None and k != i]
+        keys = [k for k, r in enumerate(every) if r is not None and k != i]
+        others = [every[k] for k in keys]
         xs: set[float] = set()
         ys: set[float] = set()
         for rect in (*others, *self.support, *(r for _, r in self.stack)):
             xs |= {rect[0], rect[2]}
             ys |= {rect[1], rect[3]}
+        for k in keys:  # a room measured into this one: its sides, that far in
+            far = self._reach(i, k)
+            if far:
+                xs |= {every[k][0] + far, every[k][2] - far}
+                ys |= {every[k][1] + far, every[k][3] - far}
         if self.step_in:  # the footprint's sides, as far in as walls may step
             xs |= {v + self.step_in for v in self.lines[0]}
             xs |= {v - self.step_in for v in self.lines[2]}
@@ -1356,6 +1391,12 @@ class _Fit:
         else:
             partners = [
                 (every[j], f) for j, f in self.against[i] if every[j] is not None
+            ]
+            # and as far into one measured into it as it may go
+            partners += [
+                (_grown(every[j], -self._reach(i, j)), f)
+                for j, f in self.against[i]
+                if every[j] is not None and self._reach(i, j)
             ]
             tiers = [(partners, False)]
             if self.support or self.stack:
@@ -1396,7 +1437,9 @@ class _Fit:
             ok = [
                 rect
                 for rect in found_list
-                if not any(_into(rect, other) > SLACK for other in others)
+                if not any(
+                    _into(rect, every[k]) > SLACK + self._reach(i, k) for k in keys
+                )
                 and self._held(rect) >= 0.5
             ]
             if ok:
@@ -1429,6 +1472,21 @@ class _Fit:
                 self._footprint_of.clear()
             self._footprint_of[rect] = held
         return held
+
+    def _reach(self, i: int, j: int) -> float:
+        """How far parts ``i`` and ``j`` may overlap (see ``Floor.reach``)."""
+        return self.reach.get((i, j) if i < j else (j, i), 0.0) if self.reach else 0.0
+
+    def _beyond(self, i: int, j: int, a: Rect, b: Rect) -> float:
+        """The floor parts ``i`` and ``j`` (at ``a`` and ``b``) share, past
+        the strip across their faces that they may (see ``Floor.reach``)."""
+        area = _overlap(a, b)
+        far = self._reach(i, j)
+        if not far or not area:
+            return area
+        w = min(a[2], b[2]) - max(a[0], b[0])
+        d = min(a[3], b[3]) - max(a[1], b[1])
+        return max(0.0, min(w, d) - far) * max(w, d)
 
     def _walls_out(self, rect: Rect, i: int) -> bool:
         """Whether each of room ``i``'s outside walls, with the room at
@@ -1582,7 +1640,7 @@ class _Fit:
                         r = rects[p]
                         new[p] = (r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy)
                     if len(group) > 1 and any(
-                        _into(new[p], other) > SLACK
+                        _into(new[p], other) > SLACK + self._reach(p, k)
                         for p in group[1:]
                         for k, other in enumerate([*new, *self.fixed])
                         if k not in group and other is not None
@@ -1906,6 +1964,8 @@ def arrange(
             floor.fixed = {
                 k: _grown(r, half, near.get(k)) for k, r in floor.fixed.items()
             }
+            # rooms measured into each other have no wall between where they do
+            floor.reach = {k: far + wall for k, far in floor.reach.items() if far > 0}
     group_of: dict[str, tuple[str, ...]] = {}
     for group in mirror or ():
         for key in group:
@@ -1921,17 +1981,26 @@ def arrange(
             done = [k for k in group_of.get(room.key, ()) if k in placed]
             if done:
                 floor.rooms.remove(room)
-                floor.fixed[room.key] = placed[done[0]]
-                placed[room.key] = placed[done[0]]
+                rect = placed[done[0]]
+                if room.size:  # a shorter flight under a longer one keeps its size
+                    x, y = rect[0], rect[1]
+                    rect = (x, y, x + room.size[0], y + room.size[1])
+                floor.fixed[room.key] = rect
+                placed[room.key] = rect
                 copies[room.key] = done[0]
 
     for floor in floors:
         take_mirrors(floor)
     footprint: list[Rect] = []  # the first floor, for the others to line up with
+    ground: list[Rect] = []  # the same for the floors below: see ``Floor.sunk``
     under: Rect | None = None  # round its rooms with no roof: see ``Floor.under``
     live = [i for i, floor in enumerate(floors) if floor.rooms]
     if not live:  # every room is placed already
         return {k: _grown(r, -half, near.get(k)) for k, r in placed.items()}
+
+    def not_sunk(floor: Floor, rects: dict[str, Rect]) -> list[Rect]:
+        sunk = floor.sunk | {w for w, room in floor.wings.items() if room in floor.sunk}
+        return [r for k, r in rects.items() if k not in sunk]
 
     def weight(i: int) -> tuple:
         # with an outline, the biggest floor is fitted to it: rooms placed on
@@ -1948,6 +2017,7 @@ def arrange(
         if not floor.rooms:  # every room on it takes its place from another floor
             if i == first:
                 footprint = [*floor.fixed.values()]
+                ground = not_sunk(floor, floor.fixed)
             continue
         keys = {r.key for r in floor.rooms}
         floor.stack = [
@@ -1968,7 +2038,7 @@ def arrange(
                         floor.width, floor.voids = width, notches
         else:
             floor.free = True
-            floor.support = footprint
+            floor.support = footprint if i > first else ground
             floor.step_in = STEP_IN
             floor.under = under
             _aim(floor)
@@ -1980,6 +2050,7 @@ def arrange(
         placed.update(found)
         if i == first:
             footprint = [*found.values(), *floor.fixed.values(), *solver.holes]
+            ground = [*not_sunk(floor, {**found, **floor.fixed}), *solver.holes]
             # the walls the roofs over it stand on: round the rooms that have
             # no roof of their own (a wing's is its room's)
             roofed = {r.key for r in floor.rooms if r.eaves}
@@ -2005,8 +2076,10 @@ def arrange(
         if holes is not None:
             for key, rects in holes.items():
                 holes[key] = [_on_grid(rect, grid) for rect in rects]
-    for key, partner in copies.items():  # a mirror is the same rectangle as its partner
-        placed[key] = placed[partner]
+    for key, partner in copies.items():  # a mirror is where its partner is
+        x, y = placed[partner][:2]
+        size = sizes.get(key)
+        placed[key] = (x, y, x + size[0], y + size[1]) if size else placed[partner]
     return placed
 
 

@@ -201,6 +201,47 @@ def test_a_basement_a_little_smaller_than_the_floor_over_it_sits_under_it():
     assert lower[0] - upper[0] > 0.0 and upper[3] - lower[3] > 0.0
 
 
+def test_a_floor_below_is_not_fitted_under_a_sunken_room():
+    # the kitchen is a few steps down, west of the front room: the basement
+    # room's west wall is under the front room's west wall, not the kitchen's
+    ends = (("S", 0.0), ("N", 0.0))
+    main = Floor(
+        rooms=[
+            Room("kitchen", 12.0, size=(3.0, 4.0), walls=(*ends, ("W", 0.0))),
+            Room("front", 16.0, size=(4.0, 4.0), walls=(*ends, ("E", 0.0))),
+        ],
+        links=[("kitchen", "front", "E")],
+        sunk={"kitchen"},
+    )
+    basement = Floor(
+        rooms=[Room("rec", 16.0, size=(4.0, 4.0), walls=(*ends, ("W", 0.0)))]
+    )
+    placed = arrange([basement, main], [])
+    rec, front = placed["rec"], placed["front"]
+    assert rec[0] >= placed["kitchen"][2] - 0.01
+    assert rec[0] == pytest.approx(front[0], abs=STEP_IN + 0.01)
+
+
+def test_rooms_measured_into_each_other_may_overlap_that_much():
+    # the den and the bedroom were both measured to take in half a metre in
+    # front of the bedroom's door: 9 m of rooms in 8.5, and the laundry's
+    # outside wall still on the footprint's north side
+    floor = Floor(
+        rooms=[
+            Room("den", 12.0, (3.0, 4.0)),
+            Room("laundry", 6.0, (3.0, 2.0), walls=(("N", 0.0),)),
+        ],
+        fixed={"bed": (0.0, 0.0, 3.0, 3.0)},
+        links=[("bed", "den", "N"), ("den", "laundry", "N")],
+        support=[(0.0, 0.0, 3.0, 8.5)],
+        reach={("bed", "den"): 0.5},
+    )
+    placed = fit(floor)
+    assert placed["laundry"][3] == pytest.approx(8.5, abs=0.01)
+    assert 3.0 - placed["den"][1] == pytest.approx(0.5, abs=0.01)
+    assert cost_of(floor, {**placed, **floor.fixed})["links"] == 0
+
+
 def test_rooms_shaped_to_fit_are_whole_steps_of_the_grid():
     inch = 0.0254
     floor = _hub()
@@ -276,6 +317,20 @@ def test_a_mirror_takes_the_rectangle_of_its_partner_on_another_floor():
     across = min(k[2], s[2]) - max(k[0], s[0])
     up = min(k[3], s[3]) - max(k[1], s[1])
     assert across <= 1e-9 or up <= 1e-9  # the kitchen does not overlap the opening
+
+
+def test_a_shorter_flight_under_a_longer_one_keeps_its_own_length():
+    # the basement stairs, under the stairs up from the main floor: from the
+    # same corner, so the rooms round the shorter flight have the rest
+    main = Floor(
+        rooms=[Room("hall", 12.0, (4.0, 3.0)), Room("up", 3.0, (3.0, 1.0))],
+        links=[("hall", "up", "N")],
+    )
+    basement = Floor(rooms=[Room("down", 2.0, (2.0, 1.0))])
+    placed = arrange([basement, main], [], mirror=[("down", "up")], wall=0.1)
+    down, up = placed["down"], placed["up"]
+    assert down[:2] == pytest.approx(up[:2])
+    assert (down[2] - down[0], down[3] - down[1]) == pytest.approx((2.0, 1.0))
 
 
 def test_rooms_measured_inside_are_a_wall_apart_and_keep_their_sizes():

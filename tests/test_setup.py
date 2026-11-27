@@ -1411,6 +1411,36 @@ async def test_a_sheet_sets_a_roofs_eave(hass: HomeAssistant, house):
     assert row["eave"] == "12 in"
 
 
+async def test_a_sheet_sets_an_internal_walls_overlap(hass: HomeAssistant, house):
+    """An internal wall's row sets how far its two rooms were measured into
+    each other (0 or more, in the house's unit); its form and the exported
+    sheet show it."""
+    entry_id = house["entry_id"]
+    (wall,) = _subentries(hass, entry_id, "internal_wall")
+    rows = "id,kind,overlap\n{},internal_wall,{}\n"
+    result = await _paste(hass, entry_id, rows.format(wall.subentry_id, "-3"))
+    assert result["errors"] == {"sheet": "invalid_sheet"}, result
+    assert "Row 1, overlap:" in result["description_placeholders"]["problems"]
+    text = rows.format(wall.subentry_id, "12")
+    result = await _paste_and_accept(hass, entry_id, text)
+    assert result["type"] is FlowResultType.ABORT, result
+    (wall,) = _subentries(hass, entry_id, "internal_wall")
+    assert wall.data["overlap_m"] == pytest.approx(12 * 0.0254)
+    assert wall.data["other_area_id"] == house["bath"].id
+
+    result = await hass.config_entries.subentries.async_init(
+        (entry_id, "internal_wall"),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": wall.subentry_id},
+    )
+    assert _suggested(result)["overlap"] == "12 in"
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": entry_id}
+    )
+    sheet = parse(result["description_placeholders"]["sheet"])
+    (row,) = [cells for _, cells in sheet if cells["id"] == wall.subentry_id]
+    assert row["overlap"] == "12 in"
+
+
 async def test_a_window_follows_its_contact(hass: HomeAssistant, house) -> None:
     hass.states.async_set("binary_sensor.bay_contact", "off")
     await _add(

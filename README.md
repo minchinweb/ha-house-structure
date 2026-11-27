@@ -96,7 +96,7 @@ its room from there: a door in an internal wall joins the rooms on both sides.
 | Roof | the rooms under it, face, pitch (`45` or `12:12`), floor area under it (or length along the eave and slope length), eave overhang (measured flat) | solar exposure (W/m²) |
 | Window | the wall or roof it is in (and, in a shared roof, its room), glass size, share let in as heat, blind (a cover), contact sensor (a binary sensor, on when open) | solar gain (W), less what the blind keeps out; open (follows the contact; only for a window with one) |
 | Door | the outside or internal wall it is in, its contact sensor (a binary sensor, on when open), width, height (28 by 80 in between rooms and 32 by 80 in to outside, where not typed) | open (follows the contact; only for a door with one) |
-| Internal wall | the room on the other side, face of this room, length, height | this room minus the other (°C) |
+| Internal wall | the room on the other side, face of this room, length, height, overlap (where both rooms were measured) | this room minus the other (°C) |
 | Heating register | thermostat, its fan or damper | heating (on while the thermostat heats) |
 | Furnace | its room, input per stage (BTU/h), AFUE (%), blower curve | none |
 | Air conditioner | its indoor coil's room, size (tons), sensible capacity (BTU/h) | none |
@@ -140,7 +140,8 @@ that the stairs are beside or open to, so give the stairs those links too
 (such as the hall they come up into). Stairs "to" a room on their own floor
 reach no other floor, and are an ordinary room. A floor drawn alone shows only
 its part. Stacked stairs (one flight above another) line up when both flights
-are given the same x and y.
+are given the same x and y, or when the lower is linked as below the upper:
+both start from the same south-west corner, each as long as its own size.
 
 ## Parts as a sheet
 
@@ -247,7 +248,11 @@ Sizes are taken as measured inside a room, wall face to face, so rooms side
 by side are drawn a wall apart (4 1/2 inches, studs and board both sides),
 and rooms measured that way add up as the house does. Rooms whose sizes add
 up a few inches more than the space they fill (as tape-measured sizes do)
-still meet.
+still meet. Where two rooms were both measured to take in the same floor
+(the space in front of a door set across a corner, say), give the internal
+wall between them its **overlap**: how far their sizes reach into each
+other. They may then overlap that much, and the wall is still drawn between
+them.
 
 Rooms with a width and depth are placed where those sizes, the links and the
 outside walls put them: a room with two outside walls goes in the matching
@@ -259,7 +264,10 @@ more rooms have both sizes, the closer the drawing comes to the house.
 - An **outside wall** stays on the outside, with no room against it, for as
   much of the face as its length (the whole face if it has none).
 - A room sits **over the rooms it is above**, and each floor over the one
-  under it, with its sides on the same lines where it is big enough.
+  under it, with its sides on the same lines where it is big enough. A room
+  with its floor typed lower than the top of the floor under it (a kitchen a
+  few steps down) has none of that floor under it: a basement stays under
+  the rest of the main floor.
 - A room **under a ridge** (under two roofs that face away from each other
   and cover the same rooms, such as an attic room under a gable) sits where
   the roofs are as high over both its sides: over the middle of the walls

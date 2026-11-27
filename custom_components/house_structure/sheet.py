@@ -58,6 +58,7 @@ COLUMNS = (
     "beside",
     "above",
     "open",
+    "overlap",
     "transmittance",
     "blind",
     "blind_closed",

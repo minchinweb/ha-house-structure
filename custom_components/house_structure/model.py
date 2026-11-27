@@ -147,6 +147,9 @@ class Element:
     from_left_m: float | None = None
     # For a roof: how far its eave reaches past the wall below, measured flat.
     eave_m: float | None = None
+    # For an internal wall: how far the two rooms' sizes reach into each other,
+    # where both were measured to take in the same floor.
+    overlap_m: float | None = None
     # For a register: its outlet, from its room's south-west corner, and its
     # height above the floor.
     at_x_m: float | None = None
@@ -399,6 +402,7 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 length_m=_optional(d.get("length_m")),
                 height_m=_optional(d.get("height_m")),
                 face=face if face in OPPOSITE else None,
+                overlap_m=_optional(d.get("overlap_m")),
             )
     for raw in raws:
         if raw.kind != WINDOW:

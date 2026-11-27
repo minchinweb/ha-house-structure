@@ -227,6 +227,9 @@ class Box:
     # worked out or assumed), and whether its position was typed
     typed: frozenset[str] = frozenset({"width", "depth", "height"})
     fixed: bool = False
+    # the rooms measured into this one (see ``layout.Floor.reach``): each one's
+    # area, and how far their sizes overlap
+    reach: tuple[tuple[str, float], ...] = ()
 
 
 class Anchor(NamedTuple):
@@ -525,22 +528,24 @@ def _openings(
     return out
 
 
-def _shared_face(a: Box, b: Box) -> tuple[str, float, float] | None:
+def _shared_face(a: Box, b: Box, reach: float = 0.0) -> tuple[str, float, float] | None:
     """The face of room ``a`` that room ``b`` is on the other side of, and the
     stretch of it they share (metres along the face), or None if they do not
-    touch. The rooms must overlap in height too."""
+    touch. The rooms must overlap in height too. Rooms measured into each
+    other may overlap ``reach`` more."""
     if a.z >= b.z + b.height or b.z >= a.z + a.height:
         return None
+    # how far apart across each face (less than 0 where they overlap)
     across = {
-        "S": (abs(a.y - (b.y + b.depth)), a.x, b.x, a.width, b.width),
-        "N": (abs(a.y + a.depth - b.y), a.x, b.x, a.width, b.width),
-        "W": (abs(a.x - (b.x + b.width)), a.y, b.y, a.depth, b.depth),
-        "E": (abs(a.x + a.width - b.x), a.y, b.y, a.depth, b.depth),
+        "S": (a.y - (b.y + b.depth), a.x, b.x, a.width, b.width),
+        "N": (b.y - (a.y + a.depth), a.x, b.x, a.width, b.width),
+        "W": (a.x - (b.x + b.width), a.y, b.y, a.depth, b.depth),
+        "E": (b.x - (a.x + a.width), a.y, b.y, a.depth, b.depth),
     }
     for face in FACE_ORDER:
         gap, a0, b0, a_len, b_len = across[face]
         start, end = max(a0, b0), min(a0 + a_len, b0 + b_len)
-        if gap < TOUCH and end - start > 0.3:
+        if -TOUCH - reach < gap < TOUCH and end - start > 0.3:
             return face, start - a0, end - a0
     return None
 
@@ -994,8 +999,9 @@ def _parts_of(box: Box) -> list[Box]:
 
 def _touching(a: Box, b: Box) -> bool:
     """Whether two rooms share a wall: a room's wings are part of the room."""
+    far = dict(a.reach).get(b.area, 0.0)
     return any(
-        _shared_face(p, q) is not None for p in _parts_of(a) for q in _parts_of(b)
+        _shared_face(p, q, far) is not None for p in _parts_of(a) for q in _parts_of(b)
     )
 
 
@@ -1011,7 +1017,7 @@ def _against(here: Box, others: list[Box]) -> list[tuple[str, float, float]]:
     for there in [*others, *spaces]:
         if there.area == here.area:
             continue
-        found = _shared_face(here, there)
+        found = _shared_face(here, there, dict(here.reach).get(there.area, 0.0))
         if found is not None:
             out.append(found)
     return out
@@ -1023,9 +1029,10 @@ def _meeting(here: Box, there: Box) -> tuple[int, str, float, float] | None:
     that part and the stretch of it they share. The other room's wings are
     part of it. None if they do not touch."""
     others = _parts_of(there)
+    far = dict(here.reach).get(there.area, 0.0)
     for number, part in enumerate(_parts_of(here)):
         for other in others:
-            found = _shared_face(part, other)
+            found = _shared_face(part, other, far)
             if found is not None:
                 return (number, *found)
     return None
@@ -1474,6 +1481,12 @@ def _fit_house(
     ridges = _ridges(elements, rotation)
     pairs = _beside_pairs(elements)
     faces = _link_faces(elements)
+    # rooms measured into each other, by how far, from the walls between them
+    overlaps: dict[str, dict[str, float]] = {}
+    for e in elements.values():
+        if e.kind == INTERNAL_WALL and e.overlap_m and e.area_id and e.other_area_id:
+            overlaps.setdefault(e.area_id, {})[e.other_area_id] = e.overlap_m
+            overlaps.setdefault(e.other_area_id, {})[e.area_id] = e.overlap_m
     above = [
         (area, item["area_id"])
         for area, items in neighbours(elements).items()
@@ -1506,6 +1519,12 @@ def _fit_house(
     for number, members in enumerate(structures):
         lines = _floor_lines(members, floors)
         levels.update(_levels(lines, floors))
+        # each floor's top: a room above it with its floor lower than that (a
+        # kitchen a few steps down) has none of the floor under it
+        tops = [
+            max(levels[r.area_id or ""] + (r.height_m or DEFAULT_CEILING) for r in line)
+            for line in lines
+        ]
         # the keys that take one rectangle: each flight with its copy on its other
         # floor, and a stacked flight with the one it stacks on
         here = {r.area_id or "" for r in members}
@@ -1534,8 +1553,14 @@ def _fit_house(
                     _join(same, area, copy)
         mirror = [tuple(sorted(group)) for group in same]
         plan: list[layout.Floor] = []
-        for line in lines:
+        for k, line in enumerate(lines):
             floor = layout.Floor(rooms=[])
+            if k:  # (a flight's copy has no level of its own)
+                floor.sunk = {
+                    r.area_id or ""
+                    for r in line
+                    if levels.get(r.area_id or "", math.inf) < tops[k - 1]
+                }
             for room in line:
                 area = room.area_id or ""
                 width, depth, why = _footprint(room)
@@ -1591,6 +1616,12 @@ def _fit_house(
             floor.links = [
                 (a, b, faces.get((a, b))) for a, b in pairs if a in here and b in here
             ]
+            floor.reach = {
+                (a, b): far
+                for a in here
+                for b, far in overlaps.get(a, {}).items()
+                if b in here
+            }
             # a flight's opening on this floor is against what the flight is
             for copy in [k for k in here if k.endswith(MIRROR)]:
                 flight = copy.removesuffix(MIRROR)
@@ -1656,7 +1687,11 @@ def _fit_house(
         box = _box(room, rect[0], rect[1], levels.get(area, 0.0), unit, size)
         if box is None:
             continue
-        box = replace(box, holes=tuple(holes.get(area, ())))
+        box = replace(
+            box,
+            holes=tuple(holes.get(area, ())),
+            reach=tuple(sorted(overlaps.get(area, {}).items())),
+        )
         if area in paired:
             # the flight is on the lower floor, its opening on the upper one
             own, up = levels.get(area, 0.0), levels.get(paired[area], 0.0)

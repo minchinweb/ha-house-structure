@@ -825,6 +825,22 @@ def test_a_room_under_a_ridge_is_over_the_middle_of_the_walls_below():
     assert attic.x + attic.width / 2 == pytest.approx(middle, abs=0.1)
 
 
+def test_a_room_a_few_steps_down_has_no_basement_under_it():
+    # the kitchen's floor is below the basement's ceiling: the basement room
+    # with a west wall is under the living room's west wall, not the kitchen's
+    elements = _elements(
+        _room("kitchen", width_m=3.0, depth_m=4.0, level_m=-0.6, beside=["living"]),
+        _room("living", width_m=4.0, depth_m=4.0),
+        _room("rec", width_m=4.0, depth_m=4.0),
+        _wall("k", "kitchen", "W"),
+        _wall("r", "rec", "W"),
+    )
+    floors = {"kitchen": 0, "living": 0, "rec": -1}
+    at = {b.area: b for b in _place(elements, "m", floors)[0]}
+    kitchen, rec = at["kitchen"], at["rec"]
+    assert rec.x >= kitchen.x + kitchen.width - 0.01
+
+
 def test_the_origin_is_on_the_outline_corner_when_rooms_start_inside_it():
     # the rooms start a wall's width in from the house's south-west corner
     box = Box("A", "a", 0.2, 0.2, 0.0, 3.0, 3.0, 2.4)
@@ -1537,6 +1553,23 @@ def test_an_internal_wall_is_drawn_from_both_rooms_even_without_a_door():
         assert "not drawn" not in svg
         assert svg.count(INSIDE_FILL) == 1  # the shared wall
         assert svg.count(DASHED) == 3  # its other three faces
+
+
+def test_rooms_measured_into_each_other_share_a_wall_though_they_overlap():
+    # both were measured to take in the space in front of the door between
+    # them: they overlap by half a metre, and the wall is still between them
+    def elements(**wall):
+        return _elements(
+            _room("bed", width_m=4.0, depth_m=3.0, height_m=2.4, x_m=0.0, y_m=0.0),
+            _room("den", width_m=4.0, depth_m=3.0, height_m=2.4, x_m=0.0, y_m=2.5),
+            _internal("int", "bed", "den", **wall),
+        )
+
+    for area in ("bed", "den"):
+        svg = room_svg(elements(overlap_m=0.5), HOUSE, area)
+        assert "not drawn" not in svg
+        assert svg.count(INSIDE_FILL) == 1  # the shared wall
+    assert "not drawn" in room_svg(elements(), HOUSE, "bed")
 
 
 def test_an_open_internal_wall_is_dotted_not_solid():

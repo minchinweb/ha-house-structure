@@ -551,12 +551,14 @@
             "face": "Face of this room",
             "length": "Length",
             "height": "Height",
-            "open": "Open (an opening, not a wall)"
+            "open": "Open (an opening, not a wall)",
+            "overlap": "Overlap, where both rooms were measured"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
             "face": "Which face of this room the other room sits on (north, east, south or west). Leave blank to let the house drawing choose. Several neighbours can share one face.",
-            "open": "Tick when the two rooms have an opening with no wall between them, such as an arch. The temperature difference is still measured across it."
+            "open": "Tick when the two rooms have an opening with no wall between them, such as an arch. The temperature difference is still measured across it.",
+            "overlap": "When both rooms were measured to take in the same floor, such as the space in front of a door set across a corner, how far their sizes reach into each other. The house drawing lets the two overlap that much. Blank: none."
           }
         },
         "reconfigure": {
@@ -569,12 +571,14 @@
             "face": "Face of this room",
             "length": "Length",
             "height": "Height",
-            "open": "Open (an opening, not a wall)"
+            "open": "Open (an opening, not a wall)",
+            "overlap": "Overlap, where both rooms were measured"
           },
           "data_description": {
             "name": "Leave empty for a name from the room.",
             "face": "Which face of this room the other room sits on (north, east, south or west). Leave blank to let the house drawing choose. Several neighbours can share one face.",
-            "open": "Tick when the two rooms have an opening with no wall between them, such as an arch. The temperature difference is still measured across it."
+            "open": "Tick when the two rooms have an opening with no wall between them, such as an arch. The temperature difference is still measured across it.",
+            "overlap": "When both rooms were measured to take in the same floor, such as the space in front of a door set across a corner, how far their sizes reach into each other. The house drawing lets the two overlap that much. Blank: none."
           }
         }
       },
@@ -592,6 +596,7 @@
         "invalid_volume": "Give a size more than 0: a number in the house's unit, or with its own unit, like 3.2 m, 12' 6\" or 14 sq ft.",
         "invalid_other_area_id": "The two sides must be different rooms.",
         "invalid_face": "Choose north, east, south or west.",
+        "invalid_overlap": "Give a distance of 0 or more, such as 0.3 m or 1' 0\".",
         "room_exists": "This area already has a room; edit that one instead."
       }
     },

@@ -271,6 +271,7 @@ _DISTANCES = {
     WINDOW: ("from_left",),
     DOOR: ("from_left",),
     ROOF: ("eave",),
+    INTERNAL_WALL: ("overlap",),
 }
 PLENUM = ("plenum_x", "plenum_y", "plenum_z")
 
