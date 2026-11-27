@@ -284,6 +284,36 @@ def test_a_room_placed_on_another_floor_leaves_the_outline_in_use():
         assert not (x1 > 5.2 and y0 < 4.8), key  # nothing in the missing quarter
 
 
+def test_a_pinwheel_of_rooms_that_keep_their_sizes_comes_out_as_built():
+    # four rooms round a fifth, each against the next: no cut runs across
+    # the house, so a slicing tree cannot make it; rooms put down where
+    # their outside walls and links say do
+    truth = {
+        "a": ((0.0, 0.0, 4.0, 2.0), "SW"),
+        "b": ((4.0, 0.0, 6.0, 4.0), "SE"),
+        "c": ((2.0, 4.0, 6.0, 6.0), "NE"),
+        "d": ((0.0, 2.0, 2.0, 6.0), "NW"),
+        "e": ((2.0, 2.0, 4.0, 4.0), ""),
+    }
+    floor = Floor(
+        rooms=[
+            Room(
+                key,
+                _area(r),
+                (r[2] - r[0], r[3] - r[1]),
+                tuple((f, 0.0) for f in faces),
+            )
+            for key, (r, faces) in truth.items()
+        ],
+        links=[
+            (a, b, None) for a, b in ("ab", "bc", "cd", "da", "ea", "eb", "ec", "ed")
+        ],
+    )
+    placed = arrange([floor], [], outline=[(0, 0), (6, 0), (6, 6), (0, 6)])
+    for key, (rect, _) in truth.items():
+        assert placed[key] == pytest.approx(rect, abs=0.01), key
+
+
 def test_rooms_one_over_the_other_that_overlap_by_a_hair_touch():
     _, pairs = _contacts([(0.0, 0.0, 2.0, 1.01), (0.0, 1.0, 2.0, 2.0)])
     assert pairs[(0, 1)] == (N, pytest.approx(2.0))

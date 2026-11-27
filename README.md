@@ -235,7 +235,14 @@ known, and a position typed for one room still leaves the outline in use.
 
 Sizes are taken as measured inside a room, wall face to face, so rooms side
 by side are drawn a wall apart (4 1/2 inches, studs and board both sides),
-and rooms measured that way add up as the house does.
+and rooms measured that way add up as the house does. Rooms whose sizes add
+up a few inches more than the space they fill (as tape-measured sizes do)
+still meet.
+
+Rooms with a width and depth are placed where those sizes, the links and the
+outside walls put them: a room with two outside walls goes in the matching
+corner of the outline, and each room against the rooms it is linked to. The
+more rooms have both sizes, the closer the drawing comes to the house.
 
 - Rooms **linked beside** each other share a wall, on the face an internal
   wall names if it names one.

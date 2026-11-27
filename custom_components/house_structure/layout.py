@@ -18,11 +18,19 @@ the outside.
 Which tree is best is searched for: the rooms are added one at a time where
 they fit best, and the result is then improved a step at a time (a room moved,
 two swapped, a cut turned), with a few random steps (from a fixed seed, so the
-same house always gives the same layout) to get out of a dead end. A layout
-costs more for:
+same house always gives the same layout) to get out of a dead end.
+
+Not every house is a slicing tree (four rooms round a fifth, a pinwheel, is
+not), and a room that keeps its size is put where a cut leaves it, not where
+it is built. So the rooms are also put down one at a time in places of their
+own (``_Fit._by_place``): each against a room it is linked to, its sides on
+the lines of what is there, and a room with outside walls where they are
+outside the footprint, so the corner rooms go in the footprint's corners.
+Whichever of the two layouts costs less is kept. A layout costs more for:
 
 * linked rooms that do not share a wall (or share the wrong face);
-* an outside wall with another room against it, or shorter than its length;
+* an outside wall with another room against it, or shorter than its length,
+  or with the footprint beyond it;
 * a face with no outside wall that is left on the outside;
 * rooms touching that are not linked (when both have links to other rooms);
 * long thin rooms, and a long thin house;
@@ -51,6 +59,11 @@ N, E, S, W = 0, 1, 2, 3
 FACE_INDEX = {"N": N, "E": E, "S": S, "W": W}
 _OPPOSITE = (S, W, N, E)
 
+
+def _flip(face: int | None) -> int | None:
+    return None if face is None else _OPPOSITE[face]
+
+
 TOL = 0.05  # m: edges this close are the same edge
 TRUE = 0.3  # m: a floor's side this close to its footprint's is put on it
 NEAR = 0.6  # m: a room this close to a face covers it
@@ -72,8 +85,10 @@ SEED = 20261113
 # against the floor's area, so a big house costs the same as a small one.
 W_LINK = 10.0
 W_FACE = 4.0  # linked, but not on the face the internal wall names
+WING_LINK = 3.0  # how many links a wing apart from its room (or off its face) is
 W_WALL = 6.0  # an outside wall that is covered, or too short
 W_FULL = 1.5  # an outside wall with no length, partly covered
+W_OUT = 6.0  # an outside wall with the footprint on the far side of it
 W_BARE = 2.0  # a face with no outside wall, on the outside
 W_EAVE = 0.5  # a face under a roof's eave, covered
 W_STRAY = 1.0  # rooms touching that are not linked
@@ -94,8 +109,16 @@ FLUSH_REACH = 1.0  # m: a side this far from a line costs all of W_FLUSH
 JOG = 0.75  # m: corners of an outline this close are on one line
 HALLS = 0.4  # how much of a floor may be holes (halls no room was given)
 # what a layout of only some of a floor's rooms is not judged on: how it sits
-# over its footprint, which it cannot yet fill
+# over its footprint, which it cannot yet fill (rooms put down in their places
+# are judged on whether they are over it)
 PARTIAL_LEFT_OUT = ("support", "flush", "cover")
+PLACING_LEFT_OUT = ("flush", "cover")
+PLACE_BEAM = 12  # layouts kept while the rooms are put down one at a time
+PLACE_TRIES = 6000  # layouts tried while the rooms put down are moved
+# m: how far rooms put down may overlap, for sizes typed a little big, or
+# rooms open to each other with no wall between
+SLACK = 0.15
+SIZED_SHARE = 4  # the tree's tries are cut to this share for rooms all sized
 FILL = 0.85  # the least of a building outline's area that is floor (not walls)
 
 ASPECT = 1.8  # a room may be this much longer than wide before it costs
@@ -169,11 +192,27 @@ class _State:
     anchors: tuple[tuple[int, int], ...]  # each room's corner of its piece
 
 
+@dataclass(frozen=True)
+class _Spots:
+    """A layout as each room's own rectangle (None for one not put down yet),
+    for the search by place (see ``_Fit._by_place``)."""
+
+    rects: tuple
+
+
 def _overlap(a: Rect, b: Rect) -> float:
     """The area two rectangles share."""
     w = min(a[2], b[2]) - max(a[0], b[0])
     d = min(a[3], b[3]) - max(a[1], b[1])
     return w * d if w > 0 and d > 0 else 0.0
+
+
+def _into(a: Rect, b: Rect) -> float:
+    """How far two rectangles overlap: the narrower way across what they share
+    (0 when they do not overlap)."""
+    w = min(a[2], b[2]) - max(a[0], b[0])
+    d = min(a[3], b[3]) - max(a[1], b[1])
+    return min(w, d) if w > 0 and d > 0 else 0.0
 
 
 def _apart(a: Rect, b: Rect) -> float:
@@ -198,11 +237,13 @@ def linked_across(a: Rect, b: Rect, holes: list[Rect], tol: float = TOL) -> bool
     return False
 
 
-def _contacts(rects: list, tol: float = TOL):
+def _contacts(rects: list, tol: float = TOL, into: float | None = None):
     """Which rectangles are side by side: for each one, the stretches of its
     faces that others cover (from up to ``NEAR`` away, so a sliver of a gap
     does not make an outside wall), and for each pair that touches (no more
-    than ``tol`` apart), the face of the first and the length they share."""
+    than ``tol`` apart, or overlapping by no more than ``into``, which is
+    ``tol`` unless given), the face of the first and the length they share."""
+    into = tol if into is None else into
     faces = [([], [], [], []) for _ in rects]
     pairs: dict[tuple[int, int], tuple[int, float]] = {}
     for i, first in enumerate(rects):
@@ -217,10 +258,10 @@ def _contacts(rects: list, tol: float = TOL):
             # side by side east and west only if they share more than a
             # sliver north and south: rooms one over the other that overlap
             # by a hair are still one over the other
-            if hi - lo > tol:
+            if hi - lo > into:
                 gap = bx0 - ax1
                 side = E
-                if gap < -tol:
+                if gap < -into:
                     gap, side = ax0 - bx1, W
             else:
                 lo, hi = max(ax0, bx0), min(ax1, bx1)
@@ -228,9 +269,9 @@ def _contacts(rects: list, tol: float = TOL):
                     continue
                 gap = by0 - ay1
                 side = N
-                if gap < -tol:
+                if gap < -into:
                     gap, side = ay0 - by1, S
-            if gap < -tol or gap > NEAR:
+            if gap < -into or gap > NEAR:
                 continue
             faces[i][side].append((lo, hi))
             faces[j][_OPPOSITE[side]].append((lo, hi))
@@ -396,9 +437,22 @@ class _Fit:
         # search starts with it low, so that a layout can pass through wrong
         # sizes on its way to a better one, and ends with it whole.
         self.stiff = 1.0
-        # Whether the layout is only part of the floor (rooms still to come),
-        # which is not yet over its footprint: see ``_build``.
-        self.partial = False
+        # What a layout of only part of the floor (rooms still to come) is not
+        # judged on: see ``_build`` and ``_by_place``.
+        self.left_out: tuple[str, ...] = ()
+        self._footprint_of: dict[Rect, float] = {}  # see ``_over``
+        # for the search by place: the rooms each room may be against, with
+        # the face of that room it is on when a link names one
+        self.against: list[list[tuple[int, int | None]]] = [[] for _ in range(self.n)]
+        for a, b, want in self.links:
+            for i, j, face in ((b, a, want), (a, b, _flip(want))):
+                for p in self.whole.get(i, (i,)):
+                    if p >= self.n:
+                        continue
+                    for q in self.whole.get(j, (j,)):
+                        exact = face if (p, q) == (i, j) else None
+                        if q != p and (q, exact) not in self.against[p]:
+                            self.against[p].append((q, exact))
 
     # the layout a state stands for
 
@@ -436,8 +490,18 @@ class _Fit:
             self._split(first, x0, y0, x1, y0 + share, cells)
             self._split(second, x0, y0 + share, x1, y1, cells)
 
-    def layout(self, state: _State):
+    def layout(self, state: _State | _Spots):
         """Each room's rectangle, each leaf's piece, and the whole rectangle."""
+        if isinstance(state, _Spots):  # each room is its own piece
+            rects = list(state.rects)
+            there = [r for r in rects if r is not None] or [(0.0, 0.0, 0.0, 0.0)]
+            envelope = (
+                min(r[0] for r in there),
+                min(r[1] for r in there),
+                max(r[2] for r in there),
+                max(r[3] for r in there),
+            )
+            return rects, list(rects), envelope
         areas = [
             r.size[0] * r.size[1] if r.size else r.area for r in self.rooms
         ] + list(state.voids)
@@ -494,7 +558,7 @@ class _Fit:
             cells = [c and (c[0] + dx, c[1] + dy, c[2] + dx, c[3] + dy) for c in cells]
         return rects, cells, (dx, dy, dx + width, dy + depth)
 
-    def cost(self, state: _State, detail: dict | None = None) -> float:
+    def cost(self, state: _State | _Spots, detail: dict | None = None) -> float:
         """What a layout costs (see the module's notes). ``detail`` is filled
         with the cost by fault, for looking into a layout."""
         rects, cells, envelope = self.layout(state)
@@ -508,7 +572,11 @@ class _Fit:
         ]
         every = rects + self.fixed + holes
         first_hole = len(every) - len(holes)
-        faces, pairs = _contacts(every)
+        # rooms put down in places of their own touch though they overlap a
+        # little, as sizes typed a little big make them
+        faces, pairs = _contacts(
+            every, TOL, SLACK if isinstance(state, _Spots) else TOL
+        )
         parts = dict.fromkeys(
             (
                 "links",
@@ -557,24 +625,29 @@ class _Fit:
                             got = other
             else:
                 apart = _apart(a, b)
+            # a wing apart from its room is no L, and costs the more
+            wing = self.main.get(j) == i or self.main.get(i) == j
+            weight = WING_LINK if wing else 1.0
             if got is not None and got[1] >= need:
                 if want is not None and got[0] != want:
-                    parts["links"] += W_FACE
-            elif any(
+                    parts["links"] += W_FACE * weight
+            elif not wing and any(
                 any(pairs.get((p, h), (0, 0.0))[1] >= need for p in mine)
                 and any(pairs.get((q, h), (0, 0.0))[1] >= need for q in yours)
                 for h in range(first_hole, len(every))
             ):
                 parts["links"] += W_ACROSS
             elif got is not None:
-                parts["links"] += W_LINK * (1.0 - 0.5 * got[1] / need)
+                parts["links"] += W_LINK * weight * (1.0 - 0.5 * got[1] / need)
             else:
-                parts["links"] += W_LINK * (1.0 + apart / scale)
+                parts["links"] += W_LINK * weight * (1.0 + apart / scale)
         for i in range(n):
             if rects[i] is None:
                 continue
             x0, y0, x1, y1 = rects[i]
             walls, eaves = self.walls[i], self.eaves[i]
+            for f, need in walls.items() if self.support else ():
+                parts["walls"] += W_OUT * self._kept_in(rects[i], f, need)
             for f in (N, E, S, W):
                 span = max((x1 - x0) if f in (N, S) else (y1 - y0), 1e-6)
                 covered = min(span, sum(hi - lo for lo, hi in faces[i][f]))
@@ -655,6 +728,15 @@ class _Fit:
         for other in self.fixed:
             for rect in placed:
                 parts["overlap"] += W_OVERLAP * _overlap(rect, other) / total
+        if isinstance(state, _Spots):  # rooms put down may overlap a little
+            for k, rect in enumerate(placed):
+                for other in placed[k + 1 :]:
+                    parts["overlap"] += W_OVERLAP * _overlap(rect, other) / total
+                    # more is one room in another: as bad as a link not met,
+                    # and up to three, the further in it is
+                    into = _into(rect, other) - SLACK
+                    if into > 0:
+                        parts["overlap"] += W_LINK * min(3.0, into / SLACK)
         for i, other in self.stack:
             rect = rects[i]
             if rect is None:
@@ -672,13 +754,11 @@ class _Fit:
             cover = 0.0
             for rect in placed:
                 area = (rect[2] - rect[0]) * (rect[3] - rect[1])
-                held = sum(_overlap(rect, other) for other in self.support)
+                held = self._over(rect)
                 parts["support"] += W_SUPPORT * max(0.0, area - held) / total
                 cover += held
             # a hole is floor too (a hallway), but only so much of a floor
-            halls = sum(
-                _overlap(hole, other) for hole in holes for other in self.support
-            )
+            halls = sum(self._over(hole) for hole in holes)
             cover += min(halls, HALLS * total)
             parts["cover"] += W_COVER * max(0.0, self.footprint - cover) / total
             # each side of the floor is on a line of its footprint
@@ -688,8 +768,8 @@ class _Fit:
                 parts["flush"] += W_FLUSH * min(1.0, off / FLUSH_REACH)
         if detail is not None:
             detail.update(parts)
-        if self.partial:
-            return sum(v for k, v in parts.items() if k not in PARTIAL_LEFT_OUT)
+        if self.left_out:
+            return sum(v for k, v in parts.items() if k not in self.left_out)
         return sum(parts.values())
 
     # the search
@@ -816,6 +896,9 @@ class _Fit:
         area = self.total + sum(voids)
         width = floor.width or math.sqrt(area * 1.3)
         x = y = 0.0
+        if self.support and not self.free:  # at the footprint's corner
+            x = min(r[0] for r in self.support)
+            y = min(r[1] for r in self.support)
         if self.free and not self.stack and not self.support and self.fixed:
             x = max(r[2] for r in self.fixed)  # beside what is placed
             y = min(r[1] for r in self.fixed)
@@ -933,11 +1016,11 @@ class _Fit:
         Part of a floor is not yet as big as its footprint, nor in its place
         over it, so it is judged without the footprint (see
         ``PARTIAL_LEFT_OUT``): by its links, outside walls and shapes."""
-        self.partial = True
+        self.left_out = PARTIAL_LEFT_OUT
         try:
             return self._build_beam(start)
         finally:
-            self.partial = False
+            self.left_out = ()
 
     def _build_beam(self, start: _State) -> list[_State]:
         order = [_at(start.tree, path) for path in _leaves(start.tree)]
@@ -972,6 +1055,11 @@ class _Fit:
         start = self._start(floor, rng)
         leaves = self.n + len(start.voids)
         tries = min(TRIES_MOST, max(TRIES_LEAST.get(leaves, 12000), TRIES * leaves))
+        # rooms that all keep their sizes are put down best by place (see
+        # ``_by_place``): the tree is only a check on that, and searched less
+        sized = all(room.size for room in self.rooms)
+        if sized:
+            tries //= SIZED_SHARE
         best, best_cost = start, self.cost(start)
         if leaves > 1:
             for state in self._build(start)[:3]:
@@ -986,7 +1074,7 @@ class _Fit:
         # a small floor with a footprint to line up with is quick, and is
         # searched hot as well: that gets it out of a layout that only a few
         # steps together would better
-        hot = self.free and self.support and 1 < leaves <= SMALL
+        hot = self.free and self.support and 1 < leaves <= SMALL and not sized
         heats = [HEAT_HOT] * 3 + [HEAT] if hot else [HEAT]
         found = []
         for first in heats:
@@ -1014,7 +1102,12 @@ class _Fit:
             state, cost, _ = self._improve(state, self.cost(state), keep // 2)
             if cost < best_cost:
                 best, best_cost = state, cost
-        self.best = best = self._tidy(best)
+        best = self._tidy(best)
+        # and by putting each room down where it fits best: the better of the two
+        placed = self._by_place()
+        if placed is not None and placed[1] < self.cost(best) - 1e-6:
+            best = placed[0]
+        self.best = best
         rects, cells, envelope = self.layout(best)
         self.holes = [c for c in cells[self.n :] if not _on_edge(c, envelope)]
         rects = self._trued(rects)
@@ -1054,6 +1147,322 @@ class _Fit:
                     if not dy and 0 < abs(line - edge) < 2 * TOL:
                         dy = line - edge
         return _replace(state, x=state.x + dx, y=state.y + dy)
+
+    # the search by place
+
+    def _by_place(self) -> tuple[_Spots, float] | None:
+        """The best layout found by putting each room down in a place of its
+        own, and its cost; None when there is none.
+
+        A room is put against a room it is linked to that is down already,
+        each of its sides lined up with a line of what is there (a room's
+        side, the footprint's, a room above or below); a room with outside
+        walls goes where those faces are outside the footprint, so the first
+        rooms go in its corners. The rooms go down one at a time, the most
+        tied to what is down first, and the best few layouts are kept for the
+        next (``PLACE_BEAM``). Then the best few are made better
+        (``_settle``).
+
+        Rooms that keep their sizes fit this best: a slicing tree (``solve``)
+        cannot make every layout, and a room is put down here where it is
+        built, not where a cut of the floor leaves it.
+        """
+        if not self.n:
+            return None
+        start = (None,) * self.n
+        beam, _ = self._put_down(start, self._place_order(start), PLACE_BEAM)
+        best: tuple[float, tuple] | None = None
+        tries = PLACE_TRIES
+        for rects in beam[:3]:
+            cost = self.cost(_Spots(rects))
+            rects, cost, tries = self._settle(rects, cost, max(tries, PLACE_TRIES // 4))
+            if best is None or cost < best[0]:
+                best = (cost, rects)
+        return (_Spots(best[1]), best[0]) if best else None
+
+    def _put_down(self, start: tuple, order: list[int], width: int):
+        """Layouts with the rooms in ``order`` put down one at a time on
+        ``start``, each in every place it may go, keeping the best ``width``
+        for the next room. Returns them, the best first, and how many layouts
+        were tried."""
+        beam: list[tuple[float, tuple]] = [(0.0, start)]
+        tried = 0
+        self.left_out = PLACING_LEFT_OUT
+        try:
+            for i in order:
+                found: dict[tuple, tuple[float, tuple]] = {}
+                for _, rects in beam:
+                    for rect in self._spots(rects, i):
+                        new = (*rects[:i], rect, *rects[i + 1 :])
+                        key = _rounded(new)
+                        if key not in found:
+                            found[key] = (self.cost(_Spots(new)), new)
+                tried += len(found)
+                beam = sorted(found.values(), key=lambda item: item[0])[:width]
+        finally:
+            self.left_out = ()
+        return [rects for _, rects in beam], tried
+
+    def _place_order(self, rects: tuple) -> list[int]:
+        """The rooms not yet down in ``rects``, in the order they are put
+        down: each time, the one with the most links to rooms down already,
+        counting each outside wall (up to two, a corner) as one, when there is
+        a footprint to be outside of; the bigger first when that is even. A
+        wing goes down right after its room."""
+        down = {i for i, rect in enumerate(rects) if rect is not None}
+        down |= set(range(self.n, self.n + len(self.fixed)))
+        order: list[int] = []
+        todo = [i for i in range(self.n) if i not in down]
+        while todo:
+
+            def weight(i: int) -> tuple:
+                linked = sum(1 for j, _ in self.against[i] if j in down)
+                walls = min(2, len(self.walls[i])) if self.support else 0
+                if not down and not self.support:  # the first: the most linked
+                    linked = len(self.against[i])
+                return (linked + walls, self.rooms[i].area)
+
+            ready = [i for i in todo if self.main.get(i) not in todo]
+            wings = [i for i in ready if i in self.main]  # its room is down
+            i = wings[0] if wings else max(ready or todo, key=weight)
+            order.append(i)
+            down.add(i)
+            todo.remove(i)
+        return order
+
+    def _shapes(self, i: int, rects: tuple) -> list[tuple[float, float]]:
+        """The widths and depths room ``i`` may take: its own, or for a room
+        with only a floor area, a few as big as that (square, longer each way,
+        as long as a side of a room it is against)."""
+        room = self.rooms[i]
+        if room.size:
+            return [room.size]
+        area = room.area
+        side = math.sqrt(area)
+        limit = ASPECT_LONG if room.long else ASPECT
+        shapes = {(side, side)}
+        for stretch in (1.3, limit):
+            shapes |= {(side * math.sqrt(stretch), side / math.sqrt(stretch))}
+            shapes |= {(side / math.sqrt(stretch), side * math.sqrt(stretch))}
+        every = [*rects, *self.fixed]
+        for j, _ in self.against[i]:
+            other = every[j]
+            if other is None:
+                continue
+            for length in (other[2] - other[0], other[3] - other[1]):
+                if (
+                    length > 0
+                    and max(length, area / length) / min(length, area / length) <= limit
+                ):
+                    shapes |= {(length, area / length), (area / length, length)}
+        return sorted(shapes)
+
+    def _spots(self, rects: tuple, i: int) -> list[Rect]:
+        """Where room ``i`` may go, with the rooms in ``rects`` down: against
+        a room it is linked to, lined up with the lines of what is there (or
+        right over a room it is above or below). With none of those places
+        free, at a corner of those lines; then against any room down; at
+        last, east of them all.
+
+        None overlaps what is down (by more than ``SLACK``), or is mostly
+        off the footprint; a room with outside walls keeps only the places
+        where they are outside it, if it has any. A wing is always against
+        its room's face: at either end of it, so the two make an L, else
+        lined up along it, else at the ends whatever is there."""
+        every = [*rects, *self.fixed]
+        others = [r for k, r in enumerate(every) if r is not None and k != i]
+        xs: set[float] = set()
+        ys: set[float] = set()
+        for rect in (*others, *self.support, *(r for _, r in self.stack)):
+            xs |= {rect[0], rect[2]}
+            ys |= {rect[1], rect[3]}
+        own = every[self.main[i]] if i in self.main else None
+        if own is not None:  # a wing, its room down
+            mine = [(own, f) for j, f in self.against[i] if j == self.main[i]]
+            tiers: list = [(mine, True), (mine, False)]
+        else:
+            partners = [
+                (every[j], f) for j, f in self.against[i] if every[j] is not None
+            ]
+            tiers = [(partners, False)]
+            if self.support or self.stack:
+                tiers.append((None, False))  # a corner of the lines
+            tiers.append(([(rect, None) for rect in others], False))
+        shapes = self._shapes(i, rects)
+        first: list[Rect] = []
+        for number, (tier, ends) in enumerate(tiers):
+            found: set[Rect] = set()
+            for wide, deep in shapes:
+                if tier is None:
+                    for x in {*xs, *(v - wide for v in xs)}:
+                        for y in {*ys, *(v - deep for v in ys)}:
+                            found.add((x, y, x + wide, y + deep))
+                    continue
+                if not number:  # right over a room above or below it
+                    for k, other in self.stack:
+                        if k == i:
+                            for x in (other[0], other[2] - wide):
+                                for y in (other[1], other[3] - deep):
+                                    found.add((x, y, x + wide, y + deep))
+                for other, face in tier:
+                    for f in (N, E, S, W) if face is None else (face,):
+                        if f in (E, W):
+                            x = other[2] if f == E else other[0] - wide
+                            for y in _along(other[1], other[3], deep, ys, ends):
+                                found.add((x, y, x + wide, y + deep))
+                        else:
+                            y = other[3] if f == N else other[1] - deep
+                            for x in _along(other[0], other[2], wide, xs, ends):
+                                found.add((x, y, x + wide, y + deep))
+            found_list = sorted(found)
+            first = first or found_list
+            ok = [
+                rect
+                for rect in found_list
+                if not any(_into(rect, other) > SLACK for other in others)
+                and self._held(rect) >= 0.5
+            ]
+            if ok:
+                outside = [rect for rect in ok if self._walls_out(rect, i)]
+                return outside or ok
+        if own is not None and first:
+            return first
+        wide, deep = shapes[0]
+        if not others:
+            return [(0.0, 0.0, wide, deep)]
+        east = max(r[2] for r in others)
+        south = min(r[1] for r in others)
+        return [(east, south, east + wide, south + deep)]
+
+    def _held(self, rect: Rect) -> float:
+        """How much of a rectangle is over the footprint (all of it, with no
+        footprint)."""
+        if not self.support:
+            return 1.0
+        area = max((rect[2] - rect[0]) * (rect[3] - rect[1]), 1e-9)
+        return self._over(rect) / area
+
+    def _over(self, rect: Rect) -> float:
+        """How much of a rectangle is over the footprint, in m² (kept, as the
+        same rectangles come again and again)."""
+        held = self._footprint_of.get(rect)
+        if held is None:
+            held = sum(_overlap(rect, other) for other in self.support)
+            if len(self._footprint_of) > 50_000:  # a tree's are seldom the same
+                self._footprint_of.clear()
+            self._footprint_of[rect] = held
+        return held
+
+    def _walls_out(self, rect: Rect, i: int) -> bool:
+        """Whether each of room ``i``'s outside walls, with the room at
+        ``rect``, is mostly on the outside of the footprint."""
+        if not self.support:
+            return True
+        return all(
+            self._kept_in(rect, f, need) <= 0.5 for f, need in self.walls[i].items()
+        )
+
+    def _kept_in(self, rect: Rect, f: int, need: float) -> float:
+        """How much of an outside wall (``need`` long, or the whole face for
+        0) has footprint beyond it, from 0 to 1: the share of a strip
+        ``NEAR`` deep outside the face that is footprint, past what of the
+        face is not outside."""
+        x0, y0, x1, y1 = rect
+        strip = {
+            W: (x0 - NEAR, y0, x0, y1),
+            E: (x1, y0, x1 + NEAR, y1),
+            S: (x0, y0 - NEAR, x1, y0),
+            N: (x0, y1, x1, y1 + NEAR),
+        }[f]
+        span = max((x1 - x0) if f in (N, S) else (y1 - y0), 1e-6)
+        inside = self._over(strip) / (NEAR * span)
+        return max(0.0, inside - 1.0 + min(need or span, span) / span)
+
+    def _settle(self, rects: tuple, cost: float, tries: int):
+        """A layout made better while it can be (or the tries run out): each
+        room moved on its own (``_nudge``), and then each room and the rooms
+        it is linked to lifted and put down again, which moves rooms that are
+        in each other's way. Returns the layout, its cost and the tries left."""
+        while tries > 0:
+            rects, cost, tries = self._nudge(rects, cost, tries)
+            better = False
+            for i in self._place_order((None,) * self.n):
+                group = {i, *(j for j, _ in self.against[i] if j < self.n)}
+                group |= {w for w, room in self.main.items() if room in group}
+                group |= {self.main[w] for w in group if w in self.main}
+                lifted = tuple(None if k in group else r for k, r in enumerate(rects))
+                layouts, tried = self._put_down(lifted, self._place_order(lifted), 3)
+                tries -= tried
+                for new in layouts:
+                    new_cost = self.cost(_Spots(new))
+                    if new_cost < cost - 1e-9:
+                        rects, cost, better = new, new_cost, True
+                        break
+                if better or tries <= 0:
+                    break
+            if not better:
+                break
+        return rects, cost, tries
+
+    def _nudge(self, rects: tuple, cost: float, tries: int):
+        """Move each room (with its wings) to its best place with the others
+        where they are, while that makes the layout better (or the tries run
+        out). Returns the layout, its cost and the tries left."""
+        better = True
+        while better and tries > 0:
+            better = False
+            for i in range(self.n):
+                if i in self.main:
+                    group = [i]
+                else:
+                    group = [p for p in self.whole.get(i, [i]) if p < self.n]
+                rest = list(rects)
+                for p in group:
+                    rest[p] = None
+                old = rects[i]
+                for rect in self._spots(tuple(rest), i):
+                    if rect == old:
+                        continue
+                    new = list(rest)
+                    new[i] = rect
+                    dx, dy = rect[0] - old[0], rect[1] - old[1]
+                    for p in group[1:]:
+                        r = rects[p]
+                        new[p] = (r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy)
+                    if len(group) > 1 and any(
+                        _into(new[p], other) > SLACK
+                        for p in group[1:]
+                        for k, other in enumerate([*new, *self.fixed])
+                        if k not in group and other is not None
+                    ):
+                        continue
+                    tries -= 1
+                    new_cost = self.cost(_Spots(tuple(new)))
+                    if new_cost < cost - 1e-9:
+                        rects, cost, better = tuple(new), new_cost, True
+                        break
+                    if tries <= 0:
+                        break
+                if tries <= 0:
+                    break
+        return rects, cost, tries
+
+
+def _along(lo: float, hi: float, size: float, lines, ends_only: bool = False):
+    """Where something ``size`` long may start along a side from ``lo`` to
+    ``hi`` and share at least a doorway of it: at either end, or with its
+    start or end on one of the ``lines`` (only at the ends, for a wing)."""
+    need = min(SHARE, 0.6 * min(size, hi - lo))
+    starts = {lo, hi - size}
+    if not ends_only:
+        for line in lines:
+            starts |= {line, line - size}
+    return [s for s in starts if min(s + size, hi) - max(s, lo) >= need - 1e-9]
+
+
+def _rounded(rects: tuple) -> tuple:
+    """A layout's rectangles to the centimetre, to tell layouts apart."""
+    return tuple(None if r is None else tuple(round(v, 2) for v in r) for r in rects)
 
 
 def _replace(state: _State, **changes) -> _State:
@@ -1150,8 +1559,10 @@ def outline_cells(
     inside them, so it is shrunk until it is as big as the rooms; but no
     smaller than ``FILL`` of its own area. Rooms smaller than that leave floor
     that no room was given (a hallway, the stairs): the outline keeps its
-    size, and the rooms are fitted with a void as big as what is left. Its
-    south-west corner goes to 0, 0.
+    size, and the rooms are fitted with a void as big as what is left. The
+    outline's own south-west corner goes to 0, 0, where positions are
+    measured from, and it is shrunk towards its middle, so each side comes in
+    by about the outside wall's thickness.
 
     Args:
         points: The corners in the house's grid (east, north), in metres.
@@ -1203,15 +1614,15 @@ def outline_cells(
     if own <= 0:
         return [], [], 0.0
     shrink = math.sqrt(max(area, FILL * own) / own)
-    rects = [
-        (
-            (xs[i] - xs[0]) * shrink,
-            (ys[j] - ys[0]) * shrink,
-            (xs[i + 1] - xs[0]) * shrink,
-            (ys[j + 1] - ys[0]) * shrink,
-        )
-        for i, j in sorted(filled)
-    ]
+    mid_x, mid_y = (xs[-1] - xs[0]) / 2, (ys[-1] - ys[0]) / 2
+
+    def x_of(i: int) -> float:
+        return mid_x + (xs[i] - xs[0] - mid_x) * shrink
+
+    def y_of(j: int) -> float:
+        return mid_y + (ys[j] - ys[0] - mid_y) * shrink
+
+    rects = [(x_of(i), y_of(j), x_of(i + 1), y_of(j + 1)) for i, j in sorted(filled)]
     # the notches: each group of empty cells that touch
     empty = {(i, j) for i in range(len(xs) - 1) for j in range(len(ys) - 1)} - filled
     notches: list[float] = []

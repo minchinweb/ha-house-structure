@@ -11,8 +11,6 @@ to leave room for the walls between them.
 
 from __future__ import annotations
 
-import pytest
-
 from custom_components.house_structure.constants import ROOM, WALL
 from custom_components.house_structure.drawing import _place
 from custom_components.house_structure.geometry import FEET_INCHES, FOOT, INCH
@@ -130,11 +128,12 @@ def _parts() -> list[Raw]:
             beside=["bedroom"],
             open=["back_hall"],
         ),
-        # and the bedroom under the one above, its place typed
+        # and the bedroom under the one above, its place typed (as deep as
+        # that one, so that it reaches the stairs where they are built)
         _room(
             "bedroom_below",
             _ft(11),
-            _ft(9),
+            _ft(9, 10),
             above=["bedroom"],
             beside=["stairs"],
             x_m=_ft(13.58),
@@ -177,18 +176,13 @@ def _fit() -> tuple[dict[str, float], list[str]]:
 
 
 def test_model_house_1_meets_every_link():
-    off, notes = _fit()
+    _, notes = _fit()
     assert not [n for n in notes if "could not be placed" in n], notes
-    # each room is near its place (before rooms had walls between them, the
-    # rooms were 19 ft out on average, and the kitchen 38)
-    assert sum(off.values()) / len(off) <= 10.0, off
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="the search settles on a looser layout (rooms ~9 ft out on average) "
-    "than the one as built, though that costs less",
-)
 def test_model_house_1_comes_out_as_it_is_built():
+    # before rooms had walls between them, the rooms were 19 ft out on
+    # average, and the kitchen 38; with walls but only the slicing tree to
+    # search with, 9 ft
     off, _ = _fit()
     assert all(v <= LIMIT for v in off.values()), off
