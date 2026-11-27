@@ -213,7 +213,9 @@ Above the drawing:
   one under it. A room less than 3 1/2 ft above a floor's lowest room (a
   split level's half flight) stays on that floor.
 - **Show** switches the layers: the **heating runs** (on to start with), the
-  **roofs** (off, as they hide the rooms), the **temperature difference**, and
+  **roofs** (off, as they hide the rooms), the **dimensions** (the rooms'
+  sizes, and the building outline dashed round the main floor, with its
+  overall size), the **temperature difference**, and
   any overlay another integration adds, such as Home Thermal Lab's heat flow
   between the rooms.
 

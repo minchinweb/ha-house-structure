@@ -27,6 +27,7 @@ from custom_components.house_structure.drawing import (
     OPEN_DASH,
     OPENING_FILL,
     OPENING_GAP,
+    OUTLINE_COLOUR,
     SLAB,
     Scene,
     _add_connections,
@@ -697,6 +698,17 @@ def _two_rooms(**hall):
         ),
         Raw("door", DOOR, "Door to hall", {"host": "int"}),
     )
+
+
+def test_the_dimensions_layer_draws_the_building_outline():
+    # the outline in the house's grid; positions are from its south-west corner
+    elements = _elements(*_two_rooms(x_m=4.0, y_m=0.0))
+    outline = [(10.0, 20.0), (16.0, 20.0), (16.0, 23.0), (10.0, 23.0)]
+    svg = house_svg(elements, {"unit": "m"}, outline=outline)
+    dims = re.search(r'<g data-layer="dims">(.*?)</g>', svg).group(1)
+    assert dims.count(OUTLINE_COLOUR) == 1  # one dashed line, round the rooms
+    assert ">outline 6 m by 3 m<" in dims
+    assert OUTLINE_COLOUR not in house_svg(elements, {"unit": "m"})
 
 
 def test_an_inside_door_is_drawn_on_the_shared_face():

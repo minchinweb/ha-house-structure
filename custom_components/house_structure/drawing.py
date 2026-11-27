@@ -134,6 +134,8 @@ WORKED_NOTE = (
 # the positions layer (see ``_add_positions``): the origin, and a pin on each room
 # with a typed position
 ORIGIN_COLOUR, POSITION_COLOUR = "#333333", "#00796b"
+# the building outline, on the dimensions layer
+OUTLINE_COLOUR, OUTLINE_DASH = "#c62828", "8 4"
 FACE_ORDER = ("N", "E", "S", "W")  # far faces first, so the near ones overlay them
 NEAR_FACES = ("S", "W")
 # The corner the drawing looks from, by quarter turns of the view (``view``):
@@ -2370,6 +2372,57 @@ def _add_positions(scene: Scene, pinned: list[tuple[Box, Box]], unit: str) -> No
         scene.labels.append(Label(corner, text, "positions"))
 
 
+def _add_outline(
+    scene: Scene,
+    outline: list[tuple[float, float]] | None,
+    pairs: list[tuple[Box, Box]],
+    floors: dict[str, int] | None,
+    unit: str,
+) -> None:
+    """The building outline on the ``dims`` layer: the shape the floors are
+    fitted to, from its south-west corner (where positions are measured from),
+    dashed at the main floor's height, with its overall size.
+
+    ``pairs`` are each room drawn, where it is and where it is drawn. The
+    outline goes on the main floor (level 0), else the floor drawn nearest the
+    ground, and moves with it when the floors are drawn apart. It is left out
+    when none of the rooms drawn is inside it (a detached building alone).
+    """
+    if not outline or len(outline) < 3 or not pairs:
+        return
+    x0 = min(x for x, _ in outline)
+    y0 = min(y for _, y in outline)
+    wide = max(x for x, _ in outline) - x0
+    deep = max(y for _, y in outline) - y0
+    inside = [
+        (box, moved)
+        for box, moved in pairs
+        if 0.0 <= box.x + box.width / 2 <= wide and 0.0 <= box.y + box.depth / 2 <= deep
+    ]
+    if not inside:
+        return
+    main = [
+        pair
+        for pair in inside
+        if floors is not None and floors.get(pair[0].floor_area or pair[0].area) == 0
+    ]
+    if not main:
+        ground = min(abs(box.z) for box, _ in inside)
+        main = [pair for pair in inside if abs(pair[0].z) == ground]
+    box, moved = main[0]
+    dx, dy, z = moved.x - box.x, moved.y - box.y, moved.z
+    points = [(x - x0 + dx, y - y0 + dy, z) for x, y in outline]
+    scene.lines.append(
+        Run([*points, points[0]], OUTLINE_COLOUR, 1.6, "dims", OUTLINE_DASH)
+    )
+    scene.labels.append(
+        Label(
+            (wide / 2 + dx, dy, z),
+            f"outline {format_size(wide, unit)} by {format_size(deep, unit)}",
+        )
+    )
+
+
 def _head(start: Point, end: Point) -> list[Point]:
     """The two short lines of an arrowhead at ``end``, pointing back along the arrow."""
     d = [e - s for s, e in zip(start, end, strict=True)]
@@ -2585,8 +2638,9 @@ def house_svg(
     quarter turns (see ``VIEWS``). ``floors`` gives each area's floor level,
     which says which rooms share a floor.
 
-    ``outline`` is the building outline's corners in the house's grid, and
-    ``buildings`` the detached buildings, with where each sits (see ``_place``).
+    ``outline`` is the building outline's corners in the house's grid (also
+    drawn on the ``dims`` layer, see ``_add_outline``), and ``buildings`` the
+    detached buildings, with where each sits (see ``_place``).
 
     ``only`` draws just those areas' rooms (a floor or a detached building),
     still at their places in the whole house; their registers and runs go too.
@@ -2701,11 +2755,9 @@ def house_svg(
     _add_roofs(scene, drawn, elements, rotation, unit, defaults)
     _add_anchors(scene, real, layers, parts, rotation)
     _add_connections(scene, layers, elements)
-    _add_positions(
-        scene,
-        [(b, moved) for b, moved in zip(boxes, drawn, strict=True) if flight_here(b)],
-        unit,
-    )
+    here = [(b, moved) for b, moved in zip(boxes, drawn, strict=True) if flight_here(b)]
+    _add_positions(scene, here, unit)
+    _add_outline(scene, outline, here, floors, unit)
     if not boxes:
         notes.append("No rooms are drawn yet.")
     key = _looking(view, top_down)
