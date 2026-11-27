@@ -25,6 +25,7 @@ COLUMNS = (
     "kind",
     "name",
     "room_type",
+    "stairs_to",
     "area_id",
     "area_ids",
     "other_area_id",
@@ -70,6 +71,9 @@ COLUMNS = (
     "at_y",
     "at_z",
 )
+
+# A cell of only this clears the part's value (a list cell: every room in it).
+CLEAR = "-"
 
 # Edges this close (metres) are the same line.
 TOLERANCE = 1e-6

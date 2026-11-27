@@ -34,6 +34,7 @@ from custom_components.house_structure.diagnostics import (
 )
 from custom_components.house_structure.geometry import Plane
 from custom_components.house_structure.map_view import OutlineMapView
+from custom_components.house_structure.sheet import parse
 from custom_components.house_structure.sky import build_url, split
 from custom_components.house_structure.sun import sun_position
 
@@ -1113,6 +1114,53 @@ async def test_a_sheet_removes_a_link_from_both_rooms(hass: HomeAssistant, house
         {s.data["area_id"], s.data["other_area_id"]} == {kitchen.id, den.id}
         for s in walls
     )  # the wall part is kept
+
+
+async def test_a_sheet_sets_where_stairs_go_and_clears_values(
+    hass: HomeAssistant, house
+):
+    """A sheet takes the room stairs go to, by its name, and a cell of only
+    ``-`` clears a value: a position, a wing, or every room in a list (out of
+    both rooms)."""
+    areas = ar.async_get(hass)
+    hall = areas.async_create("Hall")
+    stairs = areas.async_create("Stairs")
+    den = areas.async_create("Den")
+    entry_id = house["entry_id"]
+    text = (
+        "kind,area_id,room_type,x,y,width,depth,level,wing_face,wing_width,wing_depth\n"
+        "room,Hall,hallway,0,0,120,96,0,,,\n"
+        "room,Stairs,stairs,120,0,36,96,0,,,\n"
+        "room,Den,room,156,0,96,96,0,N,48,24\n"
+    )
+    assert (await _paste_and_accept(hass, entry_id, text))["type"] is (
+        FlowResultType.ABORT
+    )
+    subs = {s.data["area_id"]: s for s in _subentries(hass, entry_id, "room")}
+    assert stairs.id in subs[den.id].data["open"]  # from the footprints
+
+    text = (
+        "id,kind,stairs_to,x,y,open,wing_face\n"
+        f"{subs[stairs.id].subentry_id},room,Hall,,,,\n"
+        f"{subs[den.id].subentry_id},room,,-,-,-,-\n"
+    )
+    result = await _paste_and_accept(hass, entry_id, text)
+    assert result["type"] is FlowResultType.ABORT, result
+    rooms = {s.data["area_id"]: s.data for s in _subentries(hass, entry_id, "room")}
+    assert rooms[stairs.id]["stairs_to"] == hall.id
+    assert not {"x_m", "y_m", "wing_face", "wing_width_m", "wing_depth_m"} & set(
+        rooms[den.id]
+    )
+    assert rooms[den.id]["width_m"] == pytest.approx(96 * 0.0254)  # kept
+    assert not rooms[den.id]["open"]
+    assert den.id not in rooms[stairs.id]["open"]
+
+    # and the sheet names the room the stairs go to
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": entry_id}
+    )
+    rows = [cells for _, cells in parse(result["description_placeholders"]["sheet"])]
+    assert next(r for r in rows if r["area_id"] == "Stairs")["stairs_to"] == "Hall"
 
 
 async def test_a_sheet_adds_windows_doors_and_registers(hass: HomeAssistant, house):

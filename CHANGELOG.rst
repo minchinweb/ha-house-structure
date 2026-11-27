@@ -3,6 +3,8 @@ Changelog
 
 .. release:: unreleased
 
+  - :feature:`-` **A sheet can clear a value**: a cell of only ``-`` clears it, such as a room's ``x`` and ``y`` (so it is fitted to the others again) or its ``wing_face`` (the wing goes, with its sizes); in a ``beside``, ``open`` or ``above`` list it takes out every room listed, from both rooms as ``-Room`` does. Before, a value could only be cleared on the part's form.
+  - :feature:`-` The sheet has a **stairs_to** column: the room stairs reach on the other floor, by its name.
   - :bug:`-` **Rooms are fitted a wall apart**: sizes are measured inside, so the house fitter now leaves a 4 1/2 inch wall between rooms side by side (and none between a room and its wing). Before, rooms measured inside could not all meet their neighbours, and the more sizes were typed, the further the layout drifted from the real house. Each room is drawn its own size.
   - :bug:`-` **A typed position no longer turns the building outline off**: with an outline, the biggest floor is always fitted to it, and positions are measured from its south-west corner. Before, one room with a position made its own floor the one every other floor was fitted over, and the outline was not used at all.
   - :bug:`-` **Stairs' opening on the floor above (or below) is fitted against the rooms the stairs are beside or open to**; before, it had no links there and could land anywhere, taking the flight with it. Stairs "to" a room on their own floor no longer add an extra room to fit.

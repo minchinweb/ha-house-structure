@@ -165,6 +165,10 @@ links. The internal wall part of a removed link is kept, and the sheet says so.
 The [setup guide](docs/setup.md) covers the order to add parts and the sheet in
 more detail.
 
+A blank cell keeps the part's value; a cell of only `-` clears it (in a list,
+it takes out every room listed), such as a room's `x` and `y`, so it is fitted
+again. Stairs name the room they reach in `stairs_to`.
+
 Sheets are read with tabs or commas, so a copy from a spreadsheet works.
 A part missing from the sheet is left alone. A line with only its `kind` and
 `name`, and no `id`, removes that part, unless another part still uses it. A row

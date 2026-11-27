@@ -88,6 +88,10 @@ A link you remove keeps its internal wall part, in case it has doors. The sheet 
 
 A blank cell changes nothing: a row needs only the cells it changes. Parts that are not in the sheet are left alone, so a sheet can hold just the rows you are editing.
 
+To clear a value, put only `-` in its cell: a room's `x` and `y` of `-` take its position away, so it is fitted to the others again. A `-` in `wing_face` takes the wing away with its sizes, and in a list (`beside`, `open`, `above`) it takes out every room listed, as `-Room` does for one.
+
+Stairs that reach another floor name the room they come up into (or go down to) in `stairs_to`, by its name.
+
 ### Removing a part
 
 Removal is explicit. Write a line with only its `kind` and its `name`, and no `id`, and the part is removed. The confirmation page lists it. A removal is refused while another part still uses that part: a room that has walls or windows, or a wall with windows or doors in it. Remove those in the same sheet, or change them first.

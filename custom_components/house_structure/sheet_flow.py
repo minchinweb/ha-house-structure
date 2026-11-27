@@ -4,7 +4,8 @@ against the house, write it, or export the house's parts as a sheet.
 
 A row with an ``id`` changes that part; a row without one adds a part. Each
 row is read the way its form reads it (``config_flow._from_form``), and nothing
-is written unless every row is. A room's ``beside``, ``above`` and ``open`` lists
+is written unless every row is. A blank cell keeps the part's value, and a cell
+of only ``-`` clears it. A room's ``beside``, ``above`` and ``open`` lists
 say its neighbours: a neighbour listed ``open`` (or a hallway or stairs on
 either side, when the lists are left blank) is open, with no wall between. A
 ``-`` before a room in those lists takes that link out of both rooms. Every link
@@ -25,7 +26,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.helpers import area_registry as ar
 from homeassistant.util.ulid import ulid_now
 
-from .config_flow import _from_form, _to_form, default_title
+from .config_flow import NO_WING, _from_form, _to_form, default_title
 from .constants import (
     DOOR,
     INTERNAL_WALL,
@@ -38,6 +39,7 @@ from .constants import (
 )
 from .geometry import FACE_NAMES, FieldError, format_size
 from .sheet import (
+    CLEAR,
     COLUMNS,
     Footprint,
     dump,
@@ -67,6 +69,8 @@ REQUIRED = {
 ROOM_LISTS = {ROOM: ("beside", "above", "open"), ROOF: ("area_ids",)}
 # The lists that link rooms: a link is entered by either room.
 LINK_LISTS = ("beside", "above", "open")
+# Cells that name one room, by its name or area id.
+ROOM_CELLS = ("area_id", "other_area_id", "stairs_to")
 
 
 @dataclass
@@ -287,15 +291,22 @@ def plan_sheet(hass, entry: ConfigEntry, text: str) -> SheetPlan:
                 if column not in ("id", "kind", "name") and value != ""
             }
             given = {key for key in LINK_LISTS if key in row} if kind == ROOM else set()
-            for key in ("area_id", "other_area_id"):
-                if key in row:
+            # a cell of only "-" clears the value: a list, of every room in it
+            cleared = {key for key, value in row.items() if value == CLEAR}
+            for key in ROOM_CELLS:
+                if key in row and key not in cleared:
                     row[key] = area_of(row[key])
             gone: list[tuple[str, str]] = []
             for key in ROOM_LISTS.get(kind, ()):
                 if key in row:
                     added: list[str] = []
                     removed: list[str] = []
-                    for part in _split(row[key]):
+                    if key in cleared:
+                        cleared.discard(key)
+                        parts = [f"-{area}" for area in base.get(key) or []]
+                    else:
+                        parts = _split(row[key])
+                    for part in parts:
                         if part.startswith("-"):
                             area = area_of(part[1:].strip())
                             removed.append(area)
@@ -304,6 +315,8 @@ def plan_sheet(hass, entry: ConfigEntry, text: str) -> SheetPlan:
                         else:
                             added.append(area_of(part))
                     row[key] = (added, removed)
+            for key in cleared:
+                del row[key]
             if kind == ROOM and "below_ground" in row:
                 row["below_ground"] = _yes(row["below_ground"])
             if kind == INTERNAL_WALL and "open" in row:
@@ -314,6 +327,11 @@ def plan_sheet(hass, entry: ConfigEntry, text: str) -> SheetPlan:
                 if wanted and kinds.get(row["host"]) not in wanted:
                     raise ValueError(f"the host must be a {' or '.join(wanted)}")
             form = dict(base)
+            for key in cleared:
+                if kind == ROOM and key == "wing_face":  # no wing, nor its sizes
+                    form[key] = NO_WING
+                else:
+                    form.pop(key, None)
             for key, value in row.items():
                 if key in ROOM_LISTS.get(kind, ()):
                     added, removed = value
@@ -596,7 +614,7 @@ def plan_sheet(hass, entry: ConfigEntry, text: str) -> SheetPlan:
             return "blank"
         if isinstance(value, bool):
             return "yes" if value else "no"
-        if key in ("area_id", "other_area_id"):
+        if key in ROOM_CELLS:
             return name_of(value)
         if isinstance(value, list):
             return "; ".join(name_of(item) for item in value)
@@ -683,7 +701,7 @@ def export_sheet(hass, entry: ConfigEntry) -> str:
             return "yes" if value else "no"
         if isinstance(value, list):
             return "; ".join(area_name(item) for item in value)
-        if key in ("area_id", "other_area_id"):
+        if key in ROOM_CELLS:
             return area_name(value)
         if key == "host":
             sub = entry.subentries.get(value)
