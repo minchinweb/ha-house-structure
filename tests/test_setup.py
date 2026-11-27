@@ -833,9 +833,11 @@ async def test_rooms_beside_and_above(hass: HomeAssistant, house) -> None:
     )
     assert result["type"] is FlowResultType.ABORT
     await hass.async_block_till_done()
-    saved = hass.config_entries.async_get_entry(entry_id).subentries[
-        master.subentry_id
-    ].data
+    saved = (
+        hass.config_entries.async_get_entry(entry_id)
+        .subentries[master.subentry_id]
+        .data
+    )
     assert not {"wing_face", "wing_width_m", "wing_depth_m"} & set(saved)
 
     rooms = hass.data[DOMAIN]["rooms"]
