@@ -132,6 +132,7 @@ const state = {
   rvalues: false,        // the R-values of the walls and roofs
   links: false,          // the lines between rooms that are linked (a plan's connections layer)
   names: false,          // the rooms' names, on a plan
+  positions: false,      // the origin, and where each room with a typed position is, on a plan
   delta: false,          // the temperature difference across each wall
   temps: null,           // the last temperatures asked for, for that layer
   tempsError: null,      // why they could not be loaded
@@ -255,6 +256,9 @@ function drawControls() {
     state.room ? null : chip("Room names", state.names, () => {
       state.names = !state.names; lab.remember("house.names", state.names); drawControls(); showLayers();
     }),
+    state.room ? null : chip("Positions", state.positions, () => {
+      state.positions = !state.positions; lab.remember("house.positions", state.positions); drawControls(); showLayers();
+    }, "The origin (the house's south-west corner), and where each room with a typed position is from it; rooms fitted to the others have no pin"),
     // the temperature difference across the walls: needs the rooms' temperature sensors
     chip("Temperature difference", state.delta, toggleDelta,
       "The temperature difference across each wall, with an arrow for the way heat is expected to flow"),
@@ -380,6 +384,9 @@ function showLayers() {
   }
   for (const g of svg.querySelectorAll('[data-layer="names"]')) {
     g.style.display = state.names ? "" : "none";
+  }
+  for (const g of svg.querySelectorAll('[data-layer="positions"]')) {
+    g.style.display = state.positions ? "" : "none";
   }
   // a roof's R-value goes with the roofs as well as with the R-values
   for (const g of svg.querySelectorAll('[data-layer="roofvalues"]')) {
@@ -774,6 +781,7 @@ state.dims = lab.recall("house.dims", false) === true;
 state.rvalues = lab.recall("house.rvalues", false) === true;
 state.links = lab.recall("house.links", false) === true;
 state.names = lab.recall("house.names", false) === true;
+state.positions = lab.recall("house.positions", false) === true;
 state.delta = lab.recall("house.delta", false) === true;
 state.bigText = lab.recall("house.bigText", true) !== false;
 state.on = new Set(lab.recall("house.overlays", []));

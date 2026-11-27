@@ -1199,6 +1199,58 @@ def test_an_untyped_part_shows_manual_js_default_footnoted_b():
     assert "*" not in svg
 
 
+def test_a_worked_out_room_size_is_footnoted_c_and_a_default_ceiling_a():
+    # width typed, depth from the floor area, no ceiling height
+    elements = _elements(_room("kitchen", width_m=4.0, floor_m2=12.0))
+    svg = room_svg(elements, HOUSE, "kitchen")
+    assert ">4 m wide</text>" in svg  # typed: no footnote
+    assert ">3 m deep<tspan" in svg and ">c</tspan>" in svg
+    assert ">2.4 m high<tspan" in svg and ">a</tspan>" in svg
+    assert "c: Worked out" in svg and "a: Size assumed" in svg
+
+
+def test_a_typed_room_size_has_no_footnote():
+    elements = _elements(_room("kitchen", width_m=4.0, depth_m=3.0, height_m=2.4))
+    svg = room_svg(elements, HOUSE, "kitchen")
+    assert ">4 m wide</text>" in svg and ">3 m deep</text>" in svg
+    assert ">2.4 m high</text>" in svg
+    assert "c: Worked out" not in svg and "a: Size assumed" not in svg
+
+
+def test_a_room_shaped_to_fit_has_both_sides_footnoted_c():
+    elements = _elements(_room("kitchen", floor_m2=12.0, height_m=2.4))
+    box = _place(elements, "m")[0][0]
+    assert box.typed == frozenset({"height"})
+
+
+def _positions(svg: str) -> str:
+    found = re.search(r'<g data-layer="positions">(.*?)</g>', svg)
+    return found.group(1) if found else ""
+
+
+def test_rooms_with_a_typed_position_are_pinned_on_the_positions_layer():
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0),
+        _room("den", width_m=3.0, depth_m=3.0, x_m=4.0, y_m=1.5),
+        _room("hall", width_m=2.0, depth_m=2.0),  # fitted: no pin
+    )
+    layer = _positions(house_svg(elements, HOUSE))
+    assert ">4 m E, 1.5 m N<" in layer and ">0 m E, 0 m N<" in layer
+    assert "Hall" not in layer
+    assert "Origin" in layer  # the house's south-west corner
+    assert layer.count("<circle") == 3  # the origin and the two pins
+    # a room drawn alone has no positions layer
+    assert 'data-layer="positions"' not in room_svg(elements, HOUSE, "den")
+
+
+def test_a_position_west_or_south_of_the_origin_says_so():
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0),
+        _room("porch", width_m=2.0, depth_m=1.0, x_m=-2.0, y_m=-1.0),
+    )
+    assert ">2 m W, 1 m S<" in _positions(house_svg(elements, HOUSE))
+
+
 def test_a_label_moves_to_the_nearest_clear_spot():
     box = (0.0, 40.0, 0.0, 10.0)
     below = (0.0, 40.0, 10.0, 20.0)  # touching the box's bottom, so clear

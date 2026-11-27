@@ -122,6 +122,14 @@ IMPLIED_LINE, IMPLIED_DASH = "#5d5346", "7 3 1.5 3"
 INWARD = {"S": (0.0, 1.0), "N": (0.0, -1.0), "W": (1.0, 0.0), "E": (-1.0, 0.0)}
 SIZE_NOTE = "a: Size assumed: no size typed, so the drawing uses its default size."
 DEFAULT_NOTE = "b: Manual J default R-value: none typed."  # its label is marked b
+# a room's width, depth or height that was not typed, but found from what was
+WORKED_NOTE = (
+    "c: Worked out, not typed: from the floor area or the floor heights, "
+    "or shaped to fit the rooms round it."
+)
+# the positions layer (see ``_add_positions``): the origin, and a pin on each room
+# with a typed position
+ORIGIN_COLOUR, POSITION_COLOUR = "#333333", "#00796b"
 FACE_ORDER = ("N", "E", "S", "W")  # far faces first, so the near ones overlay them
 NEAR_FACES = ("S", "W")
 # The corner the drawing looks from, by quarter turns of the view (``view``):
@@ -166,7 +174,8 @@ class Dot(NamedTuple):
 class Label(NamedTuple):
     """A short text drawn centred on a point, in its layer (``dims``, ``rvalues``).
 
-    ``note`` is the letter of a footnote (see ``SIZE_NOTE``, ``DEFAULT_NOTE``),
+    ``note`` is the letter of a footnote (see ``SIZE_NOTE``, ``DEFAULT_NOTE``,
+    ``WORKED_NOTE``),
     drawn small after the text.
     """
 
@@ -200,6 +209,10 @@ class Box:
     floor_area: str | None = None
     top_area: str | None = None
     top_z: float | None = None
+    # which of ``width``, ``depth`` and ``height`` were typed (the others were
+    # worked out or assumed), and whether its position was typed
+    typed: frozenset[str] = frozenset({"width", "depth", "height"})
+    fixed: bool = False
 
 
 class Anchor(NamedTuple):
@@ -344,6 +357,11 @@ def _box(
     )
     if fitted:
         size += " (shaped to fit: no width or depth typed)"
+    typed = set()
+    if not fitted:
+        typed = {n for n, v in (("width", room.width_m), ("depth", room.depth_m)) if v}
+    if room.height_m is not None:
+        typed.add("height")
     return Box(
         room.title,
         room.area_id or "",
@@ -354,6 +372,8 @@ def _box(
         depth,
         height,
         (f"{room.title}: {size}", *(f"{room.title}: {note}" for note in notes)),
+        typed=frozenset(typed),
+        fixed=room.x_m is not None and room.y_m is not None,
     )
 
 
@@ -645,22 +665,32 @@ def _r_label(
 
 
 def _room_dims(box: Box, unit: str) -> list[Label]:
-    """A room's width, depth and height, on its near edges."""
+    """A room's width, depth and height, on its near edges: one worked out is
+    footnoted ``c``, a ceiling height assumed ``a``."""
+
+    def note(side: str) -> str:
+        if side in box.typed:
+            return ""
+        return "a" if side == "height" and box.top_z is None else "c"
+
     return [
         Label(
             _on_face(box, "S", box.width / 2, 0.0),
             f"{format_size(box.width, unit)} wide",
             "dims",
+            note("width"),
         ),
         Label(
             _on_face(box, "E", box.depth / 2, 0.0),
             f"{format_size(box.depth, unit)} deep",
             "dims",
+            note("depth"),
         ),
         Label(
             (box.x + box.width, box.y, box.z + box.height / 2),
             f"{format_size(box.height, unit)} high",
             "dims",
+            note("height"),
         ),
     ]
 
@@ -1514,6 +1544,7 @@ def _fit_house(
                     floor_area=lower,
                     top_area=upper,
                     top_z=high,
+                    typed=box.typed - {"height"},  # from the floor heights
                 )
         wing = placed.get(area + WING)
         if wing is not None:
@@ -2098,6 +2129,8 @@ def render(scene: Scene, width: int = 900) -> str:
         notes.append(SIZE_NOTE)
     if "b" in footnotes:
         notes.append(DEFAULT_NOTE)
+    if "c" in footnotes:
+        notes.append(WORKED_NOTE)
     wrapped = [textwrap.wrap(note, CAPTION_CHARS) or [""] for note in notes]
     total = draw_h + LINE * sum(len(parts) for parts in wrapped) + 10
     captions = []
@@ -2163,6 +2196,50 @@ def _add_connections(
     for box in first.values():
         floor = (box.x + box.width / 2, box.y + box.depth / 2, box.z)
         scene.labels.append(Label(floor, box.title, "names"))
+
+
+def _position_text(x: float, y: float, unit: str) -> str:
+    """Where a point is from the origin, along the house grid: ``4 m E, 1.5 m N``."""
+    east = f"{format_size(abs(x), unit)} {'W' if x < 0 else 'E'}"
+    north = f"{format_size(abs(y), unit)} {'S' if y < 0 else 'N'}"
+    return f"{east}, {north}"
+
+
+def _add_positions(scene: Scene, pinned: list[tuple[Box, Box]], unit: str) -> None:
+    """The ``positions`` layer of a plan.
+
+    The origin (the house's south-west corner) is a dot on the lowest floor
+    drawn, when it is among the rooms drawn. Each room with a typed position
+    has a pin on its floor's south-west corner, labelled with that position.
+    ``pinned`` are each room's box where it is, and where it is drawn (moved
+    up the page when the floors are drawn apart). A room fitted to the others
+    has no pin.
+    """
+    drawn = [moved for _, moved in pinned]
+    if drawn:
+        east = min(b.x for b in drawn), max(b.x + b.width for b in drawn)
+        north = min(b.y for b in drawn), max(b.y + b.depth for b in drawn)
+        if east[0] <= 0.0 <= east[1] and north[0] <= 0.0 <= north[1]:
+            origin = (0.0, 0.0, min(b.z for b in drawn))
+            scene.dots.append(
+                Dot(
+                    origin,
+                    ORIGIN_COLOUR,
+                    "Origin: the house's south-west corner, where positions "
+                    "are measured from",
+                    "positions",
+                )
+            )
+            scene.labels.append(Label(origin, "origin", "positions"))
+    for box, moved in pinned:
+        if not box.fixed:
+            continue
+        text = _position_text(box.x, box.y, unit)
+        corner = (moved.x, moved.y, moved.z)
+        scene.dots.append(
+            Dot(corner, POSITION_COLOUR, f"{box.title}: at {text}", "positions")
+        )
+        scene.labels.append(Label(corner, text, "positions"))
 
 
 def _head(start: Point, end: Point) -> list[Point]:
@@ -2479,6 +2556,11 @@ def house_svg(
     _add_roofs(scene, drawn, elements, rotation, unit, defaults)
     _add_anchors(scene, real, layers, parts, rotation)
     _add_connections(scene, layers, elements)
+    _add_positions(
+        scene,
+        [(b, moved) for b, moved in zip(boxes, drawn, strict=True) if flight_here(b)],
+        unit,
+    )
     if not boxes:
         notes.append("No rooms are drawn yet.")
     key = f"Looking from the {VIEWS[view % 4]}."
