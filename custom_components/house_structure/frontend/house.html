@@ -88,7 +88,8 @@
       <span class="label">View</span>
       <button class="chip" type="button" data-turn="-1" title="Turn the view a quarter anticlockwise" aria-label="Turn anticlockwise">⟲</button>
       <button class="chip" type="button" data-turn="1" title="Turn the view a quarter clockwise" aria-label="Turn clockwise">⟳</button>
-      <button class="chip" type="button" id="top-down" aria-pressed="false" title="Draw it from straight above, as a plan (more than one floor: drawn apart)">From above</button>
+      <button class="chip" type="button" data-topdown="false" aria-pressed="true" title="Draw it in perspective, from one of the four corners">Isometric</button>
+      <button class="chip" type="button" data-topdown="true" aria-pressed="false" title="Draw it from straight above, as a plan (more than one floor: drawn apart)">Plan</button>
       <span id="view-name" class="label" aria-live="polite"></span>
     </div>
     <div class="bar" id="floors" role="group" aria-label="Floors">
@@ -241,7 +242,9 @@ const viewQuery = () => `view=${state.view}&top=${state.topDown ? 1 : 0}`;
 function drawControls() {
   const whole = !state.room && !state.part;
   document.getElementById("view-name").textContent = seenFrom();
-  document.getElementById("top-down").setAttribute("aria-pressed", String(state.topDown));
+  for (const b of document.querySelectorAll("#turn button[data-topdown]")) {
+    b.setAttribute("aria-pressed", String(b.dataset.topdown === String(state.topDown)));
+  }
   // floors and overlays only mean something for the whole house; from above,
   // the floors are always drawn apart
   document.getElementById("floors").classList.toggle("hidden", !whole || state.topDown);
@@ -800,12 +803,14 @@ for (const b of document.querySelectorAll("#turn button[data-turn]")) {
     loadDrawing();
   });
 }
-document.getElementById("top-down").addEventListener("click", () => {
-  state.topDown = !state.topDown;
-  lab.remember("house.topDown", state.topDown);
-  drawControls();
-  loadDrawing();
-});
+for (const b of document.querySelectorAll("#turn button[data-topdown]")) {
+  b.addEventListener("click", () => {
+    state.topDown = b.dataset.topdown === "true";
+    lab.remember("house.topDown", state.topDown);
+    drawControls();
+    loadDrawing();
+  });
+}
 state.topDown = lab.recall("house.topDown", false) === true;
 state.exploded = lab.recall("house.exploded", false) === true;
 state.view = [0, 1, 2, 3].includes(lab.recall("house.view", 0)) ? lab.recall("house.view", 0) : 0;

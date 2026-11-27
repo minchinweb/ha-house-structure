@@ -3,6 +3,7 @@ Changelog
 
 .. release:: unreleased
 
+  - :feature:`-` **Isometric or Plan**: the House tab's **From above** toggle is two choices in the View group, **Isometric** (the view from a corner, as before) and **Plan** (drawn from straight above, what From above did when on). Clicking Plan keeps it on; Isometric turns it off.
   - :feature:`-` **A sheet can clear a value**: a cell of only ``-`` clears it, such as a room's ``x`` and ``y`` (so it is fitted to the others again) or its ``wing_face`` (the wing goes, with its sizes); in a ``beside``, ``open`` or ``above`` list it takes out every room listed, from both rooms as ``-Room`` does. Before, a value could only be cleared on the part's form.
   - :feature:`-` The sheet has a **stairs_to** column: the room stairs reach on the other floor, by its name.
   - :feature:`-` The **Positions** layer draws the building outline from OpenStreetMap, dashed at the main floor's height, with its overall size, so the rooms can be checked against it, along with the origin and the typed positions measured from it.
