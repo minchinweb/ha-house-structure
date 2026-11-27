@@ -821,6 +821,22 @@ async def test_rooms_beside_and_above(hass: HomeAssistant, house) -> None:
     saved = entry.subentries[master.subentry_id].data
     assert saved["wing_face"] == "N"
     assert saved["wing_width_m"] == pytest.approx(60 * 0.0254)
+    # "No wing" takes the wing away, though its sizes are still in the form
+    result = await edit(
+        {
+            **form,
+            **wing,
+            "wing_face": "none",
+            "beside": [hall.id],
+            "above": [loft.id],
+        }
+    )
+    assert result["type"] is FlowResultType.ABORT
+    await hass.async_block_till_done()
+    saved = hass.config_entries.async_get_entry(entry_id).subentries[
+        master.subentry_id
+    ].data
+    assert not {"wing_face", "wing_width_m", "wing_depth_m"} & set(saved)
 
     rooms = hass.data[DOMAIN]["rooms"]
     assert {

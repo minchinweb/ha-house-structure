@@ -94,6 +94,9 @@ _LOGGER = logging.getLogger(__name__)
 # Set once OutlineMapView is registered. Registering it twice raises.
 _OUTLINE_VIEW = f"{OUTLINE}_view"
 
+# the wing side chosen for a room that is not L-shaped
+NO_WING = "none"
+
 
 async def async_ensure_outline(hass) -> dict:
     """The building outline at the home position, loaded or fetched once.
@@ -215,17 +218,21 @@ def _choice(options: tuple[str, ...]) -> selector.SelectSelector:
     )
 
 
-def _faces(rotation: float) -> selector.SelectSelector:
-    """The four faces, each with the compass bearing it looks towards."""
+def _faces(rotation: float, none: str | None = None) -> selector.SelectSelector:
+    """The four faces, each with the compass bearing it looks towards, and
+    first a choice for none of them when ``none`` gives its label."""
     return selector.SelectSelector(
         selector.SelectSelectorConfig(
             options=[
-                {
-                    "value": face,
-                    "label": f"{FACE_NAMES[face].title()} "
-                    f"({face_azimuth(face, rotation):.0f}°)",
-                }
-                for face in FACES
+                *([{"value": NO_WING, "label": none}] if none else []),
+                *(
+                    {
+                        "value": face,
+                        "label": f"{FACE_NAMES[face].title()} "
+                        f"({face_azimuth(face, rotation):.0f}°)",
+                    }
+                    for face in FACES
+                ),
             ],
             mode=selector.SelectSelectorMode.LIST,
         )
@@ -315,7 +322,9 @@ def _schema(kind: str, house: dict, hosts: list[dict]) -> vol.Schema:
         fields[vol.Optional("blind_closed", default=BLIND_CLOSED)] = _SHARE
     if kind == ROOM:
         fields[vol.Optional("wing_floor")] = _TEXT
-        fields[vol.Optional("wing_face")] = _faces(float(house.get("rotation") or 0.0))
+        fields[vol.Optional("wing_face")] = _faces(
+            float(house.get("rotation") or 0.0), none="No wing"
+        )
         fields[vol.Optional("room_type", default="room")] = _choice(ROOM_TYPES)
         fields[vol.Optional("stairs_to")] = _AREA
         fields[vol.Optional("volume")] = _TEXT
@@ -449,7 +458,11 @@ def _from_form(kind: str, form: dict, house: dict) -> dict:
     if kind == INTERNAL_WALL and data["area_id"] == data["other_area_id"]:
         raise FieldError("other_area_id", "the two sides are the same room")
     if kind == ROOM:
-        if form.get("wing_face"):
+        if form.get("wing_face") == NO_WING:
+            # the room has no wing: forget any sizes still typed for one
+            for key in ("wing_width_m", "wing_depth_m", "wing_floor_m2"):
+                data.pop(key, None)
+        elif form.get("wing_face"):
             data["wing_face"] = form["wing_face"]
         _check_wing(data)
     return data
