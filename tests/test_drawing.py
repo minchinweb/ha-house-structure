@@ -49,9 +49,11 @@ from custom_components.house_structure.drawing import (
     _openings,
     _parts,
     _place,
+    _ridges,
     _shared_face,
     _top_down_shifts,
     _touching,
+    _under_eaves,
     _wall_stretches,
     _wing_parts,
     face_order,
@@ -741,6 +743,88 @@ def test_the_positions_layer_draws_the_building_outline():
     assert OUTLINE_COLOUR not in house_svg(elements, {"unit": "m"})
 
 
+def test_the_outline_is_pulled_in_by_the_eaves_of_the_roofs_facing_each_side():
+    # an L; the eaves overhang the west and east walls, none the gable ends
+    outline = [(0, 0), (10, 0), (10, 4), (6, 4), (6, 8), (0, 8)]
+    elements = _elements(
+        _room("a", floor_m2=20.0),
+        _roof("west", ["a"], "W", eave_m=0.5),
+        _roof("dormer", ["a"], "W", eave_m=0.2),  # the widest on a side counts
+        _roof("east", ["a"], "E", eave_m=0.3),
+    )
+    walls = [(0.5, 0), (9.7, 0), (9.7, 4), (5.7, 4), (5.7, 8), (0.5, 8)]
+
+    def flat(points):
+        return [value for point in points for value in point]
+
+    assert flat(_under_eaves(outline, elements, 0.0)) == pytest.approx(flat(walls))
+    # either way round
+    back = _under_eaves(outline[::-1], elements, 0.0)
+    assert flat(back) == pytest.approx(flat(walls[::-1]))
+    # with no eave typed, the outline is the walls
+    assert _under_eaves(outline, _elements(_room("a", floor_m2=20.0)), 0.0) == outline
+
+
+def test_rooms_are_fitted_and_measured_inside_the_eaves():
+    outline = [(0.0, 0.0), (8.0, 0.0), (8.0, 4.0), (0.0, 4.0)]
+    elements = _elements(
+        _room("a", floor_m2=12.0, beside=["b"]),
+        _room("b", floor_m2=12.0),
+        _roof("west", ["a"], "W", eave_m=1.0),
+        _roof("east", ["b"], "E", eave_m=1.0),
+    )
+    boxes, _ = _place(elements, "m", outline=outline)
+    # the walls are 6 m apart, not 8: the rooms fill that, from its west side
+    # (a little over, with the wall between them)
+    west, east = min(b.x for b in boxes), max(b.x + b.width for b in boxes)
+    assert west == pytest.approx(0.0, abs=0.15)
+    assert east - west == pytest.approx(6.0, abs=0.25)
+    svg = house_svg(elements, {"unit": "m"}, outline=outline)
+    shown = re.search(r'<g data-layer="positions">(.*?)</g>', svg).group(1)
+    assert ">outline 6 m by 4 m<" in shown
+
+
+def test_two_roofs_facing_away_over_the_same_rooms_make_a_ridge():
+    elements = _elements(
+        _room("lily", floor_m2=9.0),
+        _room("master", floor_m2=12.0),
+        _room("landing", floor_m2=6.0),
+        _roof("west", ["master", "lily"], "W", pitch=45.0),
+        _roof("east", ["master", "lily", "landing"], "E", pitch=45.0),
+        # a dormer, over the landing only: the east roof's ridge is with the
+        # west roof, so the landing is not set under a ridge
+        _roof("dormer", ["landing"], "W", pitch=45.0),
+    )
+    ridges = _ridges(elements, 0.0)
+    assert set(ridges) == {"lily", "master"}
+    assert ridges["master"] == [(0, pytest.approx(0.5))]
+    # a steeper roof is as high nearer its wall: less of the space is its side
+    steep = _elements(
+        _room("loft", floor_m2=9.0),
+        _roof("west", ["loft"], "W", pitch=60.0),
+        _roof("east", ["loft"], "E", pitch=30.0),
+    )
+    assert _ridges(steep, 0.0)["loft"] == [(0, pytest.approx(0.25))]
+
+
+def test_a_room_under_a_ridge_is_over_the_middle_of_the_walls_below():
+    # the kitchen has a roof of its own, so the attic's ridge is over the
+    # middle of the living room, not of the two together
+    elements = _elements(
+        _room("kitchen", width_m=4.0, depth_m=6.0, beside=["living"]),
+        _room("living", width_m=8.0, depth_m=6.0),
+        _room("attic", width_m=4.0, depth_m=5.0),
+        _roof("kitchen roof", ["kitchen"], "W"),
+        _roof("west", ["attic"], "W", pitch=45.0),
+        _roof("east", ["attic"], "E", pitch=45.0),
+    )
+    floors = {"kitchen": 0, "living": 0, "attic": 1}
+    at = {b.area: b for b in _place(elements, "m", floors)[0]}
+    living, attic = at["living"], at["attic"]
+    middle = living.x + living.width / 2
+    assert attic.x + attic.width / 2 == pytest.approx(middle, abs=0.1)
+
+
 def test_the_origin_is_on_the_outline_corner_when_rooms_start_inside_it():
     # the rooms start a wall's width in from the house's south-west corner
     box = Box("A", "a", 0.2, 0.2, 0.0, 3.0, 3.0, 2.4)
@@ -1214,9 +1298,12 @@ def test_overlays_have_anchors_for_rooms_walls_and_outlets():
         assert '<g data-layer="notes">' in svg
 
 
-def _roof(id_: str, areas: list[str], face: str, pitch: float = 30.0) -> Raw:
+def _roof(id_: str, areas: list[str], face: str, pitch: float = 30.0, **data) -> Raw:
     return Raw(
-        id_, "roof", f"{face} roof", {"area_ids": areas, "face": face, "pitch": pitch}
+        id_,
+        "roof",
+        f"{face} roof",
+        {"area_ids": areas, "face": face, "pitch": pitch, **data},
     )
 
 
@@ -1750,6 +1837,26 @@ def test_rooms_whose_wings_touch_are_touching():
     ((_, _, face, start, end),) = _wing_parts(parts, "a", where)
     assert (face, start, end) == ("E", pytest.approx(0.0), pytest.approx(1.0))
     assert _inside_parts(elements, parts, "a", where) == ([], [])
+
+
+def test_rooms_whose_wings_touch_have_an_anchor_on_the_wall_between():
+    elements = _elements(
+        _room("a", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0),
+        _room(
+            "b",
+            width_m=3.0,
+            depth_m=3.0,
+            x_m=6.0,
+            y_m=0.0,
+            wing_width_m=2.0,
+            wing_depth_m=1.0,
+            wing_face="W",
+        ),
+    )
+    for svg in (house_svg(elements, HOUSE), room_svg(elements, HOUSE, "a")):
+        assert 'data-between="a|b"' in svg
+        # a point just past the wall, on b's side: the way across it
+        assert 'data-toward="a|b"' in svg
 
 
 def test_a_door_with_no_size_is_28_inches_inside_and_32_outside():

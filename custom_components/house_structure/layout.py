@@ -38,7 +38,9 @@ Whichever of the two layouts costs less is kept. A layout costs more for:
 * a room not over the room it is above, or outside the footprint under it
   (the building outline, when there is one);
 * footprint with no room over it, and a side of the floor that is not on a
-  side of the footprint.
+  side of the footprint (but for a side under a roof, with no wall there);
+* a room under a ridge that is not where the roofs are as high over both its
+  sides.
 
 Floors are fitted one at a time, starting with the biggest; the others are
 then free to slide over it to where their rooms sit above the ones below,
@@ -104,8 +106,15 @@ W_STACK = 6.0
 W_SUPPORT = 15.0
 W_FLUSH = 6.0  # a side of the floor that is not on a line of its footprint
 W_COVER = 6.0  # footprint with no room over it (nor a hole, up to HALLS)
+W_RIDGE = 30.0  # a room under a ridge, off it (by the side of the floor's square)
+
+# the face of a room that each side of a rectangle is on: west, south, east, north
+SIDE_FACE = (W, S, E, N)
 
 FLUSH_REACH = 1.0  # m: a side this far from a line costs all of W_FLUSH
+# m: how far a floor's outside walls may be in from those of the floor it is
+# fitted to, at no cost: a basement's foundation walls are thicker
+STEP_IN = 0.3
 JOG = 0.75  # m: corners of an outline this close are on one line
 HALLS = 0.4  # how much of a floor may be holes (halls no room was given)
 # what a layout of only some of a floor's rooms is not judged on: how it sits
@@ -138,6 +147,14 @@ class Room:
             it is not known, for a wall that runs the whole face.
         eaves: The faces a roof comes down to.
         long: A hallway or stairs, which may be long and thin.
+        ridge: For a room under both roofs of a ridge, ``(axis, share)``
+            for each: ``axis`` 0 when the roofs face west and east (the room
+            sits across the floor's width), 1 for south and north. The room,
+            with its wings, goes where the roofs are as high on both sides of
+            it: ``share`` of
+            the space beside it, between the walls the roofs come down to (see
+            ``Floor.under``), is on its west (or south) side; a half when the
+            pitches are the same, so it is under the ridge.
     """
 
     key: str
@@ -146,6 +163,7 @@ class Room:
     walls: tuple[tuple[str, float], ...] = ()
     eaves: frozenset[str] = frozenset()
     long: bool = False
+    ridge: tuple[tuple[int, float], ...] = ()
 
 
 @dataclass
@@ -170,6 +188,12 @@ class Floor:
             link with a face that puts a wing against its room (or against
             the room's other wing, for a room stepping out twice) says where
             it goes.
+        step_in: How far in from the footprint's sides its outside walls may
+            be (see ``STEP_IN``): an outside wall is judged by the footprint
+            from that far out, and the rooms are also tried that far in.
+        under: The walls the roofs of its rooms' ridges come down to: the
+            rectangle round the rooms of the floor it is fitted to that have
+            no roof of their own (see ``Room.ridge``).
     """
 
     rooms: list[Room]
@@ -181,6 +205,8 @@ class Floor:
     width: float | None = None
     voids: list[float] = field(default_factory=list)
     wings: dict[str, str] = field(default_factory=dict)
+    step_in: float = 0.0
+    under: Rect | None = None
 
 
 @dataclass
@@ -433,9 +459,18 @@ class _Fit:
             # a room with no size takes its piece's shape: its outside walls'
             # lengths are met by what a layout costs, not by a least size
             self.mins.append(room.size or (0.0, 0.0))
+        # each room's faces with a roof down to them and no outside wall: not
+        # over a wall of the floor below (a wing is under its room's roofs)
+        self.roofed = [
+            eaves - set(walls)
+            for eaves, walls in zip(self.eaves, self.walls, strict=True)
+        ]
+        self.ridges = [room.ridge for room in floor.rooms]
+        self.under = floor.under if any(self.ridges) else None
         index_of = {r.key: i for i, r in enumerate(floor.rooms)}
         self.stack = [(index_of[k], rect) for k, rect in floor.stack if k in index_of]
         self.support = floor.support
+        self.step_in = floor.step_in
         self.free = floor.free
         others = [*self.fixed, *(r for _, r in self.stack), *self.support]
         self.xs = sorted({r[0] for r in others} | {r[2] for r in others})
@@ -562,8 +597,11 @@ class _Fit:
             for axis in (0, 1):
                 low = min(r[axis] for r in there) + (dy if axis else dx)
                 high = max(r[axis + 2] for r in there) + (dy if axis else dx)
-                moves = [line - low for line in self.lines[axis]]
-                moves += [line - high for line in self.lines[axis + 2]]
+                moves = []
+                if not self._roofed_side(rects, axis):
+                    moves += [line - low for line in self.lines[axis]]
+                if not self._roofed_side(rects, axis + 2):
+                    moves += [line - high for line in self.lines[axis + 2]]
                 move = min(moves, key=abs, default=0.0)
                 if abs(move) <= FLUSH_REACH:
                     if axis:
@@ -608,6 +646,7 @@ class _Fit:
                 "support",
                 "flush",
                 "cover",
+                "ridge",
             ),
             0.0,
         )
@@ -778,11 +817,21 @@ class _Fit:
             halls = sum(self._over(hole) for hole in holes)
             cover += min(halls, HALLS * total)
             parts["cover"] += W_COVER * max(0.0, self.footprint - cover) / total
-            # each side of the floor is on a line of its footprint
+            # each side of the floor is on a line of its footprint, but for a
+            # side under a roof
             for k in range(4):
+                if self._roofed_side(rects, k):
+                    continue
                 side = (min if k < 2 else max)(rect[k] for rect in placed)
                 off = min(abs(side - line) for line in self.lines[k])
                 parts["flush"] += W_FLUSH * min(1.0, off / FLUSH_REACH)
+        if self.under is not None:  # a room under a ridge, where it goes under it
+            for i, ridges in enumerate(self.ridges):
+                for axis, share in ridges:
+                    span = self._extent(rects, i, axis)
+                    if span is not None:
+                        where = self._under_ridge(axis, share, span[1] - span[0])
+                        parts["ridge"] += W_RIDGE * abs(span[0] - where) / scale
         if detail is not None:
             detail.update(parts)
         if self.left_out:
@@ -1138,6 +1187,8 @@ class _Fit:
             return rects
         out = [list(rect) for rect in rects]
         for k in range(4):
+            if self._roofed_side(rects, k):
+                continue
             side = (min if k < 2 else max)(rect[k] for rect in rects)
             line = min(self.lines[k], key=lambda v: abs(v - side), default=side)
             if not 0 < abs(line - side) <= TRUE:
@@ -1293,6 +1344,11 @@ class _Fit:
         for rect in (*others, *self.support, *(r for _, r in self.stack)):
             xs |= {rect[0], rect[2]}
             ys |= {rect[1], rect[3]}
+        if self.step_in:  # the footprint's sides, as far in as walls may step
+            xs |= {v + self.step_in for v in self.lines[0]}
+            xs |= {v - self.step_in for v in self.lines[2]}
+            ys |= {v + self.step_in for v in self.lines[1]}
+            ys |= {v - self.step_in for v in self.lines[3]}
         own = every[self.base[i]] if i in self.base else None
         if own is not None:  # a wing, what it is on down
             mine = [(own, f) for j, f in self.against[i] if j == self.base[i]]
@@ -1306,6 +1362,10 @@ class _Fit:
                 tiers.append((None, False))  # a corner of the lines
             tiers.append(([(rect, None) for rect in others], False))
         shapes = self._shapes(i, rects)
+        if self.under is not None:  # under its ridge
+            for axis, share in self.ridges[i]:
+                lines = ys if axis else xs
+                lines |= {self._under_ridge(axis, share, s[axis]) for s in shapes}
         first: list[Rect] = []
         for number, (tier, ends) in enumerate(tiers):
             found: set[Rect] = set()
@@ -1383,17 +1443,55 @@ class _Fit:
         """How much of an outside wall (``need`` long, or the whole face for
         0) has footprint beyond it, from 0 to 1: the share of a strip
         ``NEAR`` deep outside the face that is footprint, past what of the
-        face is not outside."""
+        face is not outside. The strip starts ``step_in`` out from the face."""
         x0, y0, x1, y1 = rect
+        a, b = self.step_in, self.step_in + NEAR
         strip = {
-            W: (x0 - NEAR, y0, x0, y1),
-            E: (x1, y0, x1 + NEAR, y1),
-            S: (x0, y0 - NEAR, x1, y0),
-            N: (x0, y1, x1, y1 + NEAR),
+            W: (x0 - b, y0, x0 - a, y1),
+            E: (x1 + a, y0, x1 + b, y1),
+            S: (x0, y0 - b, x1, y0 - a),
+            N: (x0, y1 + a, x1, y1 + b),
         }[f]
         span = max((x1 - x0) if f in (N, S) else (y1 - y0), 1e-6)
         inside = self._over(strip) / (NEAR * span)
         return max(0.0, inside - 1.0 + min(need or span, span) / span)
+
+    def _extent(self, rects, i: int, axis: int) -> tuple[float, float] | None:
+        """How far room ``i`` and its wings reach across ``axis`` (0: west to
+        east; 1: south to north), or None when it is not down."""
+        if rects[i] is None:
+            return None
+        parts = [
+            rects[p]
+            for p in self.whole.get(i, (i,))
+            if p < len(rects) and rects[p] is not None
+        ]
+        return min(r[axis] for r in parts), max(r[axis + 2] for r in parts)
+
+    def _under_ridge(self, axis: int, share: float, size: float) -> float:
+        """Where the west (or south, for ``axis`` 1) side of a room ``size``
+        wide (or deep) goes, for it to be under a ridge (see ``Room.ridge``):
+        ``share`` of the space beside it, between the walls the roofs come
+        down to, on that side."""
+        low, high = self.under[axis], self.under[axis + 2]
+        return low + share * (high - low - size)
+
+    def _roofed_side(self, rects, k: int) -> bool:
+        """Whether side ``k`` of the floor (west, south, east, north, as a
+        rectangle's sides go) is under a roof: a room on it (or its wing) has
+        a roof down to that face and no outside wall there, so the side is
+        not over a wall of the floor below."""
+        if not any(self.roofed):
+            return False
+        there = [(i, r) for i, r in enumerate(rects[: self.n]) if r is not None]
+        if not there:
+            return False
+        side = (min if k < 2 else max)(r[k] for _, r in there)
+        face = SIDE_FACE[k]
+        return any(
+            abs(r[k] - side) <= TOL and face in self.roofed[self.main.get(i, i)]
+            for i, r in there
+        )
 
     def _settle(self, rects: tuple, cost: float, tries: int):
         """A layout made better while it can be (or the tries run out): each
@@ -1401,6 +1499,7 @@ class _Fit:
         it is linked to lifted and put down again, which moves rooms that are
         in each other's way. Returns the layout, its cost and the tries left."""
         while tries > 0:
+            rects, cost = self._slide(rects, cost)
             rects, cost, tries = self._nudge(rects, cost, tries)
             better = False
             for i in self._place_order((None,) * self.n):
@@ -1420,6 +1519,42 @@ class _Fit:
             if not better:
                 break
         return rects, cost, tries
+
+    def _slide(self, rects: tuple, cost: float) -> tuple[tuple, float]:
+        """The layout made better, if it can be, by moving a room under a
+        ridge (with its wings) so that it is under it, or the whole floor so
+        that one of them is (or they are, on average). Rooms moved one at a
+        time cannot do it all: a floor of linked rooms stays where its first
+        room went down, and a room is tried on its own lines, not its wings'.
+        The whole floor moves only when it may slide."""
+        if self.under is None:
+            return rects, cost
+        moves: dict[int, list[tuple[float, list[int]]]] = {0: [], 1: []}
+        for i, ridges in enumerate(self.ridges):
+            for axis, share in ridges:
+                span = self._extent(rects, i, axis)
+                if span is not None:
+                    where = self._under_ridge(axis, share, span[1] - span[0])
+                    group = [p for p in self.whole.get(i, (i,)) if p < self.n]
+                    moves[axis].append((where - span[0], group))
+        every = list(range(self.n))
+        for axis, found in moves.items():
+            tries = list(found)
+            if self.free and found:
+                tries += [(move, every) for move, _ in found]
+                tries.append((sum(move for move, _ in found) / len(found), every))
+            for move, group in tries:
+                dx, dy = (move, 0.0) if axis == 0 else (0.0, move)
+                new = tuple(
+                    (r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy)
+                    if k in group and r is not None
+                    else r
+                    for k, r in enumerate(rects)
+                )
+                new_cost = self.cost(_Spots(new))
+                if new_cost < cost - 1e-9:
+                    rects, cost = new, new_cost
+        return rects, cost
 
     def _nudge(self, rects: tuple, cost: float, tries: int):
         """Move each room (with its wings) to its best place with the others
@@ -1793,6 +1928,7 @@ def arrange(
     for floor in floors:
         take_mirrors(floor)
     footprint: list[Rect] = []  # the first floor, for the others to line up with
+    under: Rect | None = None  # round its rooms with no roof: see ``Floor.under``
     live = [i for i, floor in enumerate(floors) if floor.rooms]
     if not live:  # every room is placed already
         return {k: _grown(r, -half, near.get(k)) for k, r in placed.items()}
@@ -1833,6 +1969,8 @@ def arrange(
         else:
             floor.free = True
             floor.support = footprint
+            floor.step_in = STEP_IN
+            floor.under = under
             _aim(floor)
         solver = _Fit(floor)
         found = solver.solve(floor)
@@ -1842,6 +1980,18 @@ def arrange(
         placed.update(found)
         if i == first:
             footprint = [*found.values(), *floor.fixed.values(), *solver.holes]
+            # the walls the roofs over it stand on: round the rooms that have
+            # no roof of their own (a wing's is its room's)
+            roofed = {r.key for r in floor.rooms if r.eaves}
+            roofed |= {w for w, room in floor.wings.items() if room in roofed}
+            bare = [r for k, r in found.items() if k not in roofed]
+            bare = [*bare, *floor.fixed.values(), *solver.holes] or footprint
+            under = (
+                min(r[0] for r in bare),
+                min(r[1] for r in bare),
+                max(r[2] for r in bare),
+                max(r[3] for r in bare),
+            )
     if half:  # each room back to its own size
         for key, rect in placed.items():
             placed[key] = _grown(rect, -half, near.get(key))

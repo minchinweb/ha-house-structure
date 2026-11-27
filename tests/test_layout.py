@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 
 from custom_components.house_structure.layout import (
+    STEP_IN,
     Floor,
     N,
     Room,
@@ -164,6 +165,40 @@ def test_a_smaller_floor_lines_up_with_the_floor_it_is_over():
     assert sides(["bed", "bath", "study"]) == pytest.approx(
         sides(["living", "kitchen", "den"]), abs=0.01
     )
+
+
+def test_a_basement_a_little_smaller_than_the_floor_over_it_sits_under_it():
+    # its foundation walls are thicker: each side is 0.25 m in from the main
+    # floor's, and its outside walls are still on the outside
+    ends = (("S", 0.0), ("N", 0.0))
+    main = Floor(
+        rooms=[
+            Room("front", 16.0, size=(4.0, 4.0), walls=(*ends, ("W", 0.0))),
+            Room("back", 16.0, size=(4.0, 4.0), walls=(*ends, ("E", 0.0))),
+        ],
+        links=[("front", "back", "E")],
+    )
+    basement = Floor(
+        rooms=[
+            Room("rec", 13.125, size=(3.75, 3.5), walls=(*ends, ("W", 0.0))),
+            Room("shop", 13.125, size=(3.75, 3.5), walls=(*ends, ("E", 0.0))),
+        ],
+        links=[("rec", "shop", "E")],
+    )
+    placed = arrange([basement, main], [("rec", "front"), ("shop", "back")])
+
+    def sides(keys):
+        rects = [placed[k] for k in keys]
+        return [(min if k < 2 else max)(r[k] for r in rects) for k in range(4)]
+
+    rec, shop = placed["rec"], placed["shop"]
+    assert rec[2] == pytest.approx(shop[0])  # side by side
+    # each side in from the main floor's, by no more than walls may step
+    upper, lower = sides(["front", "back"]), sides(["rec", "shop"])
+    for k in range(4):
+        inset = abs(lower[k] - upper[k])
+        assert 0.5 - STEP_IN - 0.01 <= inset <= STEP_IN + 0.01
+    assert lower[0] - upper[0] > 0.0 and upper[3] - lower[3] > 0.0
 
 
 def test_rooms_shaped_to_fit_are_whole_steps_of_the_grid():

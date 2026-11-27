@@ -270,6 +270,7 @@ _POSITIONS = {
 _DISTANCES = {
     WINDOW: ("from_left",),
     DOOR: ("from_left",),
+    ROOF: ("eave",),
 }
 PLENUM = ("plenum_x", "plenum_y", "plenum_z")
 

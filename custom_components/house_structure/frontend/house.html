@@ -411,7 +411,7 @@ function showLayers() {
 /* ---------- overlays ---------- */
 
 function anchors(svg) {
-  const out = { room: {}, between: {}, outside: {}, register: {} };
+  const out = { room: {}, between: {}, toward: {}, outside: {}, register: {} };
   for (const c of svg.querySelectorAll('[data-layer="anchors"] circle')) {
     const point = [Number(c.getAttribute("cx")), Number(c.getAttribute("cy"))];
     const d = c.dataset;
@@ -419,12 +419,27 @@ function anchors(svg) {
     // a stairs room has a point on each floor it occupies: the first (its flight) is its centre
     else if (d.room && !(d.room in out.room)) out.room[d.room] = point;
     if (d.between) out.between[d.between] = point;
+    if (d.toward) out.toward[d.toward] = point;
     if (d.outside) out.outside[d.outside] = point;
   }
   return out;
 }
 
 const pair = (a, b) => [a, b].sort().join("|");
+
+/* The way from room a to room b across the wall (or floor) between them: square across the wall
+ * where the drawing gives a point past it (on the side of the pair's second room), else from one
+ * room's middle to the other's. Null when there is no way to tell. */
+function across(where, a, b) {
+  const key = pair(a, b);
+  const at = where.between[key], past = where.toward[key];
+  if (at && past) {
+    const dir = unit(past[0] - at[0], past[1] - at[1]);
+    if (dir) return key.startsWith(`${a}|`) ? dir : [-dir[0], -dir[1]];
+  }
+  const pa = where.room[a], pb = where.room[b];
+  return pa && pb ? unit(pb[0] - pa[0], pb[1] - pa[1]) : null;
+}
 function unit(dx, dy) {
   const n = Math.hypot(dx, dy);
   return n > 1e-6 ? [dx / n, dy / n] : null;
@@ -503,8 +518,7 @@ function drawOverlay(svg, key, data) {
 
   for (const f of data.between || []) {
     const at = where.between[pair(f.from, f.to)];
-    const a = where.room[f.from], b = where.room[f.to];
-    const dir = at && a && b ? unit(b[0] - a[0], b[1] - a[1]) : null;
+    const dir = at ? across(where, f.from, f.to) : null;
     if (!dir) { missed++; continue; }
     const w = Number(f.w) || 0;
     arrow(g, at, w >= 0 ? dir : [-dir[0], -dir[1]], share(w), COLOURS.between, watts(w));
@@ -556,9 +570,8 @@ function drawDelta(svg, data) {
   for (const [key, at] of Object.entries(where.between)) {
     const [a, b] = key.split("|");
     const ta = rooms[a], tb = rooms[b];
-    const pa = where.room[a], pb = where.room[b];
     if (ta == null || tb == null) continue;  // a room with no sensor: nothing to show
-    const dir = pa && pb ? unit(pb[0] - pa[0], pb[1] - pa[1]) : null;
+    const dir = across(where, a, b);
     if (!dir) { missed++; continue; }
     const d = ta - tb;  // positive: from a to b
     walls.push({ at, d, dir: d >= 0 ? dir : [-dir[0], -dir[1]], colour: COLOURS.between });

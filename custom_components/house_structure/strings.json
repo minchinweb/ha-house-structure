@@ -325,6 +325,7 @@
             "length": "Length along the eave (if no floor area)",
             "slope": "Slope length, eave to ridge (if no floor area)",
             "floor": "Floor area under the roof",
+            "eave": "Eave overhang, measured flat",
             "r_imperial": "R-value (ft²·°F·h/BTU)"
           },
           "data_description": {
@@ -335,6 +336,7 @@
             "shade_below": "Leave empty to use the house's setting.",
             "pitch": "Degrees (45) or rise:run (12:12).",
             "floor": "Measure the floor under the roof, out to the walls. Easier than the slope; the slope length is worked out from the pitch. Leave blank to use the floor areas of its rooms, once they have one.",
+            "eave": "How far the roof reaches out past the wall below it, measured level with the ground (not along the slope). The building outline from OpenStreetMap is traced round the eaves, so the house drawing pulls each side of the outline in by the widest eave on that side. Blank: none, as for a dormer.",
             "r_imperial": "The roof's insulation as built, such as 35. Blank uses Manual J's default, when Manual J is set up."
           }
         },
@@ -351,6 +353,7 @@
             "length": "Length along the eave (if no floor area)",
             "slope": "Slope length, eave to ridge (if no floor area)",
             "floor": "Floor area under the roof",
+            "eave": "Eave overhang, measured flat",
             "r_imperial": "R-value (ft²·°F·h/BTU)"
           },
           "data_description": {
@@ -361,6 +364,7 @@
             "shade_below": "Leave empty to use the house's setting.",
             "pitch": "Degrees (45) or rise:run (12:12).",
             "floor": "Measure the floor under the roof, out to the walls. Easier than the slope; the slope length is worked out from the pitch. Leave blank to use the floor areas of its rooms, once they have one.",
+            "eave": "How far the roof reaches out past the wall below it, measured level with the ground (not along the slope). The building outline from OpenStreetMap is traced round the eaves, so the house drawing pulls each side of the outline in by the widest eave on that side. Blank: none, as for a dormer.",
             "r_imperial": "The roof's insulation as built, such as 35. Blank uses Manual J's default, when Manual J is set up."
           }
         }
@@ -380,6 +384,7 @@
         "invalid_other_area_id": "The two sides must be different rooms.",
         "room_exists": "This area already has a room; edit that one instead.",
         "invalid_area_ids": "Choose at least one room.",
+        "invalid_eave": "Give a distance of 0 or more, such as 0.3 m or 1' 0\".",
         "invalid_r_imperial": "An R-value must be more than 0."
       }
     },

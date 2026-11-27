@@ -93,7 +93,7 @@ its room from there: a door in an internal wall joins the rooms on both sides.
 |---|---|---|
 | Room (one per area) | floor area, ceiling height, volume (for a sloped ceiling), below ground, rooms beside it, rooms above it | solar gain through all its windows (W) |
 | Outside wall | face, length, height | solar exposure (W/m²) |
-| Roof | the rooms under it, face, pitch (`45` or `12:12`), floor area under it (or length along the eave and slope length) | solar exposure (W/m²) |
+| Roof | the rooms under it, face, pitch (`45` or `12:12`), floor area under it (or length along the eave and slope length), eave overhang (measured flat) | solar exposure (W/m²) |
 | Window | the wall or roof it is in (and, in a shared roof, its room), glass size, share let in as heat, blind (a cover), contact sensor (a binary sensor, on when open) | solar gain (W), less what the blind keeps out; open (follows the contact; only for a window with one) |
 | Door | the outside or internal wall it is in, its contact sensor (a binary sensor, on when open), width, height (28 by 80 in between rooms and 32 by 80 in to outside, where not typed) | open (follows the contact; only for a door with one) |
 | Internal wall | the room on the other side, face of this room, length, height | this room minus the other (°C) |
@@ -235,7 +235,11 @@ on, over the page's own connection, so they are not served to anyone else.
 ### Where the rooms are drawn
 
 A room with a position typed (in the sheet below) is drawn there, measured
-from the south-west corner of the building outline's box. The house needs no
+from the south-west corner of the building outline's box. The outline from
+OpenStreetMap is traced round the eaves, so give each roof its eave: how far
+it reaches out past the wall below, measured level with the ground. Each side
+of the outline comes in by the widest eave of the roofs facing that way, to the
+outside of the walls, and positions are measured from there. The house needs no
 positions, though: the rooms without one are fitted together from what else is
 known, and a position typed for one room still leaves the outline in use.
 
@@ -256,6 +260,15 @@ more rooms have both sizes, the closer the drawing comes to the house.
   much of the face as its length (the whole face if it has none).
 - A room sits **over the rooms it is above**, and each floor over the one
   under it, with its sides on the same lines where it is big enough.
+- A room **under a ridge** (under two roofs that face away from each other
+  and cover the same rooms, such as an attic room under a gable) sits where
+  the roofs are as high over both its sides: over the middle of the walls
+  below, for roofs of the same pitch, nearer the steeper roof's side for
+  different ones. The walls below are round the rooms of the main floor that
+  have no roof of their own. Each roof makes a ridge with one other at most,
+  the one it shares the most rooms with, so a dormer's room stays free. A
+  side of a floor under a roof, with no outside wall there, need not be over
+  a wall of the floor below.
 - A room with a **floor area but no width or depth** takes the shape that
   fits between its neighbours, at that area, so the rooms fill the house
   with no gaps. A room with a width and depth keeps them. A room shaped

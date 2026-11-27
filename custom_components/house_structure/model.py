@@ -145,6 +145,8 @@ class Element:
     # For a window or door in an outside wall: how far its near edge is from
     # the wall's left end, seen from outside. None: the drawing chooses.
     from_left_m: float | None = None
+    # For a roof: how far its eave reaches past the wall below, measured flat.
+    eave_m: float | None = None
     # For a register: its outlet, from its room's south-west corner, and its
     # height above the floor.
     at_x_m: float | None = None
@@ -382,6 +384,7 @@ def build(house: dict, raws: list[Raw]) -> tuple[dict[str, Element], list[str]]:
                 plane=_plane(d, house, float(d.get("pitch", 45.0))),
                 size_m2=_roof_area(d, float(d.get("pitch", 45.0)), areas, room_floors),
                 r_value_si=_optional(d.get("r_value_si")),
+                eave_m=_optional(d.get("eave_m")),
             )
         elif raw.kind == INTERNAL_WALL:
             face = d.get("face")

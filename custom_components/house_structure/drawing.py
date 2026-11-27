@@ -127,6 +127,7 @@ OPEN_LINE, OPEN_DASH = "#78909c", "1.5 3.5"
 IMPLIED_LINE, IMPLIED_DASH = "#5d5346", "7 3 1.5 3"
 # the way into a room from each face, along the house grid
 INWARD = {"S": (0.0, 1.0), "N": (0.0, -1.0), "W": (1.0, 0.0), "E": (-1.0, 0.0)}
+ACROSS = 0.3  # m past a wall two rooms share: a point that says the way across it
 SIZE_NOTE = "a: Size assumed: no size typed, so the drawing uses its default size."
 DEFAULT_NOTE = "b: Manual J default R-value: none typed."  # its label is marked b
 # a room's width, depth or height that was not typed, but found from what was
@@ -1356,6 +1357,50 @@ _PLACED: dict[tuple, tuple[list[Box], list[str]]] = {}  # the last few layouts
 _PLACED_KEPT = 8
 
 
+def _under_eaves(
+    outline: list[tuple[float, float]] | None,
+    elements: dict[str, Element],
+    rotation: float,
+) -> list[tuple[float, float]] | None:
+    """The building outline at the outside of the walls: each side pulled in by
+    the widest eave (``eave_m``, measured flat) of the roofs that face that way.
+    An outline traced from above goes round the eaves, which overhang the walls.
+
+    A side's face is the way it looks out, on the house's grid. A corner moves
+    in by the eave of each side it is on.
+    """
+    eaves: dict[str, float] = {}
+    for roof in elements.values():
+        if roof.kind == ROOF and roof.plane and roof.eave_m:
+            way = _face_of(roof, rotation)
+            eaves[way] = max(eaves.get(way, 0.0), roof.eave_m)
+    if not outline or len(outline) < 3 or not eaves:
+        return outline
+    points = list(outline)
+    ends = list(zip(points, [*points[1:], points[0]], strict=True))
+    # twice the area, by the shoelace: more than 0 when it runs anticlockwise
+    turn = sum(a[0] * b[1] - b[0] * a[1] for a, b in ends)
+
+    def face(a: tuple[float, float], b: tuple[float, float]) -> str | None:
+        east, north = b[0] - a[0], b[1] - a[1]
+        if not east and not north:
+            return None
+        # outward is to the right of the way round, when it runs anticlockwise
+        out = (north, -east) if turn > 0 else (-north, east)
+        if abs(out[0]) >= abs(out[1]):
+            return "E" if out[0] > 0 else "W"
+        return "N" if out[1] > 0 else "S"
+
+    sides = [face(a, b) for a, b in ends]
+    moved = []
+    for k, (x, y) in enumerate(points):
+        for f in {side for side in (sides[k - 1], sides[k]) if side}:
+            ix, iy = INWARD[f]
+            x, y = x + ix * eaves.get(f, 0.0), y + iy * eaves.get(f, 0.0)
+        moved.append((x, y))
+    return moved
+
+
 def _place(
     elements: dict[str, Element],
     unit: str,
@@ -1370,7 +1415,8 @@ def _place(
     (see ``layout.py``): linked rooms share a wall, outside walls stay on the
     outside, a room sits over the rooms it is above, and a room with no width
     or depth typed takes the shape that fits. ``outline`` is the building
-    outline in the house's grid, which the biggest floor is fitted to;
+    outline in the house's grid, which the biggest floor is fitted to once
+    it is pulled in by the eaves (see ``_under_eaves``);
     ``buildings`` are the detached buildings, each fitted on its own and set
     beside the house: a list of areas, or a dict that also says which side of
     the house, how far from it and how far along it (see ``_detached``).
@@ -1378,6 +1424,7 @@ def _place(
     Fitting takes a second or two, so the last few layouts are kept: the same
     house is fitted once however often it is drawn.
     """
+    outline = _under_eaves(outline, elements, rotation)
     key = (
         unit,
         rotation,
@@ -1424,6 +1471,7 @@ def _fit_house(
         area: frozenset(face for _, face in roofs)
         for area, roofs in _roof_faces(elements, rotation).items()
     }
+    ridges = _ridges(elements, rotation)
     pairs = _beside_pairs(elements)
     faces = _link_faces(elements)
     above = [
@@ -1536,6 +1584,7 @@ def _fit_house(
                         tuple(walls.get(area, ())),
                         eaves.get(area, frozenset()),
                         room.room_type in ("hallway", "stairs"),
+                        tuple(ridges.get(area, ())),
                     )
                 )
             here = {r.area_id or "" for r in line}
@@ -1792,6 +1841,53 @@ def _roof_faces(elements: dict[str, Element], rotation: float) -> dict[str, list
     return out
 
 
+def _ridges(
+    elements: dict[str, Element], rotation: float
+) -> dict[str, list[tuple[int, float]]]:
+    """Each room under both roofs of a ridge, by area, as ``layout.Room.ridge``
+    has it: ``(axis, share)`` for each such ridge.
+
+    Two roofs facing opposite ways that are over the same rooms meet at a
+    ridge, and each roof meets one other at most: the one it shares the most
+    rooms with (then the bigger pair). So a dormer's roof, over one room
+    beside the main roof's others, makes no ridge with the main roof
+    opposite it, and its room is not set under that ridge.
+
+    ``axis`` is 0 for roofs facing west and east, 1 for south and north;
+    ``share`` is how much of the space beside the room is on its west (or
+    south) side, so the two roofs are as high over its two sides: a half for
+    the same pitch.
+    """
+    roofs = [
+        (roof, _face_of(roof, rotation))
+        for roof in elements.values()
+        if roof.kind == ROOF and roof.plane
+    ]
+    pairs = []
+    for k, (a, face_a) in enumerate(roofs):
+        for b, face_b in roofs[k + 1 :]:
+            shared = set(a.area_ids) & set(b.area_ids)
+            if face_b == OPPOSITE[face_a] and shared:
+                size = (a.size_m2 or 0.0) + (b.size_m2 or 0.0)
+                pairs.append((len(shared), size, k, a, face_a, b, shared))
+    pairs.sort(key=lambda pair: (-pair[0], -pair[1], pair[2]))
+    met: set[str] = set()
+    out: dict[str, list[tuple[int, float]]] = {}
+    for _, _, _, a, face, b, shared in pairs:
+        if a.id in met or b.id in met:
+            continue
+        met |= {a.id, b.id}
+        if face in ("E", "N"):  # the west (or south) roof first
+            a, b = b, a
+        low = math.tan(math.radians(a.plane.tilt))
+        high = math.tan(math.radians(b.plane.tilt))
+        share = high / (low + high) if low + high > 0 else 0.5
+        axis = 0 if face in ("E", "W") else 1
+        for area in sorted(shared):
+            out.setdefault(area, []).append((axis, share))
+    return out
+
+
 def _add_roofs(
     scene: Scene,
     boxes: list[Box],
@@ -1881,6 +1977,18 @@ def _pair(a: str, b: str) -> str:
     return "|".join(sorted((a, b)))
 
 
+def _wall_anchors(point: Point, face: str, key: str, first: bool) -> list[Anchor]:
+    """The anchors for a wall two rooms share: ``between`` on it, at ``point``
+    on ``face`` of one room, and ``toward`` ``ACROSS`` past it on the side of
+    the second room of the pair ``key`` (the way across the wall, from the
+    first room to the second). ``first``: the room whose face it is, is the
+    first of the pair."""
+    ix, iy = INWARD[face]
+    step = -ACROSS if first else ACROSS  # out through the face, to the second
+    toward = (point[0] + ix * step, point[1] + iy * step, point[2])
+    return [Anchor(point, {"between": key}), Anchor(toward, {"toward": key})]
+
+
 def _add_anchors(
     scene: Scene,
     real: list[Box],
@@ -1922,12 +2030,13 @@ def _add_anchors(
         if a.area == b.area or key in seen:
             continue
         la = drawn[i]  # a side anchor follows the first room's floor
-        side = _shared_face(a, b)
-        if side is not None:
-            face, start, end = side
+        met = _meeting(a, b)  # on the main rectangle or wing that touches
+        if met is not None:
+            number, face, start, end = met
             low, high = _overlap(a.z, a.z + a.height, b.z, b.z + b.height)
-            point = _on_face(la, face, (start + end) / 2, (low + high) / 2 - a.z)
-            scene.anchors.append(Anchor(point, {"between": key}))
+            part = _parts_of(la)[number]
+            point = _on_face(part, face, (start + end) / 2, (low + high) / 2 - a.z)
+            scene.anchors += _wall_anchors(point, face, key, a.area < b.area)
             seen.add(key)
             continue
         lower, upper = (a, b) if a.z <= b.z else (b, a)
@@ -1973,16 +2082,17 @@ def _add_room_anchors(
         if other == area:
             continue
         key = _pair(area, other)
-        side = _shared_face(here, there)
-        if side is not None:
-            face, start, end = side
+        met = _meeting(here, there)  # on the main rectangle or wing that touches
+        if met is not None:
+            number, face, start, end = met
             low, high = _overlap(
                 here.z, here.z + here.height, there.z, there.z + there.height
             )
-            point = _on_face(box, face, (start + end) / 2, (low + high) / 2 - here.z)
+            part = _parts_of(box)[number]
+            point = _on_face(part, face, (start + end) / 2, (low + high) / 2 - here.z)
             # the neighbour, as far past the wall as the wall is from the middle
             beyond = (2 * point[0] - centre[0], 2 * point[1] - centre[1], point[2])
-            scene.anchors.append(Anchor(point, {"between": key}))
+            scene.anchors += _wall_anchors(point, face, key, area < other)
             scene.anchors.append(Anchor(beyond, {"room": other}))
             continue
         up = abs(there.z - (here.z + here.height)) < TOUCH
@@ -2726,7 +2836,8 @@ def house_svg(
     which says which rooms share a floor.
 
     ``outline`` is the building outline's corners in the house's grid (also
-    drawn on the ``positions`` layer, see ``_add_outline``), and ``buildings`` the
+    drawn on the ``positions`` layer, see ``_add_outline``, pulled in by the
+    eaves as it is for fitting, see ``_under_eaves``), and ``buildings`` the
     detached buildings, with where each sits (see ``_place``).
 
     ``only`` draws just those areas' rooms (a floor or a detached building),
@@ -2812,7 +2923,7 @@ def house_svg(
             real.append(replace(box, z=box.top_z))
             layers.append(replace(box, x=box.x + dx, y=box.y + dy, z=box.top_z))
     here = [(b, moved) for b, moved in zip(boxes, drawn, strict=True) if flight_here(b)]
-    shape = _outline_at(outline, here, floors)
+    shape = _outline_at(_under_eaves(outline, elements, rotation), here, floors)
     _add_wall_fill(scene, layers, shape)
     for box in sorted(drawn, key=lambda b: _depth_key(b, view)):
         if not flight_here(box):

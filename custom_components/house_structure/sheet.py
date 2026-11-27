@@ -37,6 +37,7 @@ COLUMNS = (
     "length",
     "height",
     "slope",
+    "eave",
     "width",
     "depth",
     "floor",
