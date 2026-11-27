@@ -90,6 +90,9 @@ BUILT_TO = {FEET_INCHES: 0.0254, "ft": 0.0254, "in": 0.0254, "m": 0.01}
 # a wall between two rooms: studs and board both sides (4 1/2 in). Rooms are
 # measured inside, so the house fits them together this far apart.
 INNER_WALL = 4.5 * INCH
+# the most space between a room and the building outline that is drawn as the
+# outside wall; more than that is space no room was given, and is left empty
+OUTSIDE_WALL_MAX = 12 * INCH
 EXPLODE_GAP = 1.5  # m between floors on the page when they are drawn apart
 # Rooms whose floors are less than this above a floor's lowest room share that
 # floor: a split level's half flight (3 1/2 ft, a little under half a wall)
@@ -2445,22 +2448,52 @@ def _add_outline(scene: Scene, points: list[Point] | None, unit: str) -> None:
 
 
 def _add_wall_fill(scene: Scene, boxes: list[Box], outline: list[Point] | None) -> None:
-    """Inside-wall colour under the floors, so the space left between rooms for the
-    walls (and between the rooms and the building outline, on its floor) is
-    drawn as wall, not as a gap.
+    """Inside-wall colour under the floors, so the space left for the walls is
+    drawn as wall, not as a gap: between rooms, and between a room and the
+    building outline (on its floor) where that is a wall's width.
 
     Each room's floor (and each wing's) is drawn half an inside wall bigger
-    all round, and the outline is filled; the rooms are drawn over them.
+    on each side; a side with the outline beyond it, no more than
+    ``OUTSIDE_WALL_MAX`` away, reaches the outline. Space further from the
+    rooms is left as it is. The rooms are drawn over the fill.
     """
     half = INNER_WALL / 2
-    if outline:
-        scene.polygons.append(Poly(list(outline), INSIDE_FILL, INSIDE_FILL))
+    z = outline[0][2] if outline else None
+    edges = (
+        list(zip(outline, [*outline[1:], outline[0]], strict=True)) if outline else []
+    )
+
+    def reach(lo: float, hi: float, at: float, sign: int, upright: bool) -> float:
+        """How far a side (from ``lo`` to ``hi``, at ``at``) is from the outline
+        beyond it, if that is a wall's width; else half an inside wall."""
+        gaps = []
+        for a, b in edges:
+            if upright != (abs(a[0] - b[0]) < 1e-6):
+                continue  # not parallel to the side
+            line = a[0] if upright else a[1]
+            ends = sorted((a[1], b[1]) if upright else (a[0], b[0]))
+            gap = (line - at) * sign
+            if 0 <= gap <= OUTSIDE_WALL_MAX and ends[0] < hi and lo < ends[1]:
+                gaps.append(gap)
+        return min(gaps) if gaps else half
+
     for box in boxes:
         rects = [(box.x, box.y, box.width, box.depth)]
         rects += [(box.x + wx, box.y + wy, w, d) for wx, wy, w, d in box.wings]
+        on_outline = z is not None and abs(box.z - z) < 1e-6
         for x, y, w, d in rects:
+            west = east = south = north = half
+            if on_outline:
+                west = reach(y, y + d, x, -1, True)
+                east = reach(y, y + d, x + w, 1, True)
+                south = reach(x, x + w, y, -1, False)
+                north = reach(x, x + w, y + d, 1, False)
             grown = replace(
-                box, x=x - half, y=y - half, width=w + 2 * half, depth=d + 2 * half
+                box,
+                x=x - west,
+                y=y - south,
+                width=w + west + east,
+                depth=d + south + north,
             )
             scene.polygons.append(Poly(_floor(grown), INSIDE_FILL, INSIDE_FILL))
 

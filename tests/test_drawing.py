@@ -741,12 +741,19 @@ def test_the_positions_layer_draws_the_building_outline():
 
 
 def test_the_space_left_for_walls_is_filled_as_wall():
-    # two rooms a wall apart, in an outline a little bigger than them
+    # two rooms a wall apart, in an outline a wall's width bigger than them on
+    # the south, west and east, but 2 m bigger on the north (space no room has)
     boxes = [
         Box("A", "a", 0.0, 0.0, 0.0, 3.0, 3.0, 2.4),
         Box("B", "b", 3.0 + INNER_WALL, 0.0, 0.0, 3.0, 3.0, 2.4),
     ]
-    outline = [(-0.2, -0.2, 0.0), (6.3, -0.2, 0.0), (6.3, 3.2, 0.0), (-0.2, 3.2, 0.0)]
+    right = 6.0 + INNER_WALL + 0.2
+    outline = [
+        (-0.2, -0.2, 0.0),
+        (right, -0.2, 0.0),
+        (right, 5.0, 0.0),
+        (-0.2, 5.0, 0.0),
+    ]
     scene = Scene()
     _add_wall_fill(scene, boxes, outline)
     fills = [p.points for p in scene.polygons if p.fill == GAP_FILL]
@@ -755,11 +762,15 @@ def test_the_space_left_for_walls_is_filled_as_wall():
         return any(
             min(p[0] for p in pts) <= x <= max(p[0] for p in pts)
             and min(p[1] for p in pts) <= y <= max(p[1] for p in pts)
-            for pts in fills[1:]  # the rooms', not the outline's
+            for pts in fills
         )
 
-    assert fills[0] == outline  # the outline, first, under everything
     assert covered(3.0 + INNER_WALL / 2, 1.5)  # the wall between them
+    assert covered(-0.15, 1.5)  # the outside walls: west,
+    assert covered(1.5, -0.15)  # south,
+    assert covered(right - 0.05, 1.5)  # east,
+    assert covered(-0.15, -0.15)  # and the corner
+    assert not covered(1.5, 4.0)  # the space no room has is left empty
 
 
 def test_an_inside_door_is_drawn_on_the_shared_face():
