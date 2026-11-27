@@ -6,9 +6,11 @@ from __future__ import annotations
 from dataclasses import replace
 import math
 import re
+from unittest.mock import patch
 
 import pytest
 
+from custom_components.house_structure import layout
 from custom_components.house_structure.constants import (
     DOOR,
     INTERNAL_WALL,
@@ -20,6 +22,7 @@ from custom_components.house_structure.constants import (
 from custom_components.house_structure.drawing import (
     _PLACED,
     IMPLIED_DASH,
+    INNER_WALL,
     LARGE_TEXT,
     OPEN_DASH,
     OPENING_FILL,
@@ -306,8 +309,9 @@ def test_the_biggest_floor_is_fitted_to_the_building_outline():
     )
     boxes, _ = _place(elements, "m", outline=outline)
     # 75 m² of rooms in a 75 m² outline: nothing is in the missing quarter
+    # (the walls between the rooms take the outline a little past 5 m)
     for box in boxes:
-        in_notch = (box.x + box.width > 5.01) and (box.y < 4.99)
+        in_notch = (box.x + box.width > 5.2) and (box.y < 4.8)
         assert not in_notch, box.area
 
 
@@ -915,7 +919,8 @@ def test_linked_rooms_on_one_floor_pack_flush_around_a_hall():
         _room("office", width_m=3.0, depth_m=3.0),
         _wall("oe", "office", "E"),
         _wall("on", "office", "N"),
-        _room("hall", width_m=2.0, depth_m=6.0),
+        # as long as two 3 m rooms and the wall between them
+        _room("hall", width_m=2.0, depth_m=6.0 + INNER_WALL),
         _room("bath", width_m=2.0, depth_m=2.0),
         _wall("bw", "bath", "W"),
         _room("laundry", width_m=2.0, depth_m=2.0),
@@ -986,7 +991,8 @@ def test_several_rooms_share_one_face_with_an_outside_stretch():
 
 
 def test_linked_component_is_seeded_without_a_band_gap():
-    # two linked rooms on opposite outside edges: no 1 m gap left between them
+    # two linked rooms on opposite outside edges: no 1 m gap left between
+    # them, only the wall (the rooms are measured inside)
     elements = _elements(
         _room("west", width_m=3.0, depth_m=3.0),
         _wall("ww", "west", "W"),
@@ -998,7 +1004,7 @@ def test_linked_component_is_seeded_without_a_band_gap():
     where = {b.area: b for b in boxes}
     assert _shared_face(where["west"], where["east"]) is not None
     gap = where["east"].x - (where["west"].x + where["west"].width)
-    assert gap == pytest.approx(0.0)
+    assert gap == pytest.approx(INNER_WALL, abs=0.01)  # on whole centimetres
 
 
 def test_a_link_between_floors_does_not_pull_the_rooms_side_by_side():
@@ -1726,3 +1732,49 @@ def test_stairs_get_temperature_anchors_on_each_floor_they_occupy():
     assert 'data-between="landing|stairs"' in above  # its opening, on the landing's
     assert 'data-between="landing|stairs"' not in below
     assert 'data-room="stairs"' in above and 'data-room="stairs"' in below
+
+
+def test_a_flights_opening_is_against_the_rooms_the_flight_is_beside():
+    # the floor above is the biggest, so it is fitted first, with the opening
+    elements = _elements(
+        _room("cellar", width_m=3.0, depth_m=3.0, beside=["stairs"]),
+        _stairs(
+            "stairs",
+            "landing",
+            width_m=1.0,
+            depth_m=3.0,
+            beside=["bedroom"],
+            open=["landing"],
+        ),
+        _room("landing", width_m=2.0, depth_m=3.0, beside=["bedroom", "living"]),
+        _room("bedroom", width_m=3.0, depth_m=3.0, beside=["living"]),
+        _room("living", width_m=5.0, depth_m=4.0),
+    )
+    floors = {"cellar": -1, "stairs": -1, "landing": 0, "bedroom": 0, "living": 0}
+    boxes, _ = _place(elements, "m", floors)
+    at = {b.area: b for b in boxes}
+
+    def apart(a, b) -> float:
+        dx = max(0.0, b.x - (a.x + a.width), a.x - (b.x + b.width))
+        dy = max(0.0, b.y - (a.y + a.depth), a.y - (b.y + b.depth))
+        return dx + dy
+
+    for other in ("bedroom", "landing"):
+        assert apart(at["stairs"], at[other]) <= INNER_WALL + 0.01, other
+
+
+def test_stairs_to_a_room_on_their_own_floor_add_no_opening_to_fit():
+    fitted: list[str] = []
+    original = layout.arrange
+
+    def arrange(floors, *args, **kwargs):
+        fitted.extend(r.key for floor in floors for r in floor.rooms)
+        return original(floors, *args, **kwargs)
+
+    elements = _elements(
+        _room("hall", width_m=4.0, depth_m=3.0),
+        _stairs("stairs", "hall", width_m=1.0, depth_m=2.0),
+    )
+    with patch.object(layout, "arrange", arrange):
+        _place(elements, "m", {"hall": 0, "stairs": 0})
+    assert sorted(fitted) == ["hall", "stairs"]

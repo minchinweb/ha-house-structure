@@ -41,7 +41,7 @@ outline's size, and the rooms go round a hole.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import math
 import random
 
@@ -93,6 +93,9 @@ W_COVER = 6.0  # footprint with no room over it (nor a hole, up to HALLS)
 FLUSH_REACH = 1.0  # m: a side this far from a line costs all of W_FLUSH
 JOG = 0.75  # m: corners of an outline this close are on one line
 HALLS = 0.4  # how much of a floor may be holes (halls no room was given)
+# what a layout of only some of a floor's rooms is not judged on: how it sits
+# over its footprint, which it cannot yet fill
+PARTIAL_LEFT_OUT = ("support", "flush", "cover")
 FILL = 0.85  # the least of a building outline's area that is floor (not walls)
 
 ASPECT = 1.8  # a room may be this much longer than wide before it costs
@@ -185,20 +188,21 @@ def _on_edge(cell: Rect, envelope: Rect) -> bool:
     return any(abs(cell[k] - envelope[k]) < TOL for k in range(4))
 
 
-def linked_across(a: Rect, b: Rect, holes: list[Rect]) -> bool:
-    """Whether two rooms both open on to one of the holes."""
+def linked_across(a: Rect, b: Rect, holes: list[Rect], tol: float = TOL) -> bool:
+    """Whether two rooms both open on to one of the holes (``tol`` apart at
+    most: a wall's thickness, for rooms measured inside)."""
     for hole in holes:
-        _, pairs = _contacts([hole, a, b])
+        _, pairs = _contacts([hole, a, b], tol)
         if (0, 1) in pairs and (0, 2) in pairs:
             return True
     return False
 
 
-def _contacts(rects: list):
+def _contacts(rects: list, tol: float = TOL):
     """Which rectangles are side by side: for each one, the stretches of its
     faces that others cover (from up to ``NEAR`` away, so a sliver of a gap
-    does not make an outside wall), and for each pair that touches, the face
-    of the first and the length they share."""
+    does not make an outside wall), and for each pair that touches (no more
+    than ``tol`` apart), the face of the first and the length they share."""
     faces = [([], [], [], []) for _ in rects]
     pairs: dict[tuple[int, int], tuple[int, float]] = {}
     for i, first in enumerate(rects):
@@ -210,10 +214,13 @@ def _contacts(rects: list):
                 continue
             bx0, by0, bx1, by1 = rects[j]
             lo, hi = max(ay0, by0), min(ay1, by1)
-            if hi - lo > 1e-6:
+            # side by side east and west only if they share more than a
+            # sliver north and south: rooms one over the other that overlap
+            # by a hair are still one over the other
+            if hi - lo > tol:
                 gap = bx0 - ax1
                 side = E
-                if gap < -TOL:
+                if gap < -tol:
                     gap, side = ax0 - bx1, W
             else:
                 lo, hi = max(ax0, bx0), min(ax1, bx1)
@@ -221,13 +228,13 @@ def _contacts(rects: list):
                     continue
                 gap = by0 - ay1
                 side = N
-                if gap < -TOL:
+                if gap < -tol:
                     gap, side = ay0 - by1, S
-            if gap < -TOL or gap > NEAR:
+            if gap < -tol or gap > NEAR:
                 continue
             faces[i][side].append((lo, hi))
             faces[j][_OPPOSITE[side]].append((lo, hi))
-            if gap < TOL:
+            if gap < tol:
                 pairs[(i, j)] = (side, hi - lo)
     return faces, pairs
 
@@ -389,6 +396,9 @@ class _Fit:
         # search starts with it low, so that a layout can pass through wrong
         # sizes on its way to a better one, and ends with it whole.
         self.stiff = 1.0
+        # Whether the layout is only part of the floor (rooms still to come),
+        # which is not yet over its footprint: see ``_build``.
+        self.partial = False
 
     # the layout a state stands for
 
@@ -678,6 +688,8 @@ class _Fit:
                 parts["flush"] += W_FLUSH * min(1.0, off / FLUSH_REACH)
         if detail is not None:
             detail.update(parts)
+        if self.partial:
+            return sum(v for k, v in parts.items() if k not in PARTIAL_LEFT_OUT)
         return sum(parts.values())
 
     # the search
@@ -916,7 +928,18 @@ class _Fit:
 
     def _build(self, start: _State) -> list[_State]:
         """Layouts built a room at a time: each room is tried in every place
-        in the layouts so far, and the best few are kept for the next."""
+        in the layouts so far, and the best few are kept for the next.
+
+        Part of a floor is not yet as big as its footprint, nor in its place
+        over it, so it is judged without the footprint (see
+        ``PARTIAL_LEFT_OUT``): by its links, outside walls and shapes."""
+        self.partial = True
+        try:
+            return self._build_beam(start)
+        finally:
+            self.partial = False
+
+    def _build_beam(self, start: _State) -> list[_State]:
         order = [_at(start.tree, path) for path in _leaves(start.tree)]
         areas = [r.size[0] * r.size[1] if r.size else r.area for r in self.rooms]
         areas += list(start.voids)
@@ -1230,6 +1253,36 @@ def _aim(floor: Floor) -> None:
         floor.voids = [spare]
 
 
+def _grown(rect: Rect, half: float, near: int | None = None) -> Rect:
+    """A rectangle ``half`` bigger all round (smaller, for ``half`` below 0).
+    A wing has no wall against its room: its side there (``near``) moves the
+    other way, so the two stay flush."""
+    out = [rect[0] - half, rect[1] - half, rect[2] + half, rect[3] + half]
+    if near is not None:
+        k = {W: 0, S: 1, E: 2, N: 3}[near]
+        out[k] += 2 * half if k < 2 else -2 * half
+    return (out[0], out[1], out[2], out[3])
+
+
+def _grown_room(room: Room, wall: float, along: str | None = None) -> Room:
+    """A room a wall bigger (half a wall each side), to be fitted against its
+    neighbours as if it were measured to the middles of its walls. A wing
+    (against its room's ``along`` face) grows only along that face."""
+    walls = tuple((f, length + wall if length > 0 else 0.0) for f, length in room.walls)
+    if room.size:
+        wide, deep = room.size
+        if along is None:
+            size = (wide + wall, deep + wall)
+        elif along in ("E", "W"):
+            size = (wide, deep + wall)
+        else:
+            size = (wide + wall, deep)
+        return replace(room, area=size[0] * size[1], size=size, walls=walls)
+    side = math.sqrt(room.area)
+    area = (side + wall) ** 2 if along is None else (side + wall) * side
+    return replace(room, area=area, walls=walls)
+
+
 def arrange(
     floors: list[Floor],
     above: list[tuple[str, str]],
@@ -1237,14 +1290,16 @@ def arrange(
     holes: dict[str, list[Rect]] | None = None,
     grid: float | None = None,
     mirror: list[tuple[str, ...]] | None = None,
+    wall: float = 0.0,
 ) -> dict[str, Rect]:
     """Fit every floor, and the floors over each other.
 
-    The biggest floor (or one with rooms already placed) is fitted first, to
-    the building outline when there is one. Each other floor, nearest first,
-    is then fitted where its rooms sit over (or under) the rooms they are
-    above, and over the first floor's footprint, its sides on the footprint's
-    where it is big enough.
+    The biggest floor is fitted first, to the building outline when there is
+    one (else a floor with rooms already placed is first). Each other floor,
+    nearest first, is then fitted where its rooms sit over (or under) the
+    rooms they are above, and over the first floor's footprint, its sides on
+    the footprint's where it is big enough. A room already placed is where
+    the building outline's south-west corner is 0, 0.
 
     Args:
         floors: The floors, lowest first. Each floor's ``stack``, ``support``
@@ -1261,10 +1316,25 @@ def arrange(
         mirror: Groups of keys that take the same rectangle, such as a flight
             of stairs and its opening on the floor above. Whichever of a group
             is placed first, the others are fixed where it is.
+        wall: How thick a wall between two rooms is, in metres. Rooms are
+            measured inside, so two rooms side by side are a wall apart: each
+            is fitted half a wall bigger all round (a wing, which has no wall
+            against its room, only along it), and comes back its own size.
 
     Returns:
         Every room's rectangle by its key, the already placed rooms included.
     """
+    half = wall / 2 if wall > 0 else 0.0
+    sizes = {r.key: r.size for floor in floors for r in floor.rooms if r.size}
+    near: dict[str, int] = {}  # each wing's side against its room
+    if half:
+        for floor in floors:
+            faces = {b: f for a, b, f in floor.links if f and floor.wings.get(b) == a}
+            near.update({k: _OPPOSITE[FACE_INDEX[f]] for k, f in faces.items()})
+            floor.rooms = [_grown_room(r, wall, faces.get(r.key)) for r in floor.rooms]
+            floor.fixed = {
+                k: _grown(r, half, near.get(k)) for k, r in floor.fixed.items()
+            }
     group_of: dict[str, tuple[str, ...]] = {}
     for group in mirror or ():
         for key in group:
@@ -1288,11 +1358,16 @@ def arrange(
         take_mirrors(floor)
     footprint: list[Rect] = []  # the first floor, for the others to line up with
     live = [i for i, floor in enumerate(floors) if floor.rooms]
-    if not live:
-        return placed
+    if not live:  # every room is placed already
+        return {k: _grown(r, -half, near.get(k)) for k, r in placed.items()}
 
     def weight(i: int) -> tuple:
-        return (bool(floors[i].fixed), sum(r.area for r in floors[i].rooms))
+        # with an outline, the biggest floor is fitted to it: rooms placed on
+        # another floor are where the outline is too
+        return (
+            bool(floors[i].fixed) and not outline,
+            sum(r.area for r in floors[i].rooms),
+        )
 
     first = max(live, key=weight)
     for i in sorted(live, key=lambda i: (i != first, abs(i - first), i)):
@@ -1311,11 +1386,14 @@ def arrange(
         ]
         if i == first:
             floor.free = pinned
-            if outline and not pinned:
+            if outline:
                 area = sum(r.area for r in floor.rooms)
+                area += sum((r[2] - r[0]) * (r[3] - r[1]) for r in floor.fixed.values())
                 cells, notches, width = outline_cells(outline, area)
                 if cells:
-                    floor.support, floor.width, floor.voids = cells, width, notches
+                    floor.support = cells
+                    if not floor.fixed:  # else its voids go round what is placed
+                        floor.width, floor.voids = width, notches
         else:
             floor.free = True
             floor.support = footprint
@@ -1328,11 +1406,16 @@ def arrange(
         placed.update(found)
         if i == first:
             footprint = [*found.values(), *floor.fixed.values(), *solver.holes]
+    if half:  # each room back to its own size
+        for key, rect in placed.items():
+            placed[key] = _grown(rect, -half, near.get(key))
+        if holes is not None:
+            for key, rects in holes.items():
+                holes[key] = [_grown(r, -half) for r in rects]
     if grid and grid > 0:
-        sized = {r.key: r.size for floor in floors for r in floor.rooms if r.size}
         loose = {r.key for floor in floors for r in floor.rooms}
         for key in loose:
-            placed[key] = _on_grid(placed[key], grid, sized.get(key))
+            placed[key] = _on_grid(placed[key], grid, sizes.get(key))
         if holes is not None:
             for key, rects in holes.items():
                 holes[key] = [_on_grid(rect, grid) for rect in rects]

@@ -46,6 +46,7 @@ from .geometry import (
     FACES,
     FEET_INCHES,
     FOOT,
+    INCH,
     OPPOSITE,
     format_size,
 )
@@ -86,6 +87,9 @@ SLAB = 0.3  # m from a ceiling to the floor above, where no floor height is type
 # what houses are built to, by the house's unit: the rooms shaped to fit are
 # a whole number of these wide and deep (inches, or centimetres)
 BUILT_TO = {FEET_INCHES: 0.0254, "ft": 0.0254, "in": 0.0254, "m": 0.01}
+# a wall between two rooms: studs and board both sides (4 1/2 in). Rooms are
+# measured inside, so the house fits them together this far apart.
+INNER_WALL = 4.5 * INCH
 EXPLODE_GAP = 1.5  # m between floors on the page when they are drawn apart
 # Rooms whose floors are less than this above a floor's lowest room share that
 # floor: a split level's half flight (3 1/2 ft, a little under half a wall)
@@ -1416,6 +1420,7 @@ def _fit_house(
         # the keys that take one rectangle: each flight with its copy on its other
         # floor, and a stacked flight with the one it stacks on
         here = {r.area_id or "" for r in members}
+        line_of = {r.area_id: k for k, line in enumerate(lines) for r in line}
         stacked = {
             low: high
             for low, high in above
@@ -1426,7 +1431,8 @@ def _fit_house(
         }
         same: list[set[str]] = []
         for area, target in reach.items():
-            if area in here and target in here:
+            # stairs "to" a room on their own floor reach no other floor
+            if area in here and target in here and line_of[area] != line_of[target]:
                 paired[area] = target
                 if area in stacked:
                     _join(same, area, stacked[area])
@@ -1488,6 +1494,19 @@ def _fit_house(
             floor.links = [
                 (a, b, faces.get((a, b))) for a, b in pairs if a in here and b in here
             ]
+            # a flight's opening on this floor is against what the flight is
+            for copy in [k for k in here if k.endswith(MIRROR)]:
+                flight = copy.removesuffix(MIRROR)
+                floor.links += [
+                    (copy, b, faces.get((a, b)))
+                    for a, b in pairs
+                    if a == flight and b in here
+                ]
+                floor.links += [
+                    (a, copy, faces.get((a, b)))
+                    for a, b in pairs
+                    if b == flight and a in here
+                ]
             # an L-shaped room's wing is against the face it names
             floor.links += [
                 (area, area + WING, face)
@@ -1502,6 +1521,7 @@ def _fit_house(
             holes,
             BUILT_TO.get(unit, BUILT_TO["m"]),
             mirror,
+            INNER_WALL,
         )
         if number and found and not any(floor.fixed for floor in plan):
             # a detached building with no position typed
@@ -1509,8 +1529,9 @@ def _fit_house(
             if side is None and gap is None and along is None:
                 # beside what is placed, to the east, south edges level
                 east = max((r[2] for r in placed.values()), default=-BUILDING_GAP)
+                south = min((r[1] for r in placed.values()), default=0.0)
                 dx = east + BUILDING_GAP - min(r[0] for r in found.values())
-                dy = -min(r[1] for r in found.values())
+                dy = south - min(r[1] for r in found.values())
                 found = {
                     k: (r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy)
                     for k, r in found.items()
@@ -1600,7 +1621,7 @@ def _fit_house(
             continue
         seen.add(_pair(a, b))
         if not _touching(by_area[a], by_area[b]) and not layout.linked_across(
-            placed[a], placed[b], holes.get(a, [])
+            placed[a], placed[b], holes.get(a, []), INNER_WALL + layout.TOL
         ):
             notes.append(
                 f"{by_area[a].title} and {by_area[b].title} are linked, but could "

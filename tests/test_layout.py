@@ -7,7 +7,9 @@ import pytest
 
 from custom_components.house_structure.layout import (
     Floor,
+    N,
     Room,
+    _contacts,
     arrange,
     cost_of,
     fit,
@@ -239,3 +241,49 @@ def test_a_mirror_takes_the_rectangle_of_its_partner_on_another_floor():
     across = min(k[2], s[2]) - max(k[0], s[0])
     up = min(k[3], s[3]) - max(k[1], s[1])
     assert across <= 1e-9 or up <= 1e-9  # the kitchen does not overlap the opening
+
+
+def test_rooms_measured_inside_are_a_wall_apart_and_keep_their_sizes():
+    floor = Floor(
+        rooms=[
+            Room("a", 12.0, (4.0, 3.0), (("W", 0.0),)),
+            Room("b", 9.0, (3.0, 3.0), (("E", 0.0),)),
+        ],
+        links=[("a", "b", "E")],
+    )
+    placed = arrange([floor], [], wall=0.1)
+    a, b = placed["a"], placed["b"]
+    assert (a[2] - a[0], a[3] - a[1]) == pytest.approx((4.0, 3.0))
+    assert (b[2] - b[0], b[3] - b[1]) == pytest.approx((3.0, 3.0))
+    assert b[0] - a[2] == pytest.approx(0.1)  # the wall between them
+
+
+def test_a_wing_has_no_wall_against_its_room():
+    floor = Floor(
+        rooms=[Room("a", 12.0, (4.0, 3.0)), Room("a#wing", 2.0, (2.0, 1.0))],
+        links=[("a", "a#wing", "N")],
+        wings={"a#wing": "a"},
+    )
+    placed = arrange([floor], [], wall=0.1)
+    a, wing = placed["a"], placed["a#wing"]
+    assert wing[1] == pytest.approx(a[3])  # flush on the room's north face
+    assert (wing[2] - wing[0], wing[3] - wing[1]) == pytest.approx((2.0, 1.0))
+
+
+def test_a_room_placed_on_another_floor_leaves_the_outline_in_use():
+    # an L: the south-east quarter of the square is missing
+    outline = [(0, 0), (5, 0), (5, 5), (10, 5), (10, 10), (0, 10)]
+    cellar = Floor(rooms=[], fixed={"cellar": (1.0, 6.0, 4.0, 9.0)})
+    ground = Floor(
+        rooms=[Room("a", 25.0), Room("b", 25.0), Room("c", 25.0)],
+        links=[("a", "b", None), ("b", "c", None)],
+    )
+    placed = arrange([cellar, ground], [], outline=outline)
+    for key in "abc":
+        _, y0, x1, _ = placed[key]
+        assert not (x1 > 5.2 and y0 < 4.8), key  # nothing in the missing quarter
+
+
+def test_rooms_one_over_the_other_that_overlap_by_a_hair_touch():
+    _, pairs = _contacts([(0.0, 0.0, 2.0, 1.01), (0.0, 1.0, 2.0, 2.0)])
+    assert pairs[(0, 1)] == (N, pytest.approx(2.0))

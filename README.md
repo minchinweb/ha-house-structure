@@ -135,8 +135,12 @@ stairs is open unless the sheet says otherwise.
 
 Stairs that reach another floor take a **stairs to** room on that floor. Their
 flight is drawn on the lower floor, and an opening where it comes up on the floor
-above, in the same place. A floor drawn alone shows only its part. Stacked stairs
-(one flight above another) line up when both flights are given the same x and y.
+above, in the same place. The opening is fitted against the rooms on that floor
+that the stairs are beside or open to, so give the stairs those links too
+(such as the hall they come up into). Stairs "to" a room on their own floor
+reach no other floor, and are an ordinary room. A floor drawn alone shows only
+its part. Stacked stairs (one flight above another) line up when both flights
+are given the same x and y.
 
 ## Parts as a sheet
 
@@ -224,9 +228,14 @@ on, over the page's own connection, so they are not served to anyone else.
 
 ### Where the rooms are drawn
 
-A room with a position typed (in the sheet below) is drawn there. The house
-needs no positions, though: the rooms without one are fitted together from
-what else is known.
+A room with a position typed (in the sheet below) is drawn there, measured
+from the south-west corner of the building outline's box. The house needs no
+positions, though: the rooms without one are fitted together from what else is
+known, and a position typed for one room still leaves the outline in use.
+
+Sizes are taken as measured inside a room, wall face to face, so rooms side
+by side are drawn a wall apart (4 1/2 inches, studs and board both sides),
+and rooms measured that way add up as the house does.
 
 - Rooms **linked beside** each other share a wall, on the face an internal
   wall names if it names one.

@@ -3,6 +3,14 @@ Changelog
 
 .. release:: unreleased
 
+  - :bug:`-` **Rooms are fitted a wall apart**: sizes are measured inside, so the house fitter now leaves a 4 1/2 inch wall between rooms side by side (and none between a room and its wing). Before, rooms measured inside could not all meet their neighbours, and the more sizes were typed, the further the layout drifted from the real house. Each room is drawn its own size.
+  - :bug:`-` **A typed position no longer turns the building outline off**: with an outline, the biggest floor is always fitted to it, and positions are measured from its south-west corner. Before, one room with a position made its own floor the one every other floor was fitted over, and the outline was not used at all.
+  - :bug:`-` **Stairs' opening on the floor above (or below) is fitted against the rooms the stairs are beside or open to**; before, it had no links there and could land anywhere, taking the flight with it. Stairs "to" a room on their own floor no longer add an extra room to fit.
+  - :bug:`-` Fitting a floor room by room judges the part built so far by its links, outside walls and shapes, not by how it covers the outline it cannot yet fill, so the first layouts are found more reliably.
+  - :bug:`-` Two rooms one above the other that overlap by a hair are still found to share a wall.
+  - :bug:`-` A detached building with no place typed lines its south end up with the house's south end (before, with the origin).
+  - :support:`-` A test fits the main floor of model house 1, from its typed sizes, links and outline, and checks each room against where it is built. It does not pass yet: the fitter meets every link, but its rooms are about 9 ft from where they are on average (before these fixes, 19 ft).
+
   - :feature:`-` **From above**: a toggle next to the House tab's turn buttons draws the room, floor, building or house straight from above, as a plan. The turn buttons choose which side is at the top (north, east, south, then west), and the walls are drawn as thick lines over the floors. With more than one floor, they are always drawn apart, one above the other up the page, so the **Together**/**Apart** choice is hidden. The drawings take ``top=1``.
   - :feature:`-` **Worked-out room sizes are footnoted**: on the Dimensions layer, a room's width or depth found from its floor area or shaped to fit (and stairs' height, from the floor heights) is marked **c**, and a ceiling height assumed because none was typed is marked **a**. A size with no letter was typed.
   - :feature:`-` **Positions** layer on the House tab (whole house, a floor or a building): a dot on the origin (the house's south-west corner, where positions are measured from), and a pin on the south-west corner of each room with a typed position, labelled with it (such as ``4 m E, 1.5 m N``). Rooms fitted to the others have no pin.
