@@ -76,7 +76,8 @@ LINK_RISE = 1.0  # m
 LINK_HEAD = 0.18  # m
 LINK_COLOUR = "#37474f"
 # the plan's connections layer (see ``_add_connections``): a line between the
-# middles of each two rooms that are linked, dashed when they are open to each other
+# middles of the floors of each two rooms that are linked, dashed when they are
+# open to each other
 CONNECTION_COLOUR = "#6a1b9a"
 CONNECTION_DASH = "6 4"
 LARGE_TEXT = 1.6  # the text scale of a single room drawn with large text
@@ -2129,7 +2130,7 @@ def _add_connections(
     """The ``connections`` and ``names`` layers of a plan.
 
     Each link a room is given (beside, above or below, or an internal wall)
-    is a line between the middles of the two rooms, half way up, dashed when
+    is a line between the middles of the two rooms' floors, dashed when
     they are open to each other; a link to a room not drawn is left out. Each
     room's name is on the middle of its floor. ``drawn`` are the rooms as drawn
     (a stairs room's first box is its flight). The names go after every other
@@ -2140,7 +2141,7 @@ def _add_connections(
         first.setdefault(box.area, box)
 
     def middle(box: Box) -> Point:
-        return (box.x + box.width / 2, box.y + box.depth / 2, box.z + box.height / 2)
+        return (box.x + box.width / 2, box.y + box.depth / 2, box.z)
 
     seen: set[str] = set()
     for area, items in neighbours(elements).items():
@@ -2371,7 +2372,8 @@ def house_svg(
     still at their places in the whole house; their registers and runs go too.
     ``large_text`` draws the labels at ``LARGE_TEXT`` times their size, as for a room.
 
-    ``level`` draws just one floor (its rooms, by ``floors``). Stairs that reach
+    ``level`` draws just one floor (its rooms, by ``floors``; with ``only``, those
+    rooms, as two floors can share a level). Stairs that reach
     it show their part of it: the flight, if it is the lower floor, else the
     opening in its upper floor. Stairs are drawn as a flight on the lower floor
     and an opening on the one above, in the same place.
@@ -2380,8 +2382,12 @@ def house_svg(
     unit = house.get("unit", "m")
     boxes, notes = _place(elements, unit, floors, rotation, outline, buildings)
     if level is not None and floors is not None:
+        # the floor's own rooms, where given: another floor can share its level
+        floor = only
 
         def on_level(area: str) -> bool:
+            if floor is not None:
+                return area in floor
             return floors.get(area) == level
 
         only = {

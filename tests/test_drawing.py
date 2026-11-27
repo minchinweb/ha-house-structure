@@ -25,6 +25,8 @@ from custom_components.house_structure.drawing import (
     OPENING_FILL,
     OPENING_GAP,
     SLAB,
+    Scene,
+    _add_connections,
     _box,
     _clear_shift,
     _door_size,
@@ -479,6 +481,21 @@ def test_only_draws_the_chosen_rooms_and_their_registers():
     assert "run " not in svg
 
 
+def test_a_floor_drawn_alone_leaves_out_another_floor_at_its_level():
+    # a garage floor at the same level as the ground floor
+    elements = _elements(
+        _room("den", width_m=4.0, depth_m=2.0, x_m=0.0, y_m=0.0),
+        _room("garage", width_m=4.0, depth_m=3.0, x_m=10.0, y_m=0.0),
+    )
+    floors = {"den": 0, "garage": 0}
+    ground = house_svg(elements, HOUSE, floors=floors, level=0, only={"den"})
+    assert "Den" in ground
+    assert "Garage" not in ground
+    garage = house_svg(elements, HOUSE, floors=floors, level=0, only={"garage"})
+    assert "Garage" in garage
+    assert "Den" not in garage
+
+
 def test_walls_on_one_face_follow_each_other_along_it():
     """Walls with no length split the face between them, and walls with lengths
     take theirs in turn; none is stacked in the corner."""
@@ -586,6 +603,19 @@ def test_the_plan_draws_its_connections_and_the_rooms_names():
     only = house_svg(elements, HOUSE, only={"hall", "den"})
     links = re.search(r'<g data-layer="connections">(.*?)</g>', only).group(1)
     assert len(re.findall(r"<polyline ", links)) == 1
+
+
+def test_a_connection_runs_between_the_middles_of_the_rooms_floors():
+    elements = _elements(
+        _room("hall", width_m=4.0, depth_m=3.0, x_m=0.0, y_m=0.0, beside=["den"]),
+        _room("den", width_m=4.0, depth_m=3.0, x_m=4.0, y_m=0.0),
+    )
+    scene = Scene()
+    boxes, _ = _place(elements, "m")
+    _add_connections(scene, boxes, elements)
+    (line,) = [run for run in scene.lines if run.layer == "connections"]
+    floors = sorted((b.x + b.width / 2, b.y + b.depth / 2, b.z) for b in boxes)
+    assert sorted(line.points) == pytest.approx(floors)
 
 
 def test_large_text_draws_the_labels_bigger():

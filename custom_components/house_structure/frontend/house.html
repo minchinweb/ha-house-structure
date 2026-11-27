@@ -218,7 +218,7 @@ function drawParts() {
   const bar = document.getElementById("parts");
   const parts = houseParts();
   bar.classList.toggle("hidden", !parts.length);
-  bar.replaceChildren(el("span", { class: "label" }, "Just"), ...parts.map((p) => {
+  bar.replaceChildren(el("span", { class: "label" }, "By Floor"), ...parts.map((p) => {
     const on = p.key === state.part;
     return chip(p.label, on, () => choose(null, on ? null : p.key), p.title);
   }));
@@ -288,7 +288,8 @@ async function loadDrawing() {
       + "Arrows point to the rooms it links to: beside, open, above or below.";
   } else if (part && part.level != null) {
     // a floor: its rooms, and the stairs that reach it (drawn by the server)
-    url = `/api/house_structure/plan.svg?level=${part.level}&view=${state.view}&text=${state.bigText ? "large" : "normal"}&v=${stamp}`;
+    // its rooms too: another floor (a garage, say) can share its level
+    url = `/api/house_structure/plan.svg?level=${part.level}&areas=${encodeURIComponent(part.areas.join(","))}&view=${state.view}&text=${state.bigText ? "large" : "normal"}&v=${stamp}`;
     box.setAttribute("aria-label", `${part.label}, from the ${VIEWS[state.view]}`);
     hint.textContent = `${part.label} alone, its rooms at their places in the house, looking from the ${VIEWS[state.view]}. `
       + "Stairs to another floor show their flight here, or their opening where they come up to this floor. "
